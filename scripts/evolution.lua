@@ -169,6 +169,22 @@ local function findEligible()
     return nil
 end
 
+local function findHolder(actor)
+    local util = palUtility()
+    if not util then return nil end
+    local holder = nil
+    pcall(function()
+        if actor:IsValid() then holder = util:GetOtomoHolderByOtomoPal(actor) end
+    end)
+    if holder and holder:IsValid() then return holder end
+    pcall(function()
+        local pc = FindFirstOf("PalPlayerController")
+        if pc and pc:IsValid() then holder = util:GetOtomoHolderComponent(pc) end
+    end)
+    if holder and holder:IsValid() then return holder end
+    return nil
+end
+
 local function performEvolution(p)
     local actor, param, pair = p.actor, p.param, p.pair
     if not (actor:IsValid() and param:IsValid()) then
@@ -187,33 +203,56 @@ local function performEvolution(p)
     -- 2) Phase 1: Aufgluehen + Verschwinden (Vanilla-Capture-Effekt), Fanfare
     playVanishGlow(actor)
     playFanfare(actor)
+    pending = nil
 
-    -- 3) Nach dem Glow: Swap committen (Animation ist rein kosmetisch, Swap zuerst
-    --    im Sinne von: bevor irgendetwas den Actor zerstoeren kann)
-    local okSwap, errSwap = pcall(function()
-        param.SaveParameter.CharacterID = FName(pair.to)
-        param.SaveParameterMirror.CharacterID = FName(pair.to)
-    end)
-    if not okSwap then
-        Log("SWAP FEHLGESCHLAGEN: " .. tostring(errSwap) .. " - Pal unveraendert")
-        setFrozen(actor, false)
-        pending = nil
-        return
-    end
-    applyIvBonus(param)
-    pcall(function() param:FullRecoveryHP() end)
-
-    Log(string.format("ENTWICKELT: %s -> %s (Level %d)%s", pair.from, pair.to, level,
-        nickname ~= "" and (" '" .. nickname .. "'") or ""))
-    Log("Neu aussummonen, um die neue Gestalt zu sehen (Phase-3-Glow kommt beim Beschwoeren)")
-
-    -- 4) Freeze wieder loesen (der Actor verschwindet durch den Capture-Effekt ohnehin)
-    ExecuteWithDelay(3000, function()
+    -- 3) Nach dem Glow: Swap committen, dann automatisch zurueckrufen + neu beschwoeren
+    ExecuteWithDelay(1500, function()
         ExecuteInGameThread(function()
-            if actor:IsValid() then setFrozen(actor, false) end
+            if not param:IsValid() then
+                Log("Entwicklung abgebrochen: Parameter ungueltig geworden")
+                return
+            end
+            local okSwap, errSwap = pcall(function()
+                param.SaveParameter.CharacterID = FName(pair.to)
+                param.SaveParameterMirror.CharacterID = FName(pair.to)
+            end)
+            if not okSwap then
+                Log("SWAP FEHLGESCHLAGEN: " .. tostring(errSwap) .. " - Pal unveraendert")
+                if actor:IsValid() then setFrozen(actor, false) end
+                return
+            end
+            applyIvBonus(param)
+            pcall(function() param:FullRecoveryHP() end)
+
+            -- 4) Phase 2+3: Rueckruf (Actor-Abbau) und Neuaufbau als neue Spezies
+            local holder = findHolder(actor)
+            if not holder then
+                Log(string.format("ENTWICKELT: %s -> %s (Level %d) - Holder nicht gefunden, bitte einmal manuell neu aussummonen",
+                    pair.from, pair.to, level))
+                return
+            end
+            pcall(function() holder:InactivateCurrentOtomo() end)
+            ExecuteWithDelay(700, function()
+                ExecuteInGameThread(function()
+                    local okSummon = false
+                    pcall(function() okSummon = holder:ActivateCurrentOtomoNearThePlayer() end)
+                    if not okSummon then
+                        pcall(function()
+                            local mgr = palUtility():GetCharacterManager(holder)
+                            local handle = mgr:GetIndividualHandleFromCharacterParameter(param)
+                            local tf = holder:GetTransform_SpawnPalNearTrainer()
+                            holder:ActivatePalByHandle(handle, tf.Translation, tf.Rotation, false)
+                            okSummon = true
+                        end)
+                    end
+                    Log(string.format("ENTWICKELT: %s -> %s (Level %d)%s%s",
+                        pair.from, pair.to, level,
+                        nickname ~= "" and (" '" .. nickname .. "'") or "",
+                        okSummon and "" or " - automatischer Resummon fehlgeschlagen, bitte manuell aussummonen"))
+                end)
+            end)
         end)
     end)
-    pending = nil
 end
 
 -- ---------------------------------------------------------------- Public API
@@ -274,7 +313,8 @@ function Evolution.init()
         end)
     end)
 
-    -- Level-Up-Benachrichtigung: meldet, sobald ein eigener Pal die Schwelle erreicht
+    -- Level-Up-Benachrichtigung: meldet EINMAL pro Pal, sobald die Schwelle erreicht ist
+    local notified = {}
     local hookRegistered = false
     local function tryHook()
         if hookRegistered then return true end
@@ -291,6 +331,9 @@ function Evolution.init()
                     -- nowLevel ist das Level VOR der Addition (live belegt)
                     local newLevel = nowLevel:get() + addLevel:get()
                     if newLevel >= pair.minLevel then
+                        local key = param:GetFullName()
+                        if notified[key] then return end
+                        notified[key] = true
                         playFanfare(actor)
                         Log(string.format("%s hat Level %d erreicht und kann sich zu %s entwickeln! (%s druecken)",
                             id, newLevel, pair.to, Config.confirmKey))
