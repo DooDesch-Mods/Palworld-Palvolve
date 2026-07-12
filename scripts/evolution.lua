@@ -260,7 +260,25 @@ end
 function Evolution.check()
     local actor, param, pair, level = findEligible()
     if not actor then
-        if not pending then Log("Kein entwickelbarer eigener Pal aussummont") end
+        if not pending then
+            -- Diagnose: was sieht der Check gerade?
+            local seen = {}
+            for _, a in ipairs(ownedSummonedPals()) do
+                local prm = paramOf(a)
+                if prm then
+                    local lvl = 0
+                    pcall(function() lvl = prm:GetLevel() end)
+                    table.insert(seen, string.format("%s Lv%d%s",
+                        prm:GetCharacterID():ToString(), lvl,
+                        isOwned(prm) and "" or " (nicht eigen)"))
+                end
+            end
+            if #seen == 0 then
+                Log("Kein entwickelbarer eigener Pal aussummont (kein eigener Pal in der Welt gefunden)")
+            else
+                Log("Kein entwickelbarer eigener Pal aussummont - gesehen: " .. table.concat(seen, ", "))
+            end
+        end
         return
     end
     local now = os.clock()
