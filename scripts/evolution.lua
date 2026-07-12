@@ -385,25 +385,28 @@ local function performEvolution(p)
             return cls:find(expectedClass, 1, true) ~= nil
         end
 
-        -- ActivateCurrentOtomoNearThePlayer ist der live bewiesene Weg nach dem
-        -- Teardown (baut den Actor frisch mit neuer Klasse); die anderen bleiben
-        -- als Fallbacks. ActivatePalByHandle/SpawnOtomoByLoad spawnen nach einem
-        -- DespawnCharacterByHandle nachweislich NICHTS.
+        -- ActivateCurrentOtomoNearThePlayer funktioniert zuverlaessig, aber erst
+        -- nachdem der Teardown gesettelt ist (live belegt: Aufruf 4 s nach Teardown
+        -- -> sofortiger Spawn; Aufruf direkt danach -> nichts, und keiner der
+        -- anderen Wege spawnt je). Deshalb: Settle-Pause, dann aktivieren, mit Retry.
         local activateStrategies = {
-            { name = "ActivateCurrentOtomoNearThePlayer", fn = function()
+            { name = "ActivateCurrentOtomoNearThePlayer", timeoutMs = 2500, fn = function()
                 holder:ActivateCurrentOtomoNearThePlayer()
             end },
-            { name = "ActivatePalByHandle@Ort", fn = function()
+            { name = "ActivateCurrentOtomoNearThePlayer#2", timeoutMs = 2500, fn = function()
+                holder:ActivateCurrentOtomoNearThePlayer()
+            end },
+            { name = "SpawnOtomoByLoad", timeoutMs = 3000, fn = function()
+                local idx = holder:GetSlotIndexByIndividualHandle(handle)
+                holder:SpawnOtomoByLoad(idx)
+            end },
+            { name = "ActivatePalByHandle@Ort", timeoutMs = 2000, fn = function()
                 local loc, rot = oldLoc, oldRot
                 if not loc then
                     local tf = holder:GetTransform_SpawnPalNearTrainer()
                     loc, rot = tf.Translation, tf.Rotation
                 end
                 holder:ActivatePalByHandle(handle, loc, rot, false)
-            end },
-            { name = "SpawnOtomoByLoad", fn = function()
-                local idx = holder:GetSlotIndexByIndividualHandle(handle)
-                holder:SpawnOtomoByLoad(idx)
             end },
         }
 
@@ -438,7 +441,7 @@ local function performEvolution(p)
             local okCall, errCall = pcall(strat.fn)
             Log(string.format("Aktivierungs-Versuch '%s' call=%s%s", strat.name, tostring(okCall),
                 okCall and "" or (" err=" .. tostring(errCall))))
-            pollUntil(200, 2000, isRespawned, function(spawned)
+            pollUntil(200, strat.timeoutMs or 2000, isRespawned, function(spawned)
                 if spawned then
                     finishRespawn(true)
                 else
@@ -447,7 +450,12 @@ local function performEvolution(p)
             end)
         end
 
-        tryActivate(1)
+        -- Settle-Pause: dem Actor-Teardown Zeit geben, bevor aktiviert wird
+        ExecuteWithDelay(1200, function()
+            ExecuteInGameThread(function()
+                tryActivate(1)
+            end)
+        end)
     end
 
     tryRecall(1)
