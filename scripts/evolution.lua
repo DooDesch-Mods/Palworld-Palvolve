@@ -206,6 +206,8 @@ end
 
 -- pending = { actor, param, pair, armedAt, key }
 local pending = nil
+-- Globaler Sequenz-Lock: nie zwei Evolutionen parallel
+local sequenceRunning = false
 
 -- Der Spieler kann nur 1 eigenen Pal gleichzeitig beschwoeren -> die autoritative
 -- Quelle ist der Otomo-Holder, nicht ein FindAllOf-Scan (der auch Geister-Actor traefe).
@@ -234,29 +236,42 @@ end
 local function performEvolution(p)
     local actor, param, pair, holder = p.actor, p.param, p.pair, p.holder
     pending = nil
+    sequenceRunning = true
+    local function finish()
+        sequenceRunning = false
+    end
     if not (actor:IsValid() and param:IsValid() and holder and holder:IsValid()) then
         Log("Entwicklung abgebrochen: Pal/Holder nicht mehr gueltig")
+        finish()
         return
     end
 
     local mgr = findManager(actor)
     if not mgr then
         Log("Entwicklung abgebrochen: PalCharacterManager nicht gefunden")
+        finish()
         return
     end
     local handle = nil
     pcall(function() handle = mgr:GetIndividualHandleFromCharacterParameter(param) end)
     if not (handle and handle:IsValid()) then
         Log("Entwicklung abgebrochen: Individual-Handle nicht ermittelbar")
+        finish()
         return
     end
 
-    -- Ausgangszustand festhalten (Diagnose + Snapshot-Daten)
+    -- Ausgangszustand festhalten (Diagnose + Snapshot-Daten + Position fuer
+    -- die Entwicklung VOR ORT)
     local level, nickname = 0, ""
     pcall(function() level = param:GetLevel() end)
     pcall(function() nickname = param.SaveParameter.NickName and param.SaveParameter.NickName:ToString() or "" end)
     local key = individualKey(param)
     local talentsBefore = readTalents(param)
+    local oldLoc, oldRot = nil, nil
+    pcall(function()
+        oldLoc = actor:K2_GetActorLocation()
+        oldRot = actor:K2_GetActorRotation()
+    end)
     Log(string.format("Sequenz-Start: %s Lv%d key=%s", pair.from, level, key))
 
     -- Phase 1: Einfrieren + Rueckruf-Optik
@@ -267,13 +282,15 @@ local function performEvolution(p)
     -- Phase 2: Rueckruf mit Eskalationskette, jede Stufe mit Despawn-Verifikation.
     -- PreProcess allein baut den Actor NICHT ab (live belegt); da die Eligibility den
     -- echten Current Otomo liefert, sind die Current-Funktionen hier zielsicher.
+    -- InactivateCurrentOtomo ist der live bewiesene Weg (Eligibility garantiert,
+    -- dass der Ziel-Pal der Current Otomo ist); die anderen bleiben als Fallbacks.
     local recallStrategies = {
+        { name = "InactivateCurrentOtomo", fn = function()
+            holder:InactivateCurrentOtomo()
+        end },
         { name = "PreProcess+Complete", fn = function()
             holder:InactiveOtomoByHandle_PreProcess(handle)
             holder:CompleteInactiveCurrentOtomo()
-        end },
-        { name = "InactivateCurrentOtomo", fn = function()
-            holder:InactivateCurrentOtomo()
         end },
         { name = "PlayerController:InactiveOtomo", fn = function()
             local pc = FindFirstOf("PalPlayerController")
@@ -296,6 +313,7 @@ local function performEvolution(p)
         if i > #recallStrategies then
             Log("Rueckruf nicht bestaetigt (alle Strategien erschoepft) - breche OHNE Swap ab")
             if actor:IsValid() then setFrozen(actor, false) end
+            finish()
             return
         end
         local strat = recallStrategies[i]
@@ -316,6 +334,7 @@ local function performEvolution(p)
         -- Phase 3: Swap im despawnten Zustand (sicherster Schreibmoment) + verifizieren
         if not param:IsValid() then
             Log("Abbruch: Parameter nach Despawn ungueltig")
+            finish()
             return
         end
         local okSwap, errSwap = pcall(function()
@@ -327,6 +346,7 @@ local function performEvolution(p)
         if not okSwap or idNow ~= pair.to then
             Log(string.format("SWAP FEHLGESCHLAGEN (err=%s, id=%s) - kein Respawn-Versuch",
                 tostring(errSwap), idNow))
+            finish()
             return
         end
         applyIvBonus(param)
@@ -340,39 +360,61 @@ local function performEvolution(p)
         })
         saveSnapshots()
 
-        -- Phase 4: gezielt DIESEN Handle wieder aktivieren
+        -- Phase 4: Actor-Neuaufbau ERZWINGEN. Palworld poolt Pal-Actor - der Holder
+        -- reaktiviert sonst denselben (alten) Koerper (live belegt: Pengullet-Modell
+        -- trotz CaptainPenguin-Daten). Also: gepoolten Actor zerstoeren, dann an der
+        -- ALTEN Position neu aktivieren (Entwicklung vor Ort).
+        local okDespawn, errDespawn = pcall(function()
+            mgr:DespawnCharacterByHandle(handle, nil)
+        end)
+        if not okDespawn then
+            okDespawn = pcall(function() mgr:DespawnCharacterByHandle(handle) end)
+        end
+        Log(string.format("Actor-Teardown (DespawnCharacterByHandle) ok=%s%s",
+            tostring(okDespawn), okDespawn and "" or (" err=" .. tostring(errDespawn))))
+
         local okAct, errAct = pcall(function()
-            local tf = holder:GetTransform_SpawnPalNearTrainer()
-            holder:ActivatePalByHandle(handle, tf.Translation, tf.Rotation, false)
+            local loc, rot = oldLoc, oldRot
+            if not loc then
+                local tf = holder:GetTransform_SpawnPalNearTrainer()
+                loc, rot = tf.Translation, tf.Rotation
+            end
+            holder:ActivatePalByHandle(handle, loc, rot, false)
         end)
         if not okAct then
             Log("ActivatePalByHandle Fehler: " .. tostring(errAct) .. " - Fallback CurrentOtomo")
             pcall(function() holder:ActivateCurrentOtomoNearThePlayer() end)
         end
 
-        -- Phase 5: Respawn VERIFIZIEREN statt annehmen (Holder-Sicht + Spezies-Check)
+        -- Phase 5: Respawn VERIFIZIEREN - Daten UND Actor-Klasse muessen stimmen
+        local expectedClass = "BP_" .. pair.to .. "_C"
         pollUntil(200, 4000, function()
             local a = nil
             pcall(function() a = holder:TryGetSpawnedOtomo() end)
             if not (a and a:IsValid()) then return false end
-            local id = ""
-            pcall(function() id = paramOf(a) and paramOf(a):GetCharacterID():ToString() or "" end)
-            return id == pair.to
+            local cls = ""
+            pcall(function() cls = a:GetClass():GetFullName() end)
+            return cls:find(expectedClass, 1, true) ~= nil
         end, function(spawned)
+            local newActor = nil
+            pcall(function() newActor = holder:TryGetSpawnedOtomo() end)
+            if newActor and newActor:IsValid() then
+                setFrozen(newActor, false)
+            end
             if spawned then
-                local newActor = nil
-                pcall(function() newActor = holder:TryGetSpawnedOtomo() end)
-                if newActor and newActor:IsValid() then
-                    setFrozen(newActor, false)
-                end
                 playFanfare(newActor or actor)
-                Log(string.format("ENTWICKELT: %s -> %s (Level %d)%s - Respawn OK",
+                Log(string.format("ENTWICKELT: %s -> %s (Level %d)%s - Respawn mit neuem Modell OK",
                     pair.from, pair.to, level,
                     nickname ~= "" and (" '" .. nickname .. "'") or ""))
             else
-                Log(string.format("ENTWICKELT: %s -> %s (Level %d) - Swap OK, aber Respawn NICHT bestaetigt; bitte einmal manuell aussummonen",
-                    pair.from, pair.to, level))
+                local cls = ""
+                pcall(function()
+                    if newActor and newActor:IsValid() then cls = newActor:GetClass():GetFullName() end
+                end)
+                Log(string.format("ENTWICKELT (Daten): %s -> %s (Level %d) - aber Actor-Klasse '%s' statt %s; Palbox-Roundtrip zeigt das neue Modell",
+                    pair.from, pair.to, level, cls, expectedClass))
             end
+            finish()
         end)
     end
 
@@ -382,6 +424,10 @@ end
 -- ---------------------------------------------------------------- Public API
 
 function Evolution.check()
+    if sequenceRunning then
+        Log("Eine Entwicklung laeuft bereits - bitte warten")
+        return
+    end
     local actor, param, pair, level, holder = findEligible()
     if not actor then
         if not pending then
