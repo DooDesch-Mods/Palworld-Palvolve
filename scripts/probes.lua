@@ -200,27 +200,39 @@ local REVERT_PAIRS = {
     { from = "MopKing", to = "MopBaby" },         -- Sweepa -> Swee
     { from = "Yeti", to = "MopKing" },            -- Wumpo -> Sweepa
 }
+-- Befund: OwnerPlayerUId.A war auch beim eigenen Penking 0 (oder nicht lesbar) ->
+-- Revert nimmt vorerst ALLE Kandidaten und loggt den rohen Owner-Guid zur Diagnose.
+local function ownerGuidString(p)
+    local s = "unlesbar"
+    pcall(function()
+        local g = p.SaveParameter.OwnerPlayerUId
+        s = string.format("%08X-%08X-%08X-%08X", g.A, g.B, g.C, g.D)
+    end)
+    return s
+end
+
 RegisterKeyBind(Key.F3, Debounced("revert", function()
     ExecuteInGameThread(function()
         local suc, e = pcall(function()
             local all = FindAllOf("PalIndividualCharacterParameter") or {}
             local count = 0
             for _, p in ipairs(all) do
-                if p:IsValid() and p.SaveParameter.OwnerPlayerUId.A ~= 0 then
+                if p:IsValid() then
                     local id = p:GetCharacterID():ToString()
                     for _, pair in ipairs(REVERT_PAIRS) do
                         if id == pair.from then
                             p.SaveParameter.CharacterID = FName(pair.to)
                             p.SaveParameterMirror.CharacterID = FName(pair.to)
                             count = count + 1
-                            Log(string.format("[probe-revert] eigener %s -> %s", pair.from, pair.to))
+                            Log(string.format("[probe-revert] %s -> %s (OwnerGuid %s)",
+                                pair.from, pair.to, ownerGuidString(p)))
                             break
                         end
                     end
                 end
             end
             if count == 0 then
-                Log("[probe-revert] keine eigenen Rueckverwandlungs-Kandidaten gefunden")
+                Log("[probe-revert] keine Rueckverwandlungs-Kandidaten gefunden")
             else
                 Log(string.format("[probe-revert] %d Pal(s) zurueckverwandelt - ein-/aussummonen fuer das Modell", count))
             end
