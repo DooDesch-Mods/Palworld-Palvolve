@@ -1,6 +1,9 @@
 -- Palvolve-Kern: Eligibility, zweistufiger Confirm, transaktionaler Spezies-Swap,
--- Snapshot/Rollback, IV-Bonus und die Evolutions-Sequenz aus Vanilla-Effekten.
--- Alle Spiel-API-Aufrufe sind live verifiziert (Workspace/docs/Palvolve/RESEARCH.md).
+-- Snapshot/Rollback, IV-Bonus und die Evolutions-Sequenz.
+-- API-Fakten: Workspace/docs/Palvolve/RESEARCH.md. Sequenz-Design nach Codex-Review:
+-- handle-gezielter Rueckruf (InactiveOtomoByHandle_PreProcess) + Aktivierung
+-- (ActivatePalByHandle) statt der Current-Otomo-Funktionen, Swap erst nach
+-- BESTAETIGTEM Despawn, Respawn wird verifiziert statt angenommen.
 
 local Config = require("config")
 
@@ -32,23 +35,15 @@ local function isOwned(param)
     return owned
 end
 
--- Eigener, aktuell gespawnter Pal-Actor (Otomo bevorzugt)
-local function ownedSummonedPals()
-    local result = {}
-    local util = palUtility()
-    local all = FindAllOf("BP_MonsterBase_C") or {}
-    for _, pal in ipairs(all) do
-        if pal:IsValid() then
-            local isOtomo = false
-            if util then
-                pcall(function() isOtomo = util:IsPlayersOtomo(pal) end)
-            end
-            if isOtomo then
-                table.insert(result, pal)
-            end
-        end
-    end
-    return result
+local function guidString(g)
+    return string.format("%08X-%08X-%08X-%08X", g.A, g.B, g.C, g.D)
+end
+
+local function individualKey(param)
+    local key = ""
+    pcall(function() key = guidString(param.IndividualId.InstanceId) end)
+    if key == "" then pcall(function() key = param:GetFullName() end) end
+    return key
 end
 
 local function paramOf(palActor)
@@ -57,6 +52,36 @@ local function paramOf(palActor)
         param = palActor.CharacterParameterComponent:GetIndividualParameter()
     end)
     if param and param:IsValid() then return param end
+    return nil
+end
+
+local function findHolder(actor)
+    local util = palUtility()
+    if not util then return nil end
+    local holder = nil
+    if actor then
+        pcall(function()
+            if actor:IsValid() then holder = util:GetOtomoHolderByOtomoPal(actor) end
+        end)
+        if holder and holder:IsValid() then return holder end
+    end
+    pcall(function()
+        local pc = FindFirstOf("PalPlayerController")
+        if pc and pc:IsValid() then holder = util:GetOtomoHolderComponent(pc) end
+    end)
+    if holder and holder:IsValid() then return holder end
+    return nil
+end
+
+local function findManager(ctx)
+    local mgr = nil
+    pcall(function()
+        local util = palUtility()
+        if util then mgr = util:GetCharacterManager(ctx) end
+    end)
+    if mgr and mgr:IsValid() then return mgr end
+    pcall(function() mgr = FindFirstOf("PalCharacterManager") end)
+    if mgr and mgr:IsValid() then return mgr end
     return nil
 end
 
@@ -82,8 +107,9 @@ local function saveSnapshots()
         f:write("return {\n")
         for _, s in ipairs(snapshots) do
             f:write(string.format(
-                "  { from = %q, to = %q, level = %d, nickname = %q, stage = %d },\n",
-                s.from, s.to, s.level, s.nickname or "", s.stage or 1))
+                "  { key = %q, from = %q, to = %q, level = %d, nickname = %q, ivHP = %d, ivMelee = %d, ivShot = %d, ivDefense = %d },\n",
+                s.key or "", s.from, s.to, s.level, s.nickname or "",
+                s.ivHP or -1, s.ivMelee or -1, s.ivShot or -1, s.ivDefense or -1))
         end
         f:write("}\n")
         f:close()
@@ -103,12 +129,10 @@ local function playFanfare(actor)
     end)
 end
 
-local function playVanishGlow(palActor)
-    -- CaptureEmissive (ID 1): Aufgluehen + Verschwinden = Phase 1 der Evolution
-    local ok = pcall(function()
-        palActor.VisualEffectComponent:AddVisualEffect(1, { FloatValues = {} })
+local function playEffect(actor, effectId)
+    pcall(function()
+        actor.VisualEffectComponent:AddVisualEffect(effectId, { FloatValues = {} })
     end)
-    return ok
 end
 
 local function setFrozen(palActor, frozen)
@@ -125,6 +149,16 @@ end
 -- ---------------------------------------------------------------- IV-Bonus
 
 local TALENT_FIELDS = { "Talent_HP", "Talent_Melee", "Talent_Shot", "Talent_Defense" }
+
+local function readTalents(param)
+    local t = {}
+    for _, field in ipairs(TALENT_FIELDS) do
+        local v = -1
+        pcall(function() v = param.SaveParameter[field] end)
+        t[field] = v
+    end
+    return t
+end
 
 local function applyIvBonus(param)
     local applied = {}
@@ -143,114 +177,175 @@ local function applyIvBonus(param)
     if #applied > 0 then Log("IV-Bonus: " .. table.concat(applied, ", ")) end
 end
 
--- ---------------------------------------------------------------- Kern-Sequenz
+-- ---------------------------------------------------------------- Polling-Helfer
 
--- pending = { actor, param, pair, armedAt }
-local pending = nil
-
-local function findEligible()
-    for _, actor in ipairs(ownedSummonedPals()) do
-        local param = paramOf(actor)
-        if param and isOwned(param) then
-            local id = param:GetCharacterID():ToString()
-            local pair = Config.findPair(id)
-            if pair then
-                local level = 0
-                pcall(function() level = param:GetLevel() end)
-                if level >= pair.minLevel then
-                    return actor, param, pair, level
-                else
-                    Log(string.format("%s braucht Level %d fuer die Entwicklung (aktuell %d)",
-                        id, pair.minLevel, level))
-                end
+-- Prueft checkFn (Game-Thread) alle intervalMs, bis true oder timeoutMs erreicht;
+-- ruft doneFn(success) genau einmal im Game-Thread auf.
+local function pollUntil(intervalMs, timeoutMs, checkFn, doneFn)
+    local elapsed = 0
+    local finished = false
+    LoopAsync(intervalMs, function()
+        if finished then return true end
+        elapsed = elapsed + intervalMs
+        ExecuteInGameThread(function()
+            if finished then return end
+            local ok, res = pcall(checkFn)
+            if ok and res then
+                finished = true
+                doneFn(true)
+            elseif elapsed >= timeoutMs then
+                finished = true
+                doneFn(false)
             end
-        end
-    end
-    return nil
+        end)
+        return finished
+    end)
 end
 
-local function findHolder(actor)
-    local util = palUtility()
-    if not util then return nil end
-    local holder = nil
-    pcall(function()
-        if actor:IsValid() then holder = util:GetOtomoHolderByOtomoPal(actor) end
-    end)
-    if holder and holder:IsValid() then return holder end
-    pcall(function()
-        local pc = FindFirstOf("PalPlayerController")
-        if pc and pc:IsValid() then holder = util:GetOtomoHolderComponent(pc) end
-    end)
-    if holder and holder:IsValid() then return holder end
-    return nil
+-- ---------------------------------------------------------------- Kern-Sequenz
+
+-- pending = { actor, param, pair, armedAt, key }
+local pending = nil
+
+-- Der Spieler kann nur 1 eigenen Pal gleichzeitig beschwoeren -> die autoritative
+-- Quelle ist der Otomo-Holder, nicht ein FindAllOf-Scan (der auch Geister-Actor traefe).
+local function findEligible()
+    local holder = findHolder(nil)
+    if not holder then return nil end
+    local actor = nil
+    pcall(function() actor = holder:TryGetSpawnedOtomo() end)
+    if not (actor and actor:IsValid()) then return nil end
+    local param = paramOf(actor)
+    if not (param and isOwned(param)) then return nil end
+    local id = param:GetCharacterID():ToString()
+    local pair = Config.findPair(id)
+    if not pair then
+        return nil, string.format("%s hat keine Entwicklung", id)
+    end
+    local level = 0
+    pcall(function() level = param:GetLevel() end)
+    if level < pair.minLevel then
+        return nil, string.format("%s braucht Level %d fuer die Entwicklung (aktuell %d)",
+            id, pair.minLevel, level)
+    end
+    return actor, param, pair, level, holder
 end
 
 local function performEvolution(p)
-    local actor, param, pair = p.actor, p.param, p.pair
-    if not (actor:IsValid() and param:IsValid()) then
-        Log("Entwicklung abgebrochen: Pal nicht mehr gueltig")
+    local actor, param, pair, holder = p.actor, p.param, p.pair, p.holder
+    pending = nil
+    if not (actor:IsValid() and param:IsValid() and holder and holder:IsValid()) then
+        Log("Entwicklung abgebrochen: Pal/Holder nicht mehr gueltig")
         return
     end
 
-    -- 1) Einfrieren + Snapshot VOR jeder Mutation
-    setFrozen(actor, true)
+    local mgr = findManager(actor)
+    if not mgr then
+        Log("Entwicklung abgebrochen: PalCharacterManager nicht gefunden")
+        return
+    end
+    local handle = nil
+    pcall(function() handle = mgr:GetIndividualHandleFromCharacterParameter(param) end)
+    if not (handle and handle:IsValid()) then
+        Log("Entwicklung abgebrochen: Individual-Handle nicht ermittelbar")
+        return
+    end
+
+    -- Ausgangszustand festhalten (Diagnose + Snapshot-Daten)
     local level, nickname = 0, ""
     pcall(function() level = param:GetLevel() end)
     pcall(function() nickname = param.SaveParameter.NickName and param.SaveParameter.NickName:ToString() or "" end)
-    table.insert(snapshots, { from = pair.from, to = pair.to, level = level, nickname = nickname, stage = 1 })
-    saveSnapshots()
+    local key = individualKey(param)
+    local talentsBefore = readTalents(param)
+    Log(string.format("Sequenz-Start: %s Lv%d key=%s", pair.from, level, key))
 
-    -- 2) Phase 1: Aufgluehen + Verschwinden (Vanilla-Capture-Effekt), Fanfare
-    playVanishGlow(actor)
+    -- Phase 1: Einfrieren + Rueckruf-Optik + gezielter Rueckruf per Handle
+    setFrozen(actor, true)
+    playEffect(actor, 3)  -- ReturnToBallEmissive: die echte Einzieh-Optik
     playFanfare(actor)
-    pending = nil
 
-    -- 3) Nach dem Glow: Swap committen, dann automatisch zurueckrufen + neu beschwoeren
-    ExecuteWithDelay(1500, function()
-        ExecuteInGameThread(function()
-            if not param:IsValid() then
-                Log("Entwicklung abgebrochen: Parameter ungueltig geworden")
-                return
-            end
-            local okSwap, errSwap = pcall(function()
-                param.SaveParameter.CharacterID = FName(pair.to)
-                param.SaveParameterMirror.CharacterID = FName(pair.to)
-            end)
-            if not okSwap then
-                Log("SWAP FEHLGESCHLAGEN: " .. tostring(errSwap) .. " - Pal unveraendert")
-                if actor:IsValid() then setFrozen(actor, false) end
-                return
-            end
-            applyIvBonus(param)
-            pcall(function() param:FullRecoveryHP() end)
+    local okInactive, errInactive = pcall(function()
+        holder:InactiveOtomoByHandle_PreProcess(handle)
+    end)
+    if not okInactive then
+        Log("Rueckruf fehlgeschlagen: " .. tostring(errInactive) .. " - Pal unveraendert")
+        if actor:IsValid() then setFrozen(actor, false) end
+        return
+    end
 
-            -- 4) Phase 2+3: Rueckruf (Actor-Abbau) und Neuaufbau als neue Spezies
-            local holder = findHolder(actor)
-            if not holder then
-                Log(string.format("ENTWICKELT: %s -> %s (Level %d) - Holder nicht gefunden, bitte einmal manuell neu aussummonen",
+    -- Phase 2: Warten bis der Actor BESTAETIGT abgebaut ist (kein fixer Delay)
+    pollUntil(200, 4000, function()
+        if not actor:IsValid() then return true end
+        local gone = false
+        pcall(function()
+            local a = handle:TryGetIndividualActor()
+            gone = not (a and a:IsValid())
+        end)
+        return gone
+    end, function(despawned)
+        if not despawned then
+            Log("Rueckruf nicht bestaetigt (Actor lebt noch) - breche OHNE Swap ab")
+            if actor:IsValid() then setFrozen(actor, false) end
+            return
+        end
+
+        -- Phase 3: Swap im despawnten Zustand (sicherster Schreibmoment) + verifizieren
+        if not param:IsValid() then
+            Log("Abbruch: Parameter nach Despawn ungueltig")
+            return
+        end
+        local okSwap, errSwap = pcall(function()
+            param.SaveParameter.CharacterID = FName(pair.to)
+            param.SaveParameterMirror.CharacterID = FName(pair.to)
+        end)
+        local idNow = ""
+        pcall(function() idNow = param:GetCharacterID():ToString() end)
+        if not okSwap or idNow ~= pair.to then
+            Log(string.format("SWAP FEHLGESCHLAGEN (err=%s, id=%s) - kein Respawn-Versuch",
+                tostring(errSwap), idNow))
+            return
+        end
+        applyIvBonus(param)
+        pcall(function() param:FullRecoveryHP() end)
+
+        -- Snapshot erst NACH erfolgreichem Swap (kein Phantom-Rollback-Eintrag)
+        table.insert(snapshots, {
+            key = key, from = pair.from, to = pair.to, level = level, nickname = nickname,
+            ivHP = talentsBefore.Talent_HP, ivMelee = talentsBefore.Talent_Melee,
+            ivShot = talentsBefore.Talent_Shot, ivDefense = talentsBefore.Talent_Defense,
+        })
+        saveSnapshots()
+
+        -- Phase 4: gezielt DIESEN Handle wieder aktivieren
+        local okAct, errAct = pcall(function()
+            local tf = holder:GetTransform_SpawnPalNearTrainer()
+            holder:ActivatePalByHandle(handle, tf.Translation, tf.Rotation, false)
+        end)
+        if not okAct then
+            Log("ActivatePalByHandle Fehler: " .. tostring(errAct) .. " - Fallback CurrentOtomo")
+            pcall(function() holder:ActivateCurrentOtomoNearThePlayer() end)
+        end
+
+        -- Phase 5: Respawn VERIFIZIEREN statt annehmen
+        pollUntil(200, 4000, function()
+            local a = nil
+            pcall(function() a = handle:TryGetIndividualActor() end)
+            return a and a:IsValid()
+        end, function(spawned)
+            if spawned then
+                local newActor = nil
+                pcall(function() newActor = handle:TryGetIndividualActor() end)
+                if newActor and newActor:IsValid() then
+                    setFrozen(newActor, false)
+                end
+                playFanfare(newActor or actor)
+                Log(string.format("ENTWICKELT: %s -> %s (Level %d)%s - Respawn OK",
+                    pair.from, pair.to, level,
+                    nickname ~= "" and (" '" .. nickname .. "'") or ""))
+            else
+                Log(string.format("ENTWICKELT: %s -> %s (Level %d) - Swap OK, aber Respawn NICHT bestaetigt; bitte einmal manuell aussummonen",
                     pair.from, pair.to, level))
-                return
             end
-            pcall(function() holder:InactivateCurrentOtomo() end)
-            ExecuteWithDelay(700, function()
-                ExecuteInGameThread(function()
-                    local okSummon = false
-                    pcall(function() okSummon = holder:ActivateCurrentOtomoNearThePlayer() end)
-                    if not okSummon then
-                        pcall(function()
-                            local mgr = palUtility():GetCharacterManager(holder)
-                            local handle = mgr:GetIndividualHandleFromCharacterParameter(param)
-                            local tf = holder:GetTransform_SpawnPalNearTrainer()
-                            holder:ActivatePalByHandle(handle, tf.Translation, tf.Rotation, false)
-                            okSummon = true
-                        end)
-                    end
-                    Log(string.format("ENTWICKELT: %s -> %s (Level %d)%s%s",
-                        pair.from, pair.to, level,
-                        nickname ~= "" and (" '" .. nickname .. "'") or "",
-                        okSummon and "" or " - automatischer Resummon fehlgeschlagen, bitte manuell aussummonen"))
-                end)
-            end)
         end)
     end)
 end
@@ -258,37 +353,15 @@ end
 -- ---------------------------------------------------------------- Public API
 
 function Evolution.check()
-    local actor, param, pair, level = findEligible()
+    local actor, param, pair, level, holder = findEligible()
     if not actor then
         if not pending then
-            -- Diagnose: was sieht der Check gerade?
-            local seen = {}
-            for _, a in ipairs(ownedSummonedPals()) do
-                local prm = paramOf(a)
-                if prm then
-                    local lvl = 0
-                    pcall(function() lvl = prm:GetLevel() end)
-                    table.insert(seen, string.format("%s Lv%d%s",
-                        prm:GetCharacterID():ToString(), lvl,
-                        isOwned(prm) and "" or " (nicht eigen)"))
-                end
-            end
-            if #seen == 0 then
-                Log("Kein entwickelbarer eigener Pal aussummont (kein eigener Pal in der Welt gefunden)")
-            else
-                Log("Kein entwickelbarer eigener Pal aussummont - gesehen: " .. table.concat(seen, ", "))
-            end
+            Log(param or "Kein eigener Pal aussummont")
         end
         return
     end
     local now = os.clock()
-    -- Stabile Identitaet: Instanz-Guid des Individuums (Objektnamen sind nicht verlaesslich)
-    local key = ""
-    pcall(function()
-        local g = param.IndividualId.InstanceId
-        key = string.format("%08X-%08X-%08X-%08X", g.A, g.B, g.C, g.D)
-    end)
-    if key == "" then pcall(function() key = param:GetFullName() end) end
+    local key = individualKey(param)
     if pending and (now - pending.armedAt) <= Config.confirmWindowSeconds then
         if pending.key == key then
             performEvolution(pending)
@@ -297,7 +370,7 @@ function Evolution.check()
             Log(string.format("Confirm-Ziel gewechselt (vorher %s, jetzt %s) - neu armiert", pending.key, key))
         end
     end
-    pending = { actor = actor, param = param, pair = pair, armedAt = now, key = key }
+    pending = { actor = actor, param = param, pair = pair, holder = holder, armedAt = now, key = key }
     playFanfare(actor)
     Log(string.format("%s (Lv %d) kann sich zu %s entwickeln - %s erneut druecken zum Bestaetigen (%ds)",
         pair.from, level, pair.to, Config.confirmKey, Config.confirmWindowSeconds))
@@ -309,21 +382,44 @@ function Evolution.rollbackLast()
         Log("Rollback: kein Snapshot vorhanden")
         return
     end
-    local count = 0
+    local reverted = false
     local all = FindAllOf("PalIndividualCharacterParameter") or {}
-    for _, p in ipairs(all) do
-        if p:IsValid() and isOwned(p) and p:GetCharacterID():ToString() == last.to then
-            pcall(function()
-                p.SaveParameter.CharacterID = FName(last.from)
-                p.SaveParameterMirror.CharacterID = FName(last.from)
-            end)
-            count = count + 1
-            break
+    -- Erst gezielt ueber den Individual-Key, dann Fallback ueber Spezies
+    for pass = 1, 2 do
+        for _, p in ipairs(all) do
+            if p:IsValid() and isOwned(p) and p:GetCharacterID():ToString() == last.to then
+                local match = (pass == 2)
+                if pass == 1 and last.key and last.key ~= "" then
+                    match = (individualKey(p) == last.key)
+                end
+                if match then
+                    pcall(function()
+                        p.SaveParameter.CharacterID = FName(last.from)
+                        p.SaveParameterMirror.CharacterID = FName(last.from)
+                    end)
+                    -- IVs auf den Stand vor der Evolution zuruecksetzen
+                    local restore = {
+                        Talent_HP = last.ivHP, Talent_Melee = last.ivMelee,
+                        Talent_Shot = last.ivShot, Talent_Defense = last.ivDefense,
+                    }
+                    for field, v in pairs(restore) do
+                        if v and v >= 0 then
+                            pcall(function()
+                                p.SaveParameter[field] = v
+                                p.SaveParameterMirror[field] = v
+                            end)
+                        end
+                    end
+                    reverted = true
+                    break
+                end
+            end
         end
+        if reverted then break end
     end
     saveSnapshots()
-    Log(string.format("Rollback %s -> %s: %d Pal(s) zurueckgesetzt (neu aussummonen)",
-        last.to, last.from, count))
+    Log(string.format("Rollback %s -> %s: %s (neu aussummonen)",
+        last.to, last.from, reverted and "zurueckgesetzt inkl. IVs" or "kein passender Pal gefunden"))
 end
 
 function Evolution.init()
@@ -358,7 +454,7 @@ function Evolution.init()
                     -- nowLevel ist das Level VOR der Addition (live belegt)
                     local newLevel = nowLevel:get() + addLevel:get()
                     if newLevel >= pair.minLevel then
-                        local key = param:GetFullName()
+                        local key = individualKey(param)
                         if notified[key] then return end
                         notified[key] = true
                         playFanfare(actor)
