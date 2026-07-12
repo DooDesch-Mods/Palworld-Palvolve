@@ -281,14 +281,13 @@ local function performEvolution(p)
         end },
     }
 
+    -- Autoritative Sicht: der Holder weiss, ob ein Otomo draussen ist.
+    -- (handle:TryGetIndividualActor liefert auch nach dem Einzug noch einen
+    -- "gueltigen" Actor - live belegt, daher untauglich als Signal.)
     local function isDespawned()
-        if not actor:IsValid() then return true end
-        local gone = false
-        pcall(function()
-            local a = handle:TryGetIndividualActor()
-            gone = not (a and a:IsValid())
-        end)
-        return gone
+        local spawned = nil
+        pcall(function() spawned = holder:TryGetSpawnedOtomo() end)
+        return not (spawned and spawned:IsValid())
     end
 
     local proceedAfterDespawn  -- forward declaration
@@ -351,15 +350,18 @@ local function performEvolution(p)
             pcall(function() holder:ActivateCurrentOtomoNearThePlayer() end)
         end
 
-        -- Phase 5: Respawn VERIFIZIEREN statt annehmen
+        -- Phase 5: Respawn VERIFIZIEREN statt annehmen (Holder-Sicht + Spezies-Check)
         pollUntil(200, 4000, function()
             local a = nil
-            pcall(function() a = handle:TryGetIndividualActor() end)
-            return a and a:IsValid()
+            pcall(function() a = holder:TryGetSpawnedOtomo() end)
+            if not (a and a:IsValid()) then return false end
+            local id = ""
+            pcall(function() id = paramOf(a) and paramOf(a):GetCharacterID():ToString() or "" end)
+            return id == pair.to
         end, function(spawned)
             if spawned then
                 local newActor = nil
-                pcall(function() newActor = handle:TryGetIndividualActor() end)
+                pcall(function() newActor = holder:TryGetSpawnedOtomo() end)
                 if newActor and newActor:IsValid() then
                     setFrozen(newActor, false)
                 end
