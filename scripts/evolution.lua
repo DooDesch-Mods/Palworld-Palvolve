@@ -259,22 +259,29 @@ local function performEvolution(p)
     local talentsBefore = readTalents(param)
     Log(string.format("Sequenz-Start: %s Lv%d key=%s", pair.from, level, key))
 
-    -- Phase 1: Einfrieren + Rueckruf-Optik + gezielter Rueckruf per Handle
+    -- Phase 1: Einfrieren + Rueckruf-Optik
     setFrozen(actor, true)
     playEffect(actor, 3)  -- ReturnToBallEmissive: die echte Einzieh-Optik
     playFanfare(actor)
 
-    local okInactive, errInactive = pcall(function()
-        holder:InactiveOtomoByHandle_PreProcess(handle)
-    end)
-    if not okInactive then
-        Log("Rueckruf fehlgeschlagen: " .. tostring(errInactive) .. " - Pal unveraendert")
-        if actor:IsValid() then setFrozen(actor, false) end
-        return
-    end
+    -- Phase 2: Rueckruf mit Eskalationskette, jede Stufe mit Despawn-Verifikation.
+    -- PreProcess allein baut den Actor NICHT ab (live belegt); da die Eligibility den
+    -- echten Current Otomo liefert, sind die Current-Funktionen hier zielsicher.
+    local recallStrategies = {
+        { name = "PreProcess+Complete", fn = function()
+            holder:InactiveOtomoByHandle_PreProcess(handle)
+            holder:CompleteInactiveCurrentOtomo()
+        end },
+        { name = "InactivateCurrentOtomo", fn = function()
+            holder:InactivateCurrentOtomo()
+        end },
+        { name = "PlayerController:InactiveOtomo", fn = function()
+            local pc = FindFirstOf("PalPlayerController")
+            if pc and pc:IsValid() then pc:InactiveOtomo() end
+        end },
+    }
 
-    -- Phase 2: Warten bis der Actor BESTAETIGT abgebaut ist (kein fixer Delay)
-    pollUntil(200, 4000, function()
+    local function isDespawned()
         if not actor:IsValid() then return true end
         local gone = false
         pcall(function()
@@ -282,13 +289,31 @@ local function performEvolution(p)
             gone = not (a and a:IsValid())
         end)
         return gone
-    end, function(despawned)
-        if not despawned then
-            Log("Rueckruf nicht bestaetigt (Actor lebt noch) - breche OHNE Swap ab")
+    end
+
+    local proceedAfterDespawn  -- forward declaration
+
+    local function tryRecall(i)
+        if i > #recallStrategies then
+            Log("Rueckruf nicht bestaetigt (alle Strategien erschoepft) - breche OHNE Swap ab")
             if actor:IsValid() then setFrozen(actor, false) end
             return
         end
+        local strat = recallStrategies[i]
+        local okCall, errCall = pcall(strat.fn)
+        Log(string.format("Rueckruf-Versuch '%s' call=%s%s", strat.name, tostring(okCall),
+            okCall and "" or (" err=" .. tostring(errCall))))
+        pollUntil(200, 2000, isDespawned, function(despawned)
+            if despawned then
+                Log(string.format("Despawn bestaetigt via '%s'", strat.name))
+                proceedAfterDespawn()
+            else
+                tryRecall(i + 1)
+            end
+        end)
+    end
 
+    proceedAfterDespawn = function()
         -- Phase 3: Swap im despawnten Zustand (sicherster Schreibmoment) + verifizieren
         if not param:IsValid() then
             Log("Abbruch: Parameter nach Despawn ungueltig")
@@ -347,7 +372,9 @@ local function performEvolution(p)
                     pair.from, pair.to, level))
             end
         end)
-    end)
+    end
+
+    tryRecall(1)
 end
 
 -- ---------------------------------------------------------------- Public API
