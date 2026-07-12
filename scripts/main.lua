@@ -8,3 +8,9 @@ end
 
 -- Pflicht-Zeile fuer den Dev-Loop: tail-ue4ss-log prueft auf "[Palvolve] loaded"
 Log("loaded")
+
+-- Dev-Proben (temporaer, vor Release entfernen)
+local okProbes, errProbes = pcall(require, "probes")
+if not okProbes then
+    Log("Proben nicht geladen: " .. tostring(errProbes))
+end
