@@ -194,6 +194,41 @@ RegisterKeyBind(Key.F7, Debounced("speciesswap", function()
     end)
 end))
 
+-- F3: Rueckverwandlung fuers Testen - NUR eigene Pals (Owner-Filter wie im echten Mod)
+local REVERT_PAIRS = {
+    { from = "CaptainPenguin", to = "Penguin" },  -- Penking -> Pengullet
+    { from = "MopKing", to = "MopBaby" },         -- Sweepa -> Swee
+    { from = "Yeti", to = "MopKing" },            -- Wumpo -> Sweepa
+}
+RegisterKeyBind(Key.F3, Debounced("revert", function()
+    ExecuteInGameThread(function()
+        local suc, e = pcall(function()
+            local all = FindAllOf("PalIndividualCharacterParameter") or {}
+            local count = 0
+            for _, p in ipairs(all) do
+                if p:IsValid() and p.SaveParameter.OwnerPlayerUId.A ~= 0 then
+                    local id = p:GetCharacterID():ToString()
+                    for _, pair in ipairs(REVERT_PAIRS) do
+                        if id == pair.from then
+                            p.SaveParameter.CharacterID = FName(pair.to)
+                            p.SaveParameterMirror.CharacterID = FName(pair.to)
+                            count = count + 1
+                            Log(string.format("[probe-revert] eigener %s -> %s", pair.from, pair.to))
+                            break
+                        end
+                    end
+                end
+            end
+            if count == 0 then
+                Log("[probe-revert] keine eigenen Rueckverwandlungs-Kandidaten gefunden")
+            else
+                Log(string.format("[probe-revert] %d Pal(s) zurueckverwandelt - ein-/aussummonen fuer das Modell", count))
+            end
+        end)
+        if not suc then Log("[probe-revert] FAIL: " .. tostring(e)) end
+    end)
+end))
+
 -- F8: Fanfare via Wwise
 RegisterKeyBind(Key.F8, Debounced("ake", function()
     ExecuteInGameThread(function()
@@ -310,7 +345,7 @@ RegisterKeyBind(Key.F10, Debounced("giveexp", function()
     end)
 end))
 
-Log(string.format("Proben aktiv: F5 Overlay, F6 VFX, F7 SpeciesSwap, F8 Fanfare, F9 Freeze, F10 GiveExp, TestKit auf %s",
+Log(string.format("Proben aktiv: F3 Revert(eigene), F5 Overlay, F6 VFX, F7 SpeciesSwap, F8 Fanfare, F9 Freeze, F10 GiveExp, TestKit auf %s",
     Key.INS and "EINFG" or "F4"))
 
 return M
