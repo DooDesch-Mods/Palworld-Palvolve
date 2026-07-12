@@ -1,0 +1,16 @@
+{
+  "ModName": "Palvolve",
+  "PackageName": "DooDesch.Palvolve",
+  "Thumbnail": "thumbnail.png",
+  "Version": "0.1.0",
+  "MinRevision": 24088745,
+  "Author": "DooDesch",
+  "Dependencies": [],
+  "Tags": [],
+  "InstallRule": [
+    {
+      "Type": "Lua",
+      "Targets": ["scripts"]
+    }
+  ]
+}
