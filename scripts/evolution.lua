@@ -385,31 +385,6 @@ local function performEvolution(p)
             return cls:find(expectedClass, 1, true) ~= nil
         end
 
-        -- ActivateCurrentOtomoNearThePlayer funktioniert zuverlaessig, aber erst
-        -- nachdem der Teardown gesettelt ist (live belegt: Aufruf 4 s nach Teardown
-        -- -> sofortiger Spawn; Aufruf direkt danach -> nichts, und keiner der
-        -- anderen Wege spawnt je). Deshalb: Settle-Pause, dann aktivieren, mit Retry.
-        local activateStrategies = {
-            { name = "ActivateCurrentOtomoNearThePlayer", timeoutMs = 2500, fn = function()
-                holder:ActivateCurrentOtomoNearThePlayer()
-            end },
-            { name = "ActivateCurrentOtomoNearThePlayer#2", timeoutMs = 2500, fn = function()
-                holder:ActivateCurrentOtomoNearThePlayer()
-            end },
-            { name = "SpawnOtomoByLoad", timeoutMs = 3000, fn = function()
-                local idx = holder:GetSlotIndexByIndividualHandle(handle)
-                holder:SpawnOtomoByLoad(idx)
-            end },
-            { name = "ActivatePalByHandle@Ort", timeoutMs = 2000, fn = function()
-                local loc, rot = oldLoc, oldRot
-                if not loc then
-                    local tf = holder:GetTransform_SpawnPalNearTrainer()
-                    loc, rot = tf.Translation, tf.Rotation
-                end
-                holder:ActivatePalByHandle(handle, loc, rot, false)
-            end },
-        }
-
         local function finishRespawn(success)
             local newActor = nil
             pcall(function() newActor = holder:TryGetSpawnedOtomo() end)
@@ -432,29 +407,45 @@ local function performEvolution(p)
             finish()
         end
 
-        local function tryActivate(i)
-            if i > #activateStrategies then
-                finishRespawn(false)
-                return
-            end
-            local strat = activateStrategies[i]
-            local okCall, errCall = pcall(strat.fn)
-            Log(string.format("Aktivierungs-Versuch '%s' call=%s%s", strat.name, tostring(okCall),
-                okCall and "" or (" err=" .. tostring(errCall))))
-            pollUntil(200, strat.timeoutMs or 2000, isRespawned, function(spawned)
-                if spawned then
+        -- Aktivierungs-Pumpe: Die Engine gibt den neuen Actor erst nach variabler
+        -- Settle-Zeit frei (live: 4-10 s nach Teardown, unabhaengig vom Aufrufweg).
+        -- Statt starrer Timeout-Stufen wird alle 1,2 s ein Aktivierungs-Impuls
+        -- gesetzt (abwechselnd die beiden funktionierenden Wege) und durchgehend
+        -- alle 250 ms verifiziert - der Penking erscheint im fruehestmoeglichen Moment.
+        local startedAt = os.clock()
+        local lastNudge = startedAt  -- erste Impuls-Pause = Settle-Zeit
+        local nudgeCount = 0
+        local pumpDone = false
+        LoopAsync(250, function()
+            if pumpDone then return true end
+            ExecuteInGameThread(function()
+                if pumpDone then return end
+                if isRespawned() then
+                    pumpDone = true
                     finishRespawn(true)
-                else
-                    tryActivate(i + 1)
+                    return
+                end
+                local now = os.clock()
+                if (now - startedAt) > 15 then
+                    pumpDone = true
+                    finishRespawn(false)
+                    return
+                end
+                if (now - lastNudge) >= 1.2 then
+                    lastNudge = now
+                    nudgeCount = nudgeCount + 1
+                    local okNudge = pcall(function()
+                        if nudgeCount % 2 == 1 then
+                            holder:ActivateCurrentOtomoNearThePlayer()
+                        else
+                            local idx = holder:GetSlotIndexByIndividualHandle(handle)
+                            holder:SpawnOtomoByLoad(idx)
+                        end
+                    end)
+                    Log(string.format("Aktivierungs-Impuls #%d ok=%s", nudgeCount, tostring(okNudge)))
                 end
             end)
-        end
-
-        -- Settle-Pause: dem Actor-Teardown Zeit geben, bevor aktiviert wird
-        ExecuteWithDelay(1200, function()
-            ExecuteInGameThread(function()
-                tryActivate(1)
-            end)
+            return pumpDone
         end)
     end
 
