@@ -125,50 +125,70 @@ RegisterKeyBind(Key.F5, Debounced("overlay", function()
     end)
 end))
 
--- F6: spiel-eigener Glow via PalVisualEffectComponent (CaptureEmissive=1)
+-- F6: spiel-eigene VisualEffects durchprobieren - jeder Druck der naechste Effekt.
+-- Befund: 1=CaptureEmissive glueht auf und laesst den Pal VERSCHWINDEN (Fang-Verhalten)
+-- = perfekte Phase 1 der Evolution; 2=SpawnFromBallEmissive sollte das Erscheinen sein.
+local VFX_IDS = {
+    { id = 1,  name = "CaptureEmissive (Glow + Verschwinden)" },
+    { id = 2,  name = "SpawnFromBallEmissive (Erscheinen mit Glow)" },
+    { id = 41, name = "PalEnhancement" },
+    { id = 27, name = "RarePal" },
+    { id = 5,  name = "FadeIn" },
+    { id = 4,  name = "FadeOut" },
+}
+local vfxIndex = 0
 RegisterKeyBind(Key.F6, Debounced("vfx", function()
     ExecuteInGameThread(function()
         local pal = firstOwnedMonster()
         if not pal then Log("[probe-vfx] kein Pal gespawnt") return end
+        vfxIndex = (vfxIndex % #VFX_IDS) + 1
+        local entry = VFX_IDS[vfxIndex]
         local suc, e = pcall(function()
-            local fx = pal.VisualEffectComponent:AddVisualEffect(1, { FloatValues = {} })
-            Log(string.format("[probe-vfx] AddVisualEffect -> %s",
+            local fx = pal.VisualEffectComponent:AddVisualEffect(entry.id, { FloatValues = {} })
+            Log(string.format("[probe-vfx] %s -> %s", entry.name,
                 fx and fx:IsValid() and fx:GetFullName() or "nil/invalid"))
         end)
-        if not suc then
-            Log("[probe-vfx] AddVisualEffect FAIL: " .. tostring(e))
-            local suc2, e2 = pcall(function()
-                local fx = pal.VisualEffectComponent:AddVisualEffectForActor(pal, 2, { FloatValues = {} })
-                Log(string.format("[probe-vfx] ForActor-Ausweich -> %s",
-                    fx and fx:IsValid() and fx:GetFullName() or "nil/invalid"))
-            end)
-            if not suc2 then Log("[probe-vfx] ForActor FAIL: " .. tostring(e2)) end
-        end
+        if not suc then Log(string.format("[probe-vfx] %s FAIL: %s", entry.name, tostring(e))) end
     end)
 end))
 
--- F7: Species-Swap-Kernprobe Penguin -> CaptainPenguin (NUR in der Testwelt ausloesen!)
+-- F7: Species-Swap-Kernprobe ueber mehrere Paare (NUR in der Testwelt ausloesen!)
+-- Modell baut sich NICHT sofort neu (RequestRespawnPal wirkungslos) - erst beim
+-- naechsten Beschwoeren/Box-Roundtrip spawnt der Actor als neue Spezies (live bewiesen).
+local SWAP_PAIRS = {
+    { from = "Penguin", to = "CaptainPenguin" },  -- Pengullet -> Penking
+    { from = "MopBaby", to = "MopKing" },         -- Swee -> Sweepa
+    { from = "MopKing", to = "Yeti" },            -- Sweepa -> Wumpo (Fun-Kette)
+}
 RegisterKeyBind(Key.F7, Debounced("speciesswap", function()
     ExecuteInGameThread(function()
         local suc, e = pcall(function()
             local all = FindAllOf("PalIndividualCharacterParameter") or {}
-            for _, p in ipairs(all) do
-                if p:IsValid() and p:GetCharacterID():ToString() == "Penguin" then
-                    local hpBefore = p:GetMaxHP()
-                    p.SaveParameter.CharacterID = FName("CaptainPenguin")
-                    p.SaveParameterMirror.CharacterID = FName("CaptainPenguin")
-                    local skin = FindFirstOf("PalPlayerSkinData")
-                    if skin and skin:IsValid() then
-                        skin:RequestRespawnPal(p)
-                    else
-                        Log("[probe-speciesswap] PalPlayerSkinData nicht gefunden (Respawn offen)")
+            for _, pair in ipairs(SWAP_PAIRS) do
+                for _, p in ipairs(all) do
+                    if p:IsValid() and p:GetCharacterID():ToString() == pair.from then
+                        local hpBefore = p:GetMaxHP()
+                        p.SaveParameter.CharacterID = FName(pair.to)
+                        p.SaveParameterMirror.CharacterID = FName(pair.to)
+                        Log(string.format("[probe-speciesswap] %s -> %s, MaxHP %s -> %s (Box-Roundtrip/Resummon fuer Modell)",
+                            pair.from, p:GetCharacterID():ToString(), tostring(hpBefore), tostring(p:GetMaxHP())))
+                        return
                     end
-                    Log(string.format("[probe-speciesswap] Penguin -> %s, MaxHP %s -> %s",
-                        p:GetCharacterID():ToString(), tostring(hpBefore), tostring(p:GetMaxHP())))
-                    return
                 end
             end
-            Log("[probe-speciesswap] kein Penguin im Speicher gefunden")
+            -- Diagnose: welche Spezies sind ueberhaupt im Speicher?
+            local seen, list = {}, {}
+            for _, p in ipairs(all) do
+                if p:IsValid() then
+                    local id = p:GetCharacterID():ToString()
+                    if id ~= "" and id ~= "None" and not seen[id] then
+                        seen[id] = true
+                        table.insert(list, id)
+                        if #list >= 15 then break end
+                    end
+                end
+            end
+            Log("[probe-speciesswap] kein Swap-Kandidat; Spezies im Speicher: " .. table.concat(list, ", "))
         end)
         if not suc then Log("[probe-speciesswap] FAIL: " .. tostring(e)) end
     end)
@@ -278,10 +298,13 @@ RegisterKeyBind(Key.F10, Debounced("giveexp", function()
             local player = FindFirstOf("PalPlayerCharacter")
             if not player or not player:IsValid() then Log("[probe-giveexp] kein Spieler") return end
             local util = StaticFindObject("/Script/Pal.Default__PalUtility")
-            -- Signatur (Dump :64549): WorldContextObject, Center: FVector, Radius, Exp, bCallDelegate
+            -- GiveExpToAroundPlayerCharacter trifft nur SPIELER (live bestaetigt) ->
+            -- GiveExpToAroundCharacter mit CharacterClass=PalCharacter fuer die Pals
+            -- (Dump :64555: WorldContext, Center, Radius, Exp, CharacterClass, bCallDelegate)
             local center = player:K2_GetActorLocation()
-            util:GiveExpToAroundPlayerCharacter(player, center, 2000.0, 500.0, true)
-            Log("[probe-giveexp] 500 EXP an Umkreis vergeben")
+            local palClass = StaticFindObject("/Script/Pal.PalCharacter")
+            util:GiveExpToAroundCharacter(player, center, 3000.0, 5000.0, palClass, true)
+            Log("[probe-giveexp] 5000 EXP an Pals im Umkreis vergeben")
         end)
         if not suc then Log("[probe-giveexp] FAIL: " .. tostring(e)) end
     end)
