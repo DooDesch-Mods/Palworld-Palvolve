@@ -18,19 +18,41 @@ end
 -- ---------------------------------------------------------------- Hooks beim Laden
 
 -- Probe 1: feuert der BP-Level-Up-Handler? (UTF-8-Funktionsname mit japanischem "Event")
-local ok, err = pcall(RegisterHook,
-    "/Game/Pal/Blueprint/Character/Monster/BP_MonsterBase.BP_MonsterBase_C:OnUpdateLevelDelegate_イベント_0",
-    function(self, addLevel, nowLevel)
-        local suc, e = pcall(function()
-            local actor = self:get()
-            local param = actor.CharacterParameterComponent:GetIndividualParameter()
-            Log(string.format("[probe-pallevelup] id=%s addLevel=%d nowLevel=%d ownedGuidA=%s",
-                param:GetCharacterID():ToString(), addLevel:get(), nowLevel:get(),
-                tostring(param.SaveParameter.OwnerPlayerUId.A)))
+-- Der BP ist beim Lua-Init noch nicht geladen -> Registrierung mit Retry, bis die
+-- Klasse existiert (spaetestens sobald der erste Pal in der Welt gespawnt ist).
+local levelHookRegistered = false
+local function tryRegisterLevelHook()
+    if levelHookRegistered then return true end
+    local ok, err = pcall(RegisterHook,
+        "/Game/Pal/Blueprint/Character/Monster/BP_MonsterBase.BP_MonsterBase_C:OnUpdateLevelDelegate_イベント_0",
+        function(self, addLevel, nowLevel)
+            local suc, e = pcall(function()
+                local actor = self:get()
+                local param = actor.CharacterParameterComponent:GetIndividualParameter()
+                Log(string.format("[probe-pallevelup] id=%s addLevel=%d nowLevel=%d ownedGuidA=%s",
+                    param:GetCharacterID():ToString(), addLevel:get(), nowLevel:get(),
+                    tostring(param.SaveParameter.OwnerPlayerUId.A)))
+            end)
+            if not suc then Log("[probe-pallevelup] handler FAIL: " .. tostring(e)) end
         end)
-        if not suc then Log("[probe-pallevelup] handler FAIL: " .. tostring(e)) end
+    if ok then
+        levelHookRegistered = true
+        Log("[probe-pallevelup] hook registered ok=true")
+    end
+    return ok, err
+end
+
+local okNow, errNow = tryRegisterLevelHook()
+if not okNow then
+    Log(string.format("[probe-pallevelup] Sofort-Registrierung fehlgeschlagen (%s) - Retry alle 5 s", tostring(errNow)))
+    LoopAsync(5000, function()
+        if levelHookRegistered then return true end
+        ExecuteInGameThread(function()
+            tryRegisterLevelHook()
+        end)
+        return levelHookRegistered
     end)
-Log(string.format("[probe-pallevelup] hook registered ok=%s err=%s", tostring(ok), tostring(err)))
+end
 
 -- Probe 2: laufen die PalExpDatabase-UFunctions ueber ProcessEvent?
 for _, fn in ipairs({
