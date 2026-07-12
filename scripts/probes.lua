@@ -8,12 +8,23 @@
 --   F7 = Species-Swap Penguin->CaptainPenguin (NUR Testwelt!)
 --   F8 = Fanfare (AKE_CampLevelUp)         F9 = Freeze/Unfreeze naechster Pal
 --   F10 = EXP an Pals im Umkreis (loest Level-Hook aus)
---   F11 = Test-Kit: Sphaeren + Pengullet Lv28/Lv31 + Swee Lv28 ins Team
+--   EINFG (Fallback F4) = Test-Kit: Sphaeren + Test-Pals (Eskalationskette mit Log)
 
 local M = {}
 
 local function Log(msg)
     print(string.format("[Palvolve] %s\n", msg))
+end
+
+-- UE4SS-Keybinds feuern doppelt (~35 ms Abstand, live beobachtet) -> Entprellung.
+local lastFire = {}
+local function Debounced(name, fn)
+    return function()
+        local now = os.clock()
+        if lastFire[name] and (now - lastFire[name]) < 0.5 then return end
+        lastFire[name] = now
+        fn()
+    end
 end
 
 -- ---------------------------------------------------------------- Hooks beim Laden
@@ -80,7 +91,7 @@ end
 -- ---------------------------------------------------------------- Keybind-Proben
 
 -- F5: Overlay-Fallback (M_Glow), Restore nach ~2 s
-RegisterKeyBind(Key.F5, function()
+RegisterKeyBind(Key.F5, Debounced("overlay", function()
     ExecuteInGameThread(function()
         local suc, e = pcall(function()
             local pal = firstOwnedMonster()
@@ -101,10 +112,10 @@ RegisterKeyBind(Key.F5, function()
         end)
         if not suc then Log("[probe-overlay] FAIL: " .. tostring(e)) end
     end)
-end)
+end))
 
 -- F6: spiel-eigener Glow via PalVisualEffectComponent (CaptureEmissive=1)
-RegisterKeyBind(Key.F6, function()
+RegisterKeyBind(Key.F6, Debounced("vfx", function()
     ExecuteInGameThread(function()
         local pal = firstOwnedMonster()
         if not pal then Log("[probe-vfx] kein Pal gespawnt") return end
@@ -123,10 +134,10 @@ RegisterKeyBind(Key.F6, function()
             if not suc2 then Log("[probe-vfx] ForActor FAIL: " .. tostring(e2)) end
         end
     end)
-end)
+end))
 
 -- F7: Species-Swap-Kernprobe Penguin -> CaptainPenguin (NUR in der Testwelt ausloesen!)
-RegisterKeyBind(Key.F7, function()
+RegisterKeyBind(Key.F7, Debounced("speciesswap", function()
     ExecuteInGameThread(function()
         local suc, e = pcall(function()
             local all = FindAllOf("PalIndividualCharacterParameter") or {}
@@ -150,10 +161,10 @@ RegisterKeyBind(Key.F7, function()
         end)
         if not suc then Log("[probe-speciesswap] FAIL: " .. tostring(e)) end
     end)
-end)
+end))
 
 -- F8: Fanfare via Wwise
-RegisterKeyBind(Key.F8, function()
+RegisterKeyBind(Key.F8, Debounced("ake", function()
     ExecuteInGameThread(function()
         local suc, e = pcall(function()
             local pal = firstOwnedMonster()
@@ -166,11 +177,11 @@ RegisterKeyBind(Key.F8, function()
         end)
         if not suc then Log("[probe-ake] FAIL: " .. tostring(e)) end
     end)
-end)
+end))
 
 -- F9: Freeze-Toggle (AI aus + Move-Lock)
 local frozen = false
-RegisterKeyBind(Key.F9, function()
+RegisterKeyBind(Key.F9, Debounced("freeze", function()
     ExecuteInGameThread(function()
         local suc, e = pcall(function()
             local pal = firstOwnedMonster()
@@ -186,40 +197,65 @@ RegisterKeyBind(Key.F9, function()
         end)
         if not suc then Log("[probe-freeze] FAIL: " .. tostring(e)) end
     end)
-end)
+end))
 
--- F11: Test-Kit - Sphaeren ins Inventar + Test-Pals ins Team (Debug-Capture)
-local function giveItems(inv)
-    inv:RequestAddItem_ForDebug(FName("PalSphere"), 20, false)
-    inv:RequestAddItem_ForDebug(FName("PalSphere_Mega"), 10, false)
-    Log("[probe-testkit] Sphaeren angefordert (20x PalSphere, 10x PalSphere_Mega)")
+-- Test-Kit (EINFG, Fallback F4): Eskalationskette, jeder Schritt loggt sein Ergebnis.
+-- Befund 1. Versuch: RequestAddItem_ForDebug + Debug_Capture*_ToServer laufen fehlerfrei
+-- durch, bewirken im Shipping-Build aber NICHTS (vermutlich Debug-Gate) -> jetzt die
+-- autoritativen Wege mit Rueckgabewert-Auswertung.
+local function giveItemsV2(inv)
+    -- Autoritativer Weg (Single-Player = lokale Autoritaet): Result-Enum auswerten
+    local ok, err = pcall(function()
+        local ret1 = inv:AddItem_ServerInternal(FName("PalSphere"), 20, false, 0.0, true)
+        local ret2 = inv:AddItem_ServerInternal(FName("PalSphere_Mega"), 10, false, 0.0, true)
+        Log(string.format("[probe-testkit] AddItem_ServerInternal PalSphere=%s Mega=%s",
+            tostring(ret1), tostring(ret2)))
+    end)
+    if not ok then Log("[probe-testkit] AddItem_ServerInternal FAIL: " .. tostring(err)) end
 end
 
-local function givePal(ps, charId, level)
-    local ok, err = pcall(function()
-        ps:Debug_CaptureNewMonsterByDebugOtomoInfo_ToServer({
-            PalName = { Key = FName(charId) },
-            Level = level,
-            Rank = 0,
-            TalentLevel = 0,
-            WazaList = {},
-            PassiveSkill = {},
-            StatusRank = {},
-            FriendshipRank = 0,
-            bIsAwakening = false,
-        }, false)
-        Log(string.format("[probe-testkit] Capture %s Lv%d angefordert", charId, level))
+local function getCheatManager(pc)
+    local cm = pc.CheatManager
+    if cm and cm:IsValid() then return cm end
+    -- Shipping erzeugt den CheatManager erst nach EnableCheats
+    pcall(function() pc:EnableCheats() end)
+    cm = pc.CheatManager
+    if cm and cm:IsValid() then return cm end
+    return nil
+end
+
+local function givePalsV2(pc, ps)
+    -- Stufe 1: einfacher Debug-Capture (evtl. ebenfalls gegated - Ergebnis am Sichtcheck)
+    local ok1 = pcall(function()
+        ps:Debug_CaptureNewMonster_ToServer(FName("Penguin"))
     end)
-    if not ok then
-        Log(string.format("[probe-testkit] OtomoInfo-Struct FAIL (%s) - Fallback ohne Level", tostring(err)))
+    Log("[probe-testkit] Debug_CaptureNewMonster_ToServer ok=" .. tostring(ok1))
+
+    -- Stufe 2: CheatManager-Weg
+    local cm = getCheatManager(pc)
+    if cm then
+        Log("[probe-testkit] CheatManager-Instanz: " .. cm:GetFullName())
         local ok2, err2 = pcall(function()
-            ps:Debug_CaptureNewMonster_ToServer(FName(charId))
+            cm:CaptureNewMonster(FName("Penguin"))
         end)
-        Log(string.format("[probe-testkit] Fallback %s ok=%s err=%s", charId, tostring(ok2), tostring(err2)))
+        Log(string.format("[probe-testkit] cm:CaptureNewMonster ok=%s err=%s", tostring(ok2), tostring(err2)))
+        local ok3, err3 = pcall(function()
+            -- wilde Pals neben dem Spieler (Lv 31) - notfalls mit Sphaeren selbst fangen
+            cm:SpawnMonsterForPlayer(FName("Penguin"), 2, 31)
+            cm:SpawnMonsterForPlayer(FName("MopBaby"), 1, 28)
+        end)
+        Log(string.format("[probe-testkit] cm:SpawnMonsterForPlayer ok=%s err=%s", tostring(ok3), tostring(err3)))
+        local ok4, err4 = pcall(function()
+            cm:GetItem(FName("PalSphere_Giga"), 10)
+        end)
+        Log(string.format("[probe-testkit] cm:GetItem ok=%s err=%s", tostring(ok4), tostring(err4)))
+    else
+        Log("[probe-testkit] kein CheatManager (auch nach EnableCheats)")
     end
 end
 
-RegisterKeyBind(Key.F11, function()
+local KIT_KEY = Key.INS or Key.F4
+RegisterKeyBind(KIT_KEY, Debounced("testkit", function()
     ExecuteInGameThread(function()
         local suc, e = pcall(function()
             local pc = FindFirstOf("PalPlayerController")
@@ -228,20 +264,18 @@ RegisterKeyBind(Key.F11, function()
             if not ps or not ps:IsValid() then Log("[probe-testkit] kein PalPlayerState") return end
             local inv = ps:GetInventoryData()
             if inv and inv:IsValid() then
-                giveItems(inv)
+                giveItemsV2(inv)
             else
                 Log("[probe-testkit] kein InventoryData")
             end
-            givePal(ps, "Penguin", 28)  -- unter der Schwelle: F10-Level-Up-Test
-            givePal(ps, "Penguin", 31)  -- ueber der Schwelle: direkter F7-Swap-Test
-            givePal(ps, "MopBaby", 28)  -- zweite Kette (Swee)
+            givePalsV2(pc, ps)
         end)
         if not suc then Log("[probe-testkit] FAIL: " .. tostring(e)) end
     end)
-end)
+end))
 
 -- F10: EXP-Hebel, um den Level-Hook reproduzierbar auszuloesen
-RegisterKeyBind(Key.F10, function()
+RegisterKeyBind(Key.F10, Debounced("giveexp", function()
     ExecuteInGameThread(function()
         local suc, e = pcall(function()
             local player = FindFirstOf("PalPlayerCharacter")
@@ -252,8 +286,9 @@ RegisterKeyBind(Key.F10, function()
         end)
         if not suc then Log("[probe-giveexp] FAIL: " .. tostring(e)) end
     end)
-end)
+end))
 
-Log("Proben aktiv: F5 Overlay, F6 VFX, F7 SpeciesSwap, F8 Fanfare, F9 Freeze, F10 GiveExp, F11 TestKit")
+Log(string.format("Proben aktiv: F5 Overlay, F6 VFX, F7 SpeciesSwap, F8 Fanfare, F9 Freeze, F10 GiveExp, TestKit auf %s",
+    Key.INS and "EINFG" or "F4"))
 
 return M
