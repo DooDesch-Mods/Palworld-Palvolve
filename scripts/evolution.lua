@@ -282,11 +282,20 @@ function Evolution.check()
         return
     end
     local now = os.clock()
+    -- Stabile Identitaet: Instanz-Guid des Individuums (Objektnamen sind nicht verlaesslich)
     local key = ""
-    pcall(function() key = param:GetFullName() end)
-    if pending and pending.key == key and (now - pending.armedAt) <= Config.confirmWindowSeconds then
-        performEvolution(pending)
-        return
+    pcall(function()
+        local g = param.IndividualId.InstanceId
+        key = string.format("%08X-%08X-%08X-%08X", g.A, g.B, g.C, g.D)
+    end)
+    if key == "" then pcall(function() key = param:GetFullName() end) end
+    if pending and (now - pending.armedAt) <= Config.confirmWindowSeconds then
+        if pending.key == key then
+            performEvolution(pending)
+            return
+        else
+            Log(string.format("Confirm-Ziel gewechselt (vorher %s, jetzt %s) - neu armiert", pending.key, key))
+        end
     end
     pending = { actor = actor, param = param, pair = pair, armedAt = now, key = key }
     playFanfare(actor)
