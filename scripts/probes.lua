@@ -81,10 +81,21 @@ end
 -- ---------------------------------------------------------------- Helfer
 
 local function firstOwnedMonster()
-    -- Grobe Dev-Heuristik: erster gespawnter Monster-Actor. Fuer Proben ausreichend,
-    -- der echte Mod filtert ueber OwnerPlayerUId/IsPlayersOtomo.
-    local pal = FindFirstOf("BP_MonsterBase_C")
-    if pal and pal:IsValid() then return pal end
+    -- Bevorzugt den eigenen (Otomo-)Pal; sonst den erstbesten gespawnten Monster-Actor.
+    local util = StaticFindObject("/Script/Pal.Default__PalUtility")
+    local all = FindAllOf("BP_MonsterBase_C") or {}
+    if util and util:IsValid() then
+        for _, pal in ipairs(all) do
+            if pal:IsValid() then
+                local isOtomo = false
+                pcall(function() isOtomo = util:IsPlayersOtomo(pal) end)
+                if isOtomo then return pal end
+            end
+        end
+    end
+    for _, pal in ipairs(all) do
+        if pal:IsValid() then return pal end
+    end
     return nil
 end
 
@@ -100,7 +111,6 @@ RegisterKeyBind(Key.F5, Debounced("overlay", function()
             if not glow or not glow:IsValid() then Log("[probe-overlay] M_Glow nicht gefunden") return end
             local mesh = pal:GetMainMesh()
             mesh:SetOverlayMaterial(glow)
-            Log("[probe-overlay] set auf " .. pal:GetName())
             ExecuteWithDelay(2000, function()
                 ExecuteInGameThread(function()
                     if pal:IsValid() and mesh:IsValid() then
@@ -109,6 +119,7 @@ RegisterKeyBind(Key.F5, Debounced("overlay", function()
                     end
                 end)
             end)
+            Log("[probe-overlay] set auf " .. pal:GetFullName())
         end)
         if not suc then Log("[probe-overlay] FAIL: " .. tostring(e)) end
     end)
@@ -224,34 +235,20 @@ local function getCheatManager(pc)
     return nil
 end
 
-local function givePalsV2(pc, ps)
-    -- Stufe 1: einfacher Debug-Capture (evtl. ebenfalls gegated - Ergebnis am Sichtcheck)
-    local ok1 = pcall(function()
-        ps:Debug_CaptureNewMonster_ToServer(FName("Penguin"))
-    end)
-    Log("[probe-testkit] Debug_CaptureNewMonster_ToServer ok=" .. tostring(ok1))
-
-    -- Stufe 2: CheatManager-Weg
+-- Befund 2. Versuch (live): Debug_Capture*, cm:CaptureNewMonster, cm:SpawnMonsterForPlayer
+-- und cm:GetItem laufen alle ok=true durch, bewirken im Retail aber NICHTS Sichtbares.
+-- Pal-Give ist damit tot - Test-Pals werden manuell gefangen. Letzter Versuch hier:
+-- cm:SpawnMonster (ohne ForPlayer) als einzelner Kandidat, sonst nur noch Sphaeren.
+local function givePalsV2(pc)
     local cm = getCheatManager(pc)
-    if cm then
-        Log("[probe-testkit] CheatManager-Instanz: " .. cm:GetFullName())
-        local ok2, err2 = pcall(function()
-            cm:CaptureNewMonster(FName("Penguin"))
-        end)
-        Log(string.format("[probe-testkit] cm:CaptureNewMonster ok=%s err=%s", tostring(ok2), tostring(err2)))
-        local ok3, err3 = pcall(function()
-            -- wilde Pals neben dem Spieler (Lv 31) - notfalls mit Sphaeren selbst fangen
-            cm:SpawnMonsterForPlayer(FName("Penguin"), 2, 31)
-            cm:SpawnMonsterForPlayer(FName("MopBaby"), 1, 28)
-        end)
-        Log(string.format("[probe-testkit] cm:SpawnMonsterForPlayer ok=%s err=%s", tostring(ok3), tostring(err3)))
-        local ok4, err4 = pcall(function()
-            cm:GetItem(FName("PalSphere_Giga"), 10)
-        end)
-        Log(string.format("[probe-testkit] cm:GetItem ok=%s err=%s", tostring(ok4), tostring(err4)))
-    else
-        Log("[probe-testkit] kein CheatManager (auch nach EnableCheats)")
+    if not cm then
+        Log("[probe-testkit] kein CheatManager")
+        return
     end
+    local ok, err = pcall(function()
+        cm:SpawnMonster(FName("Penguin"), 31)
+    end)
+    Log(string.format("[probe-testkit] cm:SpawnMonster ok=%s err=%s", tostring(ok), tostring(err)))
 end
 
 local KIT_KEY = Key.INS or Key.F4
@@ -268,7 +265,7 @@ RegisterKeyBind(KIT_KEY, Debounced("testkit", function()
             else
                 Log("[probe-testkit] kein InventoryData")
             end
-            givePalsV2(pc, ps)
+            givePalsV2(pc)
         end)
         if not suc then Log("[probe-testkit] FAIL: " .. tostring(e)) end
     end)
@@ -281,7 +278,9 @@ RegisterKeyBind(Key.F10, Debounced("giveexp", function()
             local player = FindFirstOf("PalPlayerCharacter")
             if not player or not player:IsValid() then Log("[probe-giveexp] kein Spieler") return end
             local util = StaticFindObject("/Script/Pal.Default__PalUtility")
-            util:GiveExpToAroundPlayerCharacter(player, 2000.0, 500.0)
+            -- Signatur (Dump :64549): WorldContextObject, Center: FVector, Radius, Exp, bCallDelegate
+            local center = player:K2_GetActorLocation()
+            util:GiveExpToAroundPlayerCharacter(player, center, 2000.0, 500.0, true)
             Log("[probe-giveexp] 500 EXP an Umkreis vergeben")
         end)
         if not suc then Log("[probe-giveexp] FAIL: " .. tostring(e)) end
