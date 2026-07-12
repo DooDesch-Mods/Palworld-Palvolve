@@ -1,13 +1,14 @@
 -- Palvolve Dev-Proben (temporaer, vor Release loeschen).
 -- Verifiziert die offenen Punkte aus Workspace/docs/Palvolve/RESEARCH.md live im Spiel.
 -- Marker: [probe-pallevelup] [probe-expdb] [probe-speciesswap] [probe-vfx]
---         [probe-overlay] [probe-ake] [probe-freeze] [probe-giveexp]
+--         [probe-overlay] [probe-ake] [probe-freeze] [probe-giveexp] [probe-testkit]
 --
 -- Keybinds (Testwelt "ModDev", eigenen Pal aussummonen):
 --   F5 = Overlay-Glow an/aus (M_Glow)      F6 = AddVisualEffect CaptureEmissive
 --   F7 = Species-Swap Penguin->CaptainPenguin (NUR Testwelt!)
 --   F8 = Fanfare (AKE_CampLevelUp)         F9 = Freeze/Unfreeze naechster Pal
 --   F10 = EXP an Pals im Umkreis (loest Level-Hook aus)
+--   F11 = Test-Kit: Sphaeren + Pengullet Lv28/Lv31 + Swee Lv28 ins Team
 
 local M = {}
 
@@ -187,6 +188,58 @@ RegisterKeyBind(Key.F9, function()
     end)
 end)
 
+-- F11: Test-Kit - Sphaeren ins Inventar + Test-Pals ins Team (Debug-Capture)
+local function giveItems(inv)
+    inv:RequestAddItem_ForDebug(FName("PalSphere"), 20, false)
+    inv:RequestAddItem_ForDebug(FName("PalSphere_Mega"), 10, false)
+    Log("[probe-testkit] Sphaeren angefordert (20x PalSphere, 10x PalSphere_Mega)")
+end
+
+local function givePal(ps, charId, level)
+    local ok, err = pcall(function()
+        ps:Debug_CaptureNewMonsterByDebugOtomoInfo_ToServer({
+            PalName = { Key = FName(charId) },
+            Level = level,
+            Rank = 0,
+            TalentLevel = 0,
+            WazaList = {},
+            PassiveSkill = {},
+            StatusRank = {},
+            FriendshipRank = 0,
+            bIsAwakening = false,
+        }, false)
+        Log(string.format("[probe-testkit] Capture %s Lv%d angefordert", charId, level))
+    end)
+    if not ok then
+        Log(string.format("[probe-testkit] OtomoInfo-Struct FAIL (%s) - Fallback ohne Level", tostring(err)))
+        local ok2, err2 = pcall(function()
+            ps:Debug_CaptureNewMonster_ToServer(FName(charId))
+        end)
+        Log(string.format("[probe-testkit] Fallback %s ok=%s err=%s", charId, tostring(ok2), tostring(err2)))
+    end
+end
+
+RegisterKeyBind(Key.F11, function()
+    ExecuteInGameThread(function()
+        local suc, e = pcall(function()
+            local pc = FindFirstOf("PalPlayerController")
+            if not pc or not pc:IsValid() then Log("[probe-testkit] kein PalPlayerController") return end
+            local ps = pc:GetPalPlayerState()
+            if not ps or not ps:IsValid() then Log("[probe-testkit] kein PalPlayerState") return end
+            local inv = ps:GetInventoryData()
+            if inv and inv:IsValid() then
+                giveItems(inv)
+            else
+                Log("[probe-testkit] kein InventoryData")
+            end
+            givePal(ps, "Penguin", 28)  -- unter der Schwelle: F10-Level-Up-Test
+            givePal(ps, "Penguin", 31)  -- ueber der Schwelle: direkter F7-Swap-Test
+            givePal(ps, "MopBaby", 28)  -- zweite Kette (Swee)
+        end)
+        if not suc then Log("[probe-testkit] FAIL: " .. tostring(e)) end
+    end)
+end)
+
 -- F10: EXP-Hebel, um den Level-Hook reproduzierbar auszuloesen
 RegisterKeyBind(Key.F10, function()
     ExecuteInGameThread(function()
@@ -201,6 +254,6 @@ RegisterKeyBind(Key.F10, function()
     end)
 end)
 
-Log("Proben aktiv: F5 Overlay, F6 VFX, F7 SpeciesSwap, F8 Fanfare, F9 Freeze, F10 GiveExp")
+Log("Proben aktiv: F5 Overlay, F6 VFX, F7 SpeciesSwap, F8 Fanfare, F9 Freeze, F10 GiveExp, F11 TestKit")
 
 return M
