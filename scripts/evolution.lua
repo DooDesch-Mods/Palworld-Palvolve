@@ -385,7 +385,14 @@ local function performEvolution(p)
             return cls:find(expectedClass, 1, true) ~= nil
         end
 
+        -- ActivateCurrentOtomoNearThePlayer ist der live bewiesene Weg nach dem
+        -- Teardown (baut den Actor frisch mit neuer Klasse); die anderen bleiben
+        -- als Fallbacks. ActivatePalByHandle/SpawnOtomoByLoad spawnen nach einem
+        -- DespawnCharacterByHandle nachweislich NICHTS.
         local activateStrategies = {
+            { name = "ActivateCurrentOtomoNearThePlayer", fn = function()
+                holder:ActivateCurrentOtomoNearThePlayer()
+            end },
             { name = "ActivatePalByHandle@Ort", fn = function()
                 local loc, rot = oldLoc, oldRot
                 if not loc then
@@ -397,9 +404,6 @@ local function performEvolution(p)
             { name = "SpawnOtomoByLoad", fn = function()
                 local idx = holder:GetSlotIndexByIndividualHandle(handle)
                 holder:SpawnOtomoByLoad(idx)
-            end },
-            { name = "ActivateCurrentOtomoNearThePlayer", fn = function()
-                holder:ActivateCurrentOtomoNearThePlayer()
             end },
         }
 
