@@ -271,7 +271,7 @@ RegisterKeyBind(Key.F9, Debounced("freeze", function()
             if util and util:IsValid() then
                 util:SetMoveDisableFlag(pal, frozen, FName("EvoSeq"))
             end
-            Log("[probe-freeze] frozen=" .. tostring(frozen) .. " auf " .. pal:GetName())
+            Log("[probe-freeze] frozen=" .. tostring(frozen) .. " auf " .. pal:GetFullName())
         end)
         if not suc then Log("[probe-freeze] FAIL: " .. tostring(e)) end
     end)
