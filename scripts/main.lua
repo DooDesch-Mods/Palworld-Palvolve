@@ -9,6 +9,14 @@ end
 -- Pflicht-Zeile fuer den Dev-Loop: tail-ue4ss-log prueft auf "[Palvolve] loaded"
 Log("loaded")
 
+-- Evolutions-Kern
+local okCore, errCore = pcall(function()
+    require("evolution").init()
+end)
+if not okCore then
+    Log("Kern nicht geladen: " .. tostring(errCore))
+end
+
 -- Dev-Proben (temporaer, vor Release entfernen)
 local okProbes, errProbes = pcall(require, "probes")
 if not okProbes then
