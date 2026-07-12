@@ -373,35 +373,43 @@ local function performEvolution(p)
         Log(string.format("Actor-Teardown (DespawnCharacterByHandle) ok=%s%s",
             tostring(okDespawn), okDespawn and "" or (" err=" .. tostring(errDespawn))))
 
-        local okAct, errAct = pcall(function()
-            local loc, rot = oldLoc, oldRot
-            if not loc then
-                local tf = holder:GetTransform_SpawnPalNearTrainer()
-                loc, rot = tf.Translation, tf.Rotation
-            end
-            holder:ActivatePalByHandle(handle, loc, rot, false)
-        end)
-        if not okAct then
-            Log("ActivatePalByHandle Fehler: " .. tostring(errAct) .. " - Fallback CurrentOtomo")
-            pcall(function() holder:ActivateCurrentOtomoNearThePlayer() end)
-        end
-
-        -- Phase 5: Respawn VERIFIZIEREN - Daten UND Actor-Klasse muessen stimmen
+        -- Phase 4+5: Aktivierung als Eskalationskette, jede Stufe verifiziert
+        -- (Holder zeigt gespawnten Otomo mit der NEUEN Actor-Klasse).
         local expectedClass = "BP_" .. pair.to .. "_C"
-        pollUntil(200, 4000, function()
+        local function isRespawned()
             local a = nil
             pcall(function() a = holder:TryGetSpawnedOtomo() end)
             if not (a and a:IsValid()) then return false end
             local cls = ""
             pcall(function() cls = a:GetClass():GetFullName() end)
             return cls:find(expectedClass, 1, true) ~= nil
-        end, function(spawned)
+        end
+
+        local activateStrategies = {
+            { name = "ActivatePalByHandle@Ort", fn = function()
+                local loc, rot = oldLoc, oldRot
+                if not loc then
+                    local tf = holder:GetTransform_SpawnPalNearTrainer()
+                    loc, rot = tf.Translation, tf.Rotation
+                end
+                holder:ActivatePalByHandle(handle, loc, rot, false)
+            end },
+            { name = "SpawnOtomoByLoad", fn = function()
+                local idx = holder:GetSlotIndexByIndividualHandle(handle)
+                holder:SpawnOtomoByLoad(idx)
+            end },
+            { name = "ActivateCurrentOtomoNearThePlayer", fn = function()
+                holder:ActivateCurrentOtomoNearThePlayer()
+            end },
+        }
+
+        local function finishRespawn(success)
             local newActor = nil
             pcall(function() newActor = holder:TryGetSpawnedOtomo() end)
             if newActor and newActor:IsValid() then
                 setFrozen(newActor, false)
             end
-            if spawned then
+            if success then
                 playFanfare(newActor or actor)
                 Log(string.format("ENTWICKELT: %s -> %s (Level %d)%s - Respawn mit neuem Modell OK",
                     pair.from, pair.to, level,
@@ -411,11 +419,31 @@ local function performEvolution(p)
                 pcall(function()
                     if newActor and newActor:IsValid() then cls = newActor:GetClass():GetFullName() end
                 end)
-                Log(string.format("ENTWICKELT (Daten): %s -> %s (Level %d) - aber Actor-Klasse '%s' statt %s; Palbox-Roundtrip zeigt das neue Modell",
+                Log(string.format("ENTWICKELT (Daten): %s -> %s (Level %d) - Respawn nicht bestaetigt (Klasse '%s' statt %s); bitte einmal manuell aussummonen",
                     pair.from, pair.to, level, cls, expectedClass))
             end
             finish()
-        end)
+        end
+
+        local function tryActivate(i)
+            if i > #activateStrategies then
+                finishRespawn(false)
+                return
+            end
+            local strat = activateStrategies[i]
+            local okCall, errCall = pcall(strat.fn)
+            Log(string.format("Aktivierungs-Versuch '%s' call=%s%s", strat.name, tostring(okCall),
+                okCall and "" or (" err=" .. tostring(errCall))))
+            pollUntil(200, 2000, isRespawned, function(spawned)
+                if spawned then
+                    finishRespawn(true)
+                else
+                    tryActivate(i + 1)
+                end
+            end)
+        end
+
+        tryActivate(1)
     end
 
     tryRecall(1)
