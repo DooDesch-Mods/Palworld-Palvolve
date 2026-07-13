@@ -189,11 +189,35 @@ local function saw(wheel, idx, widget)
 end
 
 -- vanilla's grey for unavailable entries (used on Feed/Pet without an
--- otomo); read from the menu so the struct layout always matches
-local function greyColorOf(menu)
-    local c = nil
-    pcall(function() c = menu.TextColor_NothingOtomo end)
-    return c
+-- otomo), copied into a PLAIN table immediately: passing a live struct
+-- property wrapper as a UFunction argument crashes natively
+local function readGrey(menu)
+    local flat = nil
+    pcall(function()
+        local c = menu.TextColor_NothingOtomo
+        if c == nil then return end
+        -- FSlateColor keeps the value in SpecifiedColor; FLinearColor is flat
+        local src = nil
+        pcall(function()
+            local s = c.SpecifiedColor
+            if s and s.R ~= nil then src = s end
+        end)
+        if not src then src = c end
+        flat = { R = src.R + 0.0, G = src.G + 0.0, B = src.B + 0.0, A = src.A + 0.0 }
+    end)
+    return flat
+end
+
+local function applyGrey(widget, flat)
+    if not flat then return false end
+    local ok = pcall(function() widget:SetTextColor(flat) end)
+    if not ok then
+        -- the parameter may be an FSlateColor instead of an FLinearColor
+        ok = pcall(function()
+            widget:SetTextColor({ SpecifiedColor = flat, ColorUseRule = 0 })
+        end)
+    end
+    return ok
 end
 
 -- ---------------------------------------------------------------- main mode
@@ -275,11 +299,7 @@ local function injectMainEntry(menu)
     end
     pcall(function() ourWidget:SetText(FText(labelText())) end)
     if not offered and not ourWidgetGreyed then
-        local grey = greyColorOf(menu)
-        if grey then
-            local okGrey = pcall(function() ourWidget:SetTextColor(grey) end)
-            ourWidgetGreyed = okGrey
-        end
+        ourWidgetGreyed = applyGrey(ourWidget, readGrey(menu))
     end
 
     -- preferred path: let the wheel register everything itself, which
@@ -366,13 +386,13 @@ local function buildSubmenu(menu)
     -- fresh widgets per build (runs once per submenu open): the default
     -- text color is the available state, blocked options get vanilla's
     -- no-otomo grey
-    local grey = greyColorOf(menu)
+    local grey = readGrey(menu)
     for i, opt in ipairs(options) do
         local w = makeLabelWidget(menu, optionLabel(opt))
         subWidgets[i] = w
         if w then
-            if opt.blocked and grey then
-                pcall(function() w:SetTextColor(grey) end)
+            if opt.blocked then
+                applyGrey(w, grey)
             end
             saw(wheel, i - 1, w)
         end
