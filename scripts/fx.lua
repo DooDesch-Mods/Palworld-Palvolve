@@ -466,7 +466,12 @@ prototypes.digimon = {
                 state.lastTick = now
                 local t = math.min((now - startedAt) / growS, 1.0)
                 local inv = 1.0 - t
-                local speed = c.peakDegPerSec * inv * inv -- decelerating spin
+                -- Linear wind-down, never below a floor: with the quadratic
+                -- curve the spin got so slow in the second half that the
+                -- characters own facing logic visibly fought it. Stay clearly
+                -- dominant until the end and snap to the face-player yaw on
+                -- the final tick.
+                local speed = math.max(c.peakDegPerSec * inv, 240)
                 state.yaw = (state.yaw + speed * dt) % 360
                 local s = 0.02 + 0.98 * (1.0 - inv * inv) -- ease-out growth
                 pcall(function() newActor:SetActorScale3D({ X = s, Y = s, Z = s }) end)
