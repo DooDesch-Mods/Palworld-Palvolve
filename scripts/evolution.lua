@@ -371,15 +371,16 @@ local function performEvolution(p)
     -- Phase 2: Rueckruf mit Eskalationskette, jede Stufe mit Despawn-Verifikation.
     -- PreProcess allein baut den Actor NICHT ab (live belegt); da die Eligibility den
     -- echten Current Otomo liefert, sind die Current-Funktionen hier zielsicher.
-    -- InactivateCurrentOtomo ist der live bewiesene Weg (Eligibility garantiert,
-    -- dass der Ziel-Pal der Current Otomo ist); die anderen bleiben als Fallbacks.
+    -- Direkter Manager-Teardown ZUERST: zerstoert den Actor ohne die Rueckruf-Action
+    -- des Holders - deren Ball-Optik laeuft ueber einen Mesh-Klon, den das Verstecken
+    -- des echten Actors nicht erfasst. InactivateCurrentOtomo bleibt Fallback, falls
+    -- der Direktweg den Otomo-Slot nicht sauber hinterlaesst.
     local recallStrategies = {
+        { name = "DirektTeardown", fn = function()
+            mgr:DespawnCharacterByHandle(handle, nil)
+        end },
         { name = "InactivateCurrentOtomo", fn = function()
             holder:InactivateCurrentOtomo()
-        end },
-        { name = "PreProcess+Complete", fn = function()
-            holder:InactiveOtomoByHandle_PreProcess(handle)
-            holder:CompleteInactiveCurrentOtomo()
         end },
         { name = "PlayerController:InactiveOtomo", fn = function()
             local pc = FindFirstOf("PalPlayerController")
@@ -515,8 +516,7 @@ local function performEvolution(p)
                     ExecuteInGameThread(function()
                         if newActor:IsValid() then
                             revealActor(newActor)
-                            playEffect(newActor, 5)   -- FadeIn
-                            playEffect(newActor, 41)  -- PalEnhancement-Glow als Abschluss
+                            playEffect(newActor, 5)  -- FadeIn (PalEnhancement klebte dauerhaft)
                             setFrozen(newActor, false)
                             playFanfare(newActor)
                         end
