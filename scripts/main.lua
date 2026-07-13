@@ -22,7 +22,7 @@ end
 -- Radial menu integration (Evolve entry in the hold-4 wheel)
 if Evolution then
     local okRadial, errRadial = pcall(function()
-        require("radialmenu").init(Evolution.check)
+        require("radialmenu").init(Evolution.check, Evolution.isArmed)
     end)
     if not okRadial then
         Log("radial menu integration failed to load: " .. tostring(errRadial))

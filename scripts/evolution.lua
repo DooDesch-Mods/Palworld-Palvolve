@@ -920,6 +920,12 @@ function Evolution.check()
         pair.from, level, pair.to, costHint, Config.confirmKey, Config.confirmWindowSeconds))
 end
 
+-- true while a confirm is armed; the radial menu label switches to
+-- "confirm" in that window
+function Evolution.isArmed()
+    return pending ~= nil and (os.clock() - pending.armedAt) <= Config.confirmWindowSeconds
+end
+
 function Evolution.rollbackLast()
     if lockBusy() then
         Log("Rollback blocked: an evolution is currently running")

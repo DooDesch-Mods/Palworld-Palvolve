@@ -47,6 +47,31 @@ local ourWidget = nil
 -- true while the cursor rests on our segment (maintained by the native
 -- UpdateSelectedIndex post-hooks); consumed on wheel close/decide
 local ourHover = false
+-- reports whether the evolution confirm window is armed (label text)
+local isArmedFn = nil
+-- vanilla hover sound while it is muted on our segment: the per-frame
+-- index reset would retrigger it every recompute, so the first (real)
+-- tick plays and the flapping afterwards is silenced
+local savedHoverSound = nil
+
+local function muteHoverSound(wheel)
+    if savedHoverSound ~= nil then return end
+    pcall(function()
+        local snd = wheel.HoveredSound
+        if snd and snd:IsValid() then
+            savedHoverSound = snd
+            wheel.HoveredSound = nil
+        end
+    end)
+end
+
+local function restoreHoverSound(wheel)
+    if savedHoverSound == nil then return end
+    pcall(function()
+        wheel.HoveredSound = savedHoverSound
+    end)
+    savedHoverSound = nil
+end
 
 -- Identify the action wheel by its outer chain: the inner
 -- WBP_CommonRadialMenuBase lives in WBP_PlayerRadialMenu's widget tree.
@@ -68,15 +93,22 @@ end
 local function labelText()
     -- vanilla labels are localized, so at least follow the game language
     -- for our own entry (fallback: English)
-    local txt = "Evolve"
+    local de = false
     pcall(function()
         local intl = StaticFindObject("/Script/Engine.Default__KismetInternationalizationLibrary")
         if not (intl and intl:IsValid()) then return end
         local lang = intl:GetCurrentLanguage()
         local s = type(lang) == "string" and lang or lang:ToString()
-        if s:sub(1, 2) == "de" then txt = "Entwickeln" end
+        de = s:sub(1, 2) == "de"
     end)
-    return txt
+    local armed = false
+    if isArmedFn then
+        pcall(function() armed = isArmedFn() == true end)
+    end
+    if armed then
+        return de and "Bestätigen?" or "Confirm?"
+    end
+    return de and "Entwickeln" or "Evolve"
 end
 
 local function makeLabelWidget(owner)
@@ -169,6 +201,8 @@ local function injectEntry(menu)
             if Config.devMode then Log("[radial] label widget creation failed") end
             return
         end
+        -- refresh per rebuild: the text flips to "confirm" while armed
+        pcall(function() ourWidget:SetText(FText(labelText())) end)
 
         -- preferred path: let the wheel register everything itself, which
         -- keeps the AdditionalWidget map intact for hover highlights
@@ -246,8 +280,9 @@ local function injectEntry(menu)
     end
 end
 
-function RadialMenu.init(evolutionCheck)
+function RadialMenu.init(evolutionCheck, isArmed)
     if not (Config.radialMenu == nil or Config.radialMenu) then return end
+    isArmedFn = isArmed
 
     -- consume-once commit shared by the close/decide hooks
     local function commitOurs()
@@ -267,9 +302,15 @@ function RadialMenu.init(evolutionCheck)
             if not (wheel and wheel:IsValid() and isActionWheel(wheel)) then return end
             local idx = wheel.nowSelectedIndex
             if ourIndex ~= nil and idx == ourIndex then
+                if not ourHover then
+                    -- first frame on our segment: vanilla just played its
+                    -- hover tick, silence the flapping from here on
+                    muteHoverSound(wheel)
+                end
                 ourHover = true
                 wheel.nowSelectedIndex = -1
             elseif idx >= 0 then
+                restoreHoverSound(wheel)
                 ourHover = false
             end
             -- idx == -1 keeps the last state: the wheel itself is sticky
@@ -309,6 +350,7 @@ function RadialMenu.init(evolutionCheck)
                 pcall(function() wheel = self:get() end)
                 if wheel and isActionWheel(wheel) then
                     commitOurs()
+                    restoreHoverSound(wheel)
                 end
                 ourHover = false
             end,
