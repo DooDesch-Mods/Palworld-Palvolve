@@ -676,13 +676,16 @@ function RadialMenu.init(evolutionApi)
     -- UE4SS keybinds fire on press, so the press that OPENS the menu comes
     -- before wheelOpen is set and never counts as cancel.
     pcall(function()
-        local key = Key.NUM_FOUR or Key.FOUR
-        RegisterKeyBind(key, function()
+        local function markCancel()
             if wheelOpen then
                 cancelRequested = true
                 if Config.devMode then Log("[radial] cancel gesture (4) detected") end
             end
-        end)
+        end
+        -- Key.FOUR is the top digit row (the radial key); NUM_FOUR is the
+        -- numpad - register both
+        if Key.FOUR then RegisterKeyBind(Key.FOUR, markCancel) end
+        if Key.NUM_FOUR then RegisterKeyBind(Key.NUM_FOUR, markCancel) end
     end)
 
     local registered = {}
