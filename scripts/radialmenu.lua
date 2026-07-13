@@ -6,9 +6,15 @@
 -- menu in CreatePlayerActionMenu - the generic WBP_CommonRadialMenuBase
 -- draws menuNum segments procedurally and the entry labels are
 -- WBP_PlayerRadialMenu_MenuContent widgets registered per segment index via
--- "Set Additional Widget". The committed segment lands in
--- OnDecidedPlayerActionMenu(Index), whose BP switch simply ignores indices
--- it does not know - so an appended entry is exclusively ours.
+-- "Set Additional Widget" (Canvas is an OUT param there). Label positions
+-- are computed against menuNum AT REGISTRATION TIME, so growing the wheel
+-- after the build misplaces every vanilla label. Instead we bump the
+-- newMenuNum parameter inside RecalcMenuNum while CreatePlayerActionMenu is
+-- on the stack: vanilla then positions all of its own labels for the extra
+-- segment already and we only append our label to the reserved last index
+-- afterwards. The committed segment lands in OnDecidedPlayerActionMenu(Index),
+-- whose BP switch simply ignores indices it does not know - so the appended
+-- entry is exclusively ours.
 
 local Config = require("config")
 
@@ -19,10 +25,31 @@ local function Log(msg)
 end
 
 local MENU_WBP = "/Game/Pal/Blueprint/UI/PlayerRadialMenu/WBP_PlayerRadialMenu.WBP_PlayerRadialMenu_C"
+local WHEEL_WBP = "/Game/Pal/Blueprint/UI/CommonWidget/RadialMenu/WBP_CommonRadialMenuBase.WBP_CommonRadialMenuBase_C"
 local CONTENT_WBP = "/Game/Pal/Blueprint/UI/PlayerRadialMenu/WBP_PlayerRadialMenu_MenuContent.WBP_PlayerRadialMenu_MenuContent_C"
 
 -- state of the currently open wheel
 local ourIndex = nil
+-- true while CreatePlayerActionMenu executes: the RecalcMenuNum pre-hook
+-- bumps the segment count by one ONLY inside that window
+local buildingActionMenu = false
+-- whether the bump actually happened during the current build; without it
+-- the wheel has no free segment and injection must be skipped
+local menuNumBumped = false
+
+local function labelText()
+    -- vanilla labels are localized, so at least follow the game language
+    -- for our own entry (fallback: English)
+    local txt = "Evolve"
+    pcall(function()
+        local intl = StaticFindObject("/Script/Engine.Default__KismetInternationalizationLibrary")
+        if not (intl and intl:IsValid()) then return end
+        local lang = intl:GetCurrentLanguage()
+        local s = type(lang) == "string" and lang or lang:ToString()
+        if s:sub(1, 2) == "de" then txt = "Entwickeln" end
+    end)
+    return txt
+end
 
 local function makeLabelWidget(owner)
     local widget = nil
@@ -34,7 +61,7 @@ local function makeLabelWidget(owner)
         widget = lib:Create(owner, cls, pc)
     end)
     if widget and widget:IsValid() then
-        local okText = pcall(function() widget:SetText(FText("Evolve")) end)
+        local okText = pcall(function() widget:SetText(FText(labelText())) end)
         if not okText and Config.devMode then
             Log("[radial] SetText failed - entry stays unlabeled")
         end
@@ -43,29 +70,34 @@ local function makeLabelWidget(owner)
     return nil
 end
 
-local function injectEntry(menu)
+local function injectEntry(menu, didBump)
     pcall(function()
         local wheel = menu.WBP_CommonRadialMenuBase
         if not (wheel and wheel:IsValid()) then
             if Config.devMode then Log("[radial] wheel reference missing") end
             return
         end
-        local vanillaCount = wheel.menuNum
-        -- CreatePlayerActionMenu rebuilds the wheel on every open, so the
-        -- menuNum we see here is the vanilla count and our slot is appended
-        -- fresh each time
-        ourIndex = vanillaCount
+        if not didBump then
+            ourIndex = nil
+            if Config.devMode then Log("[radial] RecalcMenuNum not seen during build - entry skipped") end
+            return
+        end
+        -- the RecalcMenuNum pre-hook already reserved the last segment
+        ourIndex = wheel.menuNum - 1
         local widget = makeLabelWidget(menu)
         if not widget then
             ourIndex = nil
             if Config.devMode then Log("[radial] label widget creation failed") end
             return
         end
-        wheel:RecalcMenuNum(vanillaCount + 1)
-        local okSet = pcall(function() wheel["Set Additional Widget"](wheel, ourIndex, widget) end)
+        local okSet = pcall(function()
+            -- last argument fills the Canvas OUT param slot; the value
+            -- itself is ignored by the function
+            wheel["Set Additional Widget"](wheel, ourIndex, widget, wheel.CanvasPanel_Inner)
+        end)
         if Config.devMode then
-            Log(string.format("[radial] Evolve entry injected at index %d (vanilla %d, set=%s)",
-                ourIndex, vanillaCount, tostring(okSet)))
+            Log(string.format("[radial] Evolve entry injected at index %d (menuNum %d, set=%s)",
+                ourIndex, wheel.menuNum, tostring(okSet)))
         end
     end)
 end
@@ -76,20 +108,40 @@ function RadialMenu.init(evolutionCheck)
     local hooks = {
         {
             path = MENU_WBP .. ":CreatePlayerActionMenu",
-            fn = function(self)
+            pre = function(self)
+                buildingActionMenu = true
+                menuNumBumped = false
+            end,
+            post = function(self)
+                buildingActionMenu = false
                 -- capture the UObject NOW: hook params are only valid during
                 -- the callback, the deferred injection then uses the object
                 local menu = nil
                 pcall(function() menu = self:get() end)
                 if not menu then return end
+                local didBump = menuNumBumped
                 ExecuteInGameThread(function()
-                    pcall(function() injectEntry(menu) end)
+                    pcall(function() injectEntry(menu, didBump) end)
+                end)
+            end,
+        },
+        {
+            path = WHEEL_WBP .. ":RecalcMenuNum",
+            pre = function(self, NewMenuNum)
+                if not buildingActionMenu then return end
+                pcall(function()
+                    local n = NewMenuNum:get()
+                    NewMenuNum:set(n + 1)
+                    menuNumBumped = true
+                    if Config.devMode then
+                        Log(string.format("[radial] menuNum bumped %d -> %d", n, n + 1))
+                    end
                 end)
             end,
         },
         {
             path = MENU_WBP .. ":OnDecidedPlayerActionMenu",
-            fn = function(self, Index)
+            pre = function(self, Index)
                 local idx = nil
                 pcall(function() idx = Index:get() end)
                 if idx ~= nil and ourIndex ~= nil and idx == ourIndex then
@@ -105,7 +157,12 @@ function RadialMenu.init(evolutionCheck)
         local allOk = true
         for _, h in ipairs(hooks) do
             if not registered[h.path] then
-                local ok = pcall(RegisterHook, h.path, h.fn)
+                local ok
+                if h.post then
+                    ok = pcall(RegisterHook, h.path, h.pre, h.post)
+                else
+                    ok = pcall(RegisterHook, h.path, h.pre)
+                end
                 registered[h.path] = ok
                 allOk = allOk and ok
             end
@@ -115,7 +172,7 @@ function RadialMenu.init(evolutionCheck)
     if tryHooks() then
         Log("Radial menu integration active: Evolve entry in the hold-4 wheel")
     else
-        -- the WBP loads with the HUD; retry until both hooks are in
+        -- the WBP loads with the HUD; retry until all hooks are in
         local done = false
         LoopAsync(5000, function()
             if done then return true end
