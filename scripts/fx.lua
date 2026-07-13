@@ -432,24 +432,54 @@ prototypes.digimon = {
         spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY - 80, ctx.oldZ + 100)
         playEffect(newActor, 2)
 
-        -- grow back with the spin winding down, ending face to face
+        -- One continuous driver from reveal to the end of the finale hold.
+        -- The ACTOR is set to face the player exactly once (the freeze keeps
+        -- it there); the spin itself runs on the MESH relative rotation -
+        -- purely visual, so no movement or facing system can fight it (the
+        -- actor-level spin visibly stuttered). The mesh keeps spinning
+        -- through the hold and steers back into its exact base rotation at
+        -- the very end.
         local c = digimonCfg()
-        local state = {
-            stopped = false,
-            yaw = ctx.fx.faceYaw or 0,
-            lastTick = os.clock(),
-        }
+        local faceYaw = yawTowardsPlayer(ctx.oldX, ctx.oldY) or (ctx.fx.faceYaw or 0)
+        setYaw(newActor, faceYaw)
+        pcall(function()
+            local ctrl = newActor:GetController()
+            if ctrl and ctrl:IsValid() then
+                ctrl:SetControlRotation({ Pitch = 0, Yaw = faceYaw, Roll = 0 })
+            end
+        end)
+        local state = { stopped = false, offset = 0, lastTick = os.clock() }
+        pcall(function()
+            local mesh = newActor:GetMainMesh()
+            local r = mesh.RelativeRotation
+            state.mesh = mesh
+            state.baseRot = { Pitch = r.Pitch, Yaw = r.Yaw, Roll = r.Roll }
+        end)
         ctx.fx.growState = state
+        local function setMeshOffset(offsetYaw)
+            local m, b = state.mesh, state.baseRot
+            if not (m and m:IsValid() and b) then return end
+            pcall(function()
+                m:K2_SetRelativeRotation(
+                    { Pitch = b.Pitch, Yaw = b.Yaw + offsetYaw, Roll = b.Roll },
+                    false, {}, false)
+            end)
+        end
+        state.setMeshOffset = setMeshOffset
         local startedAt = os.clock()
         local growS = c.growMs / 1000
+        local holdS = c.finaleHoldMs / 1000
+        local totalS = growS + holdS
+        local alignS = math.min(0.8, holdS * 0.4) -- steer-in window at the end
         LoopAsync(33, function()
             if state.stopped then return true end
             ExecuteInGameThread(function()
                 if state.stopped then return end
                 if not (newActor and newActor:IsValid()) then
-                    -- actor died mid-grow: normalize whatever the holder has now,
-                    -- then end the sequence as an abort (we own the lock here)
+                    -- actor died mid-drive: normalize whatever the holder has
+                    -- now, then end the sequence as an abort (we own the lock)
                     state.stopped = true
+                    state.finished = true
                     pcall(function()
                         local h = ctx.worldCtx
                         local re = (h and h:IsValid()) and h:TryGetSpawnedOtomo() or nil
@@ -464,62 +494,43 @@ prototypes.digimon = {
                 local now = os.clock()
                 local dt = now - state.lastTick
                 state.lastTick = now
-                local t = math.min((now - startedAt) / growS, 1.0)
-                local inv = 1.0 - t
-                -- Linear wind-down with a floor (a slow spin loses against
-                -- the characters own facing logic); in the last stretch steer
-                -- INTO the face-player yaw along the spin direction so the
-                -- rotation lands on it instead of snapping.
-                local targetYaw = yawTowardsPlayer(ctx.oldX, ctx.oldY)
+                local t = now - startedAt
                 local speed
-                if targetYaw and t >= 0.85 then
-                    local deltaCW = (targetYaw - state.yaw) % 360
-                    local remaining = math.max(inv * growS, 0.05)
-                    speed = math.min(math.max(deltaCW / remaining, 240), c.peakDegPerSec)
-                else
-                    speed = math.max(c.peakDegPerSec * inv, 240)
-                end
-                state.yaw = (state.yaw + speed * dt) % 360
-                local s = 0.02 + 0.98 * (1.0 - inv * inv) -- ease-out growth
-                pcall(function() newActor:SetActorScale3D({ X = s, Y = s, Z = s }) end)
-                local finalTick = (t >= 1.0)
-                local yawNow = state.yaw
-                if finalTick and targetYaw then yawNow = targetYaw end
-                setYaw(newActor, yawNow)
-                -- Sync the control rotation too: whatever facing logic still
-                -- runs on the possessed character then pulls TOWARDS our spin
-                -- instead of against it.
-                pcall(function()
-                    local ctrl = newActor:GetController()
-                    if ctrl and ctrl:IsValid() then
-                        ctrl:SetControlRotation({ Pitch = 0, Yaw = yawNow, Roll = 0 })
+                if t < growS then
+                    -- reveal: fast spin winding down to a steady rate while
+                    -- the pal grows (ease-out)
+                    local p = t / growS
+                    speed = c.peakDegPerSec * (1 - p) + 360 * p
+                    local invp = 1 - p
+                    local s = 0.02 + 0.98 * (1.0 - invp * invp)
+                    pcall(function() newActor:SetActorScale3D({ X = s, Y = s, Z = s }) end)
+                elseif t < totalS - alignS then
+                    -- finale hold: keep turning majestically while the
+                    -- effects play out
+                    if not state.scaleDone then
+                        state.scaleDone = true
+                        pcall(function() newActor:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
                     end
-                end)
-                if finalTick then
+                    local h = (t - growS) / math.max(holdS, 0.05)
+                    speed = 360 * (1 - h) + 120 * h
+                else
+                    -- steer the mesh back into its exact base rotation along
+                    -- the spin direction - lands, never snaps
+                    local deltaCW = (360 - (state.offset % 360)) % 360
+                    local remaining = math.max(totalS - t, 0.05)
+                    speed = math.min(math.max(deltaCW / remaining, 120), c.peakDegPerSec)
+                end
+                state.offset = state.offset + speed * dt
+                if t >= totalS then
                     state.stopped = true
+                    state.finished = true
+                    setMeshOffset(0)
                     pcall(function() newActor:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
-                    -- Finale hold: keep the pal frozen face-to-face while the
-                    -- finale effects play out - released right at grow end it
-                    -- immediately walked off to its AI chores mid-finale.
-                    ExecuteWithDelay(c.finaleHoldMs, function()
-                        ExecuteInGameThread(function()
-                            if state.finished then return end
-                            state.finished = true
-                            local a = (newActor and newActor:IsValid()) and newActor or nil
-                            if not a then
-                                pcall(function()
-                                    local h = ctx.worldCtx
-                                    local re = (h and h:IsValid()) and h:TryGetSpawnedOtomo() or nil
-                                    if re and re:IsValid() then a = re end
-                                end)
-                            end
-                            if a then
-                                pcall(function() a:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
-                                if ctx.unfreeze then pcall(ctx.unfreeze, a) end
-                            end
-                            if ctx.completeOk then pcall(ctx.completeOk) end
-                        end)
-                    end)
+                    setYaw(newActor, faceYaw)
+                    if ctx.unfreeze then pcall(ctx.unfreeze, newActor) end
+                    if ctx.completeOk then pcall(ctx.completeOk) end
+                else
+                    setMeshOffset(state.offset)
                 end
             end)
             return state.stopped
@@ -538,10 +549,11 @@ prototypes.digimon = {
             grow.stopped = true
             grow.finished = true
         end
-        -- never leave a mini/frozen pal behind on aborts
+        -- never leave a mini/frozen/mid-spin pal behind on aborts
         local a = ctx.fx.revealActor
         if a and a:IsValid() and growUnfinished then
             pcall(function() a:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
+            if grow and grow.setMeshOffset then pcall(grow.setMeshOffset, 0) end
             if ctx.unfreeze then pcall(ctx.unfreeze, a) end
         end
         if ctx.actor and ctx.actor:IsValid() then
