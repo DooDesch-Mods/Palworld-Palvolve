@@ -716,17 +716,17 @@ local function performEvolution(p)
             end)
         end
 
-        -- Activation pump: re-activate the SAME individual through the native
-        -- summon flow AT OUR TRANSFORM. SpawnOtomoByLoad places the pal at the
-        -- trainer anchor (player Z +3000, then adjust-to-floor) and keeps
-        -- re-anchoring it forever once that flow was disturbed - even after a
-        -- clean landing. Activating with an explicit location skips the anchor
-        -- entirely (vanilla ball throws spawn at the ball transform the same
-        -- way); SpawnOtomoByLoad stays as a late fallback. The engine needs a
-        -- settle time after the teardown, so attempts repeat until the actor
-        -- shows up. Verify every 100ms so the spawn is hidden immediately.
+        -- Activation pump. Root cause of the old hover bug: the holder BP
+        -- keeps every spawned-but-not-activated pal in ReservePalLocationList
+        -- and per-tick K2_SetActorLocation-warps it to the trainer anchor
+        -- (owner + Z offset); only the ActivateOtomo path removes it from the
+        -- list. SpawnOtomoByLoad only spawns (into the list), so the pal kept
+        -- warping forever. ActivateCurrentOtomo with an explicit transform
+        -- runs the full activate path at our position - the engine silently
+        -- rejects it until an internal settle completes, so retry until the
+        -- actor shows up. Verify every 100ms so the spawn is hidden instantly.
         local startedAt = os.clock()
-        local lastNudge = startedAt - 2.2 -- first attempt after ~0.8s
+        local lastNudge = startedAt - 1.2 -- first attempt after ~0.8s
         local nudgeCount = 0
         local pumpDone = false
         pcall(function() fx.onGap(ctx) end)
@@ -740,47 +740,32 @@ local function performEvolution(p)
                     return
                 end
                 local now = os.clock()
-                if (now - startedAt) > 15 then
+                if (now - startedAt) > 25 then
                     pumpDone = true
                     finishRespawn(false)
                     return
                 end
-                if (now - lastNudge) >= 2.5 then
+                if (now - lastNudge) >= 2.0 then
                     lastNudge = now
                     nudgeCount = nudgeCount + 1
-                    -- Strategy ladder, cycled: position-controlled activations
-                    -- first, the near-player summon (known-good spawner) next,
-                    -- the by-load restore (needs a still-summoned otomo) last.
-                    local how, okNudge
-                    local step = ((nudgeCount - 1) % 4) + 1
-                    if step == 1 and oldX then
-                        how = "ActivatePalByHandle"
-                        okNudge = pcall(function()
-                            holder:ActivatePalByHandle(handle,
-                                { X = oldX, Y = oldY, Z = (oldZ or 0) + 50 },
-                                { Pitch = 0, Yaw = oldYaw or 0, Roll = 0 }, true)
-                        end)
-                    elseif step == 2 and oldX then
-                        how = "ActivateCurrentOtomo"
-                        okNudge = pcall(function()
-                            holder:ActivateCurrentOtomo({
-                                Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
-                                Translation = { X = oldX, Y = oldY, Z = (oldZ or 0) + 50 },
-                                Scale3D = { X = 1, Y = 1, Z = 1 },
-                            })
-                        end)
-                    elseif step == 3 then
-                        how = "ActivateCurrentOtomoNearThePlayer"
-                        okNudge = pcall(function()
-                            holder:ActivateCurrentOtomoNearThePlayer()
-                        end)
-                    else
-                        how = "SpawnOtomoByLoad"
-                        okNudge = pcall(function()
-                            local idx = holder:GetSlotIndexByIndividualHandle(handle)
-                            holder:SpawnOtomoByLoad(idx)
-                        end)
-                    end
+                    -- ActivateCurrentOtomo with an explicit transform is the
+                    -- ONLY call that produces a healthy spawn after the
+                    -- teardown + holder cleanup: the pal appears at the given
+                    -- position, already landed and active - no trainer-anchor
+                    -- placement at all. The engine rejects it silently until
+                    -- some internal settle completes (observed ~3-13s), so
+                    -- just keep retrying this one call. The other activation
+                    -- APIs either no-op (ActivatePalByHandle, Current* before
+                    -- settle) or spawn through the broken anchor placement
+                    -- (SpawnOtomoByLoad without the holder cleanup).
+                    local how = "ActivateCurrentOtomo"
+                    local okNudge = pcall(function()
+                        holder:ActivateCurrentOtomo({
+                            Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
+                            Translation = { X = oldX or 0, Y = oldY or 0, Z = (oldZ or 0) + 50 },
+                            Scale3D = { X = 1, Y = 1, Z = 1 },
+                        })
+                    end)
                     pcall(function() fx.onGap(ctx) end)
                     Log(string.format("Activation attempt #%d (%s) ok=%s", nudgeCount, how, tostring(okNudge)))
                 end
