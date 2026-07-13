@@ -77,8 +77,13 @@ function RadialMenu.init(evolutionCheck)
         {
             path = MENU_WBP .. ":CreatePlayerActionMenu",
             fn = function(self)
+                -- capture the UObject NOW: hook params are only valid during
+                -- the callback, the deferred injection then uses the object
+                local menu = nil
+                pcall(function() menu = self:get() end)
+                if not menu then return end
                 ExecuteInGameThread(function()
-                    pcall(function() injectEntry(self:get()) end)
+                    pcall(function() injectEntry(menu) end)
                 end)
             end,
         },
@@ -111,9 +116,11 @@ function RadialMenu.init(evolutionCheck)
         Log("Radial menu integration active: Evolve entry in the hold-4 wheel")
     else
         -- the WBP loads with the HUD; retry until both hooks are in
+        local done = false
         LoopAsync(5000, function()
-            local done = false
+            if done then return true end
             ExecuteInGameThread(function()
+                if done then return end
                 done = tryHooks()
                 if done then
                     Log("Radial menu integration active: Evolve entry in the hold-4 wheel")
