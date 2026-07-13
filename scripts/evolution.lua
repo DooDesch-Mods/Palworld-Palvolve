@@ -983,25 +983,6 @@ end
 function Evolution.init()
     loadSnapshots()
 
-    -- One-time runtime capability probes once a world is loaded: they pin the
-    -- baked-table fallbacks when the out-param marshaling of the database
-    -- accessors is unusable in this UE4SS build ([probe-dropdata] /
-    -- [probe-elementtype]).
-    local probed = false
-    LoopAsync(3000, function()
-        if probed then return true end
-        ExecuteInGameThread(function()
-            if probed then return end
-            local holder = findHolder(nil)
-            if holder then
-                probed = true
-                pcall(function() Elements.probeRuntime(holder) end)
-                pcall(function() Costs.probeRuntime(holder) end)
-            end
-        end)
-        return probed
-    end)
-
     local lastPress = 0
     RegisterKeyBind(Key[Config.confirmKey], function()
         local now = os.clock()

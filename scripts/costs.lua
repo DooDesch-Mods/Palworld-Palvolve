@@ -91,9 +91,12 @@ local function staticDropRow(charId, level)
     return chosen and chosen.drops or nil
 end
 
--- Runtime drop lookup; disabled once the startup probe finds the out-struct
--- marshaling unusable in this UE4SS build.
+-- Runtime drop lookup. The out-struct marshaling is verified LAZILY on the
+-- first real use (never during savegame load - the call itself can crash
+-- natively while the world is still restoring): the first runtime result is
+-- compared against the baked table and a mismatch pins the fallback.
 local runtimeBroken = false
+local runtimeVerified = false
 local function runtimeDropRow(charId, level, worldCtx)
     if runtimeBroken then return nil end
     local drops = nil
@@ -117,13 +120,26 @@ local function runtimeDropRow(charId, level, worldCtx)
                 table.insert(list, {
                     id = idStr,
                     rate = tonumber(out["Rate" .. i]) or 0,
-                    min = tonumber(out["min" .. i]) or 0,
+                    min = tonumber(out["min" .. i]) or tonumber(out["Min" .. i]) or 0,
                     max = tonumber(out["Max" .. i]) or 0,
                 })
             end
         end
         if #list > 0 then drops = list end
     end)
+    if drops and not runtimeVerified then
+        -- one-time sanity check against the baked data; mismatched first
+        -- item = marshaling produced garbage -> trust the baked table
+        local st = staticDropRow(charId, level)
+        if st and st[1] and drops[1].id ~= st[1].id then
+            runtimeBroken = true
+            Log(string.format("Runtime drop lookup mismatch (%s vs %s) - using baked table",
+                drops[1].id, st[1].id))
+            return nil
+        end
+        runtimeVerified = true
+        if Config.devMode then Log("[probe-dropdata] runtime drop lookup OK (" .. drops[1].id .. ")") end
+    end
     return drops
 end
 
@@ -159,7 +175,9 @@ end
 -- Full price of a pair at a level. Returns costList, err.
 -- costList entries: { id, count, label }
 function Costs.resolve(pair, level, worldCtx)
-    local cacheKey = pair.from .. ">" .. pair.to
+    -- the level is part of the key: drop tables have level bands, so the
+    -- same pair can price differently at different levels
+    local cacheKey = pair.from .. ">" .. pair.to .. ":" .. tostring(level or 0)
     if resolveCache[cacheKey] then return resolveCache[cacheKey] end
 
     local list = {}
@@ -192,8 +210,21 @@ function Costs.resolve(pair, level, worldCtx)
             table.insert(list, { id = m.id, count = m.count, label = m.label or m.id })
         end
     end
-    resolveCache[cacheKey] = list
-    return list
+    -- coalesce duplicate item ids (a drop row can repeat an item across
+    -- slots; check() counts per entry and would otherwise pass on a total
+    -- the inventory cannot actually cover)
+    local byId, merged = {}, {}
+    for _, c in ipairs(list) do
+        if byId[c.id] then
+            byId[c.id].count = byId[c.id].count + c.count
+        else
+            local entry = { id = c.id, count = c.count, label = c.label }
+            byId[c.id] = entry
+            table.insert(merged, entry)
+        end
+    end
+    resolveCache[cacheKey] = merged
+    return merged
 end
 
 -- Returns ok, missing[] where missing entries carry {label, count, have}
@@ -261,22 +292,6 @@ function Costs.beginTransaction(costList)
         end
     end
     return txn
-end
-
--- Startup probe for the runtime drop lookup ([probe-dropdata]).
-function Costs.probeRuntime(worldCtx)
-    local rt = runtimeDropRow("Penguin", 1, worldCtx)
-    local st = staticDropRow("Penguin", 1)
-    if rt and st and rt[1] and st[1] and rt[1].id == st[1].id then
-        if Config.devMode then Log("[probe-dropdata] runtime drop lookup OK (" .. rt[1].id .. ")") end
-        return true
-    end
-    runtimeBroken = true
-    if Config.devMode then
-        Log(string.format("[probe-dropdata] runtime lookup unusable (rt=%s st=%s) - using baked table",
-            rt and rt[1] and rt[1].id or "nil", st and st[1] and st[1].id or "nil"))
-    end
-    return false
 end
 
 return Costs

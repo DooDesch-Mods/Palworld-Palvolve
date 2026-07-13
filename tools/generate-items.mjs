@@ -53,7 +53,10 @@ const stoneId = (el) => `Palvolve_AdaptationStone_${el}`;
             IconTexture: "$resource/Palvolve/adaptionstone",
             TypeA: "Material",
             TypeB: "MaterialProccessing",
-            Rank: 1,
+            // rank 2 pushes the recipes off the primitive workbench to a
+            // higher-tier station (the dedicated Element Extractor building
+            // arrives with the PMK wave)
+            Rank: 2,
             Rarity: 2,
             Price: 1500,
             MaxStackCount: 99,
@@ -67,7 +70,7 @@ const stoneId = (el) => `Palvolve_AdaptationStone_${el}`;
             IconTexture: "$resource/Palvolve/adaptionstone",
             TypeA: "Material",
             TypeB: "MaterialProccessing",
-            Rank: 1,
+            Rank: 2,
             Rarity: 3,
             Price: 5000,
             MaxStackCount: 99,

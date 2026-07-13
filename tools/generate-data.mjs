@@ -66,6 +66,10 @@ const skip = (name) => skipPrefixes.some((p) => name.startsWith(p));
 
 // ---------------------------------------------------------------- drops
 {
+    // known item ids for validation (drop rows occasionally carry ids that
+    // are not craft/inventory items; those would make costs unpayable)
+    const knownItems = new Set(loadRows("DT_ItemDataTable.json").map((r) => r.Name));
+    const unknownSeen = new Set();
     // composite table: parent (_Common) first, self overrides
     const byKey = new Map();
     for (const file of ["DT_PalDropItem_Common.json", "DT_PalDropItem.json"]) {
@@ -82,6 +86,10 @@ const skip = (name) => skipPrefixes.some((p) => name.startsWith(p));
         for (let i = 1; i <= 10; i++) {
             const id = p[`ItemId${i}`];
             if (!id || id === "None") continue;
+            if (!knownItems.has(id)) {
+                unknownSeen.add(id);
+                continue;
+            }
             drops.push({
                 id,
                 rate: Number(p[`Rate${i}`] ?? 0),

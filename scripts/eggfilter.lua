@@ -47,12 +47,16 @@ local function normalizeModel(model)
                 if c then table.insert(changes, c) end
             end)
             pcall(function()
+                -- no IsValid() gate: PalEggData may marshal as a struct
+                -- rather than a UObject; normalize() is pcall-safe anyway
                 local egg = items[i].PalEggData
-                if egg and egg:IsValid() then
+                if egg then
                     local c1 = normalize(egg)                 -- CharacterID on the item
-                    local c2 = normalize(egg.SaveParameter)   -- and inside its save data
                     if c1 then table.insert(changes, c1) end
-                    if c2 then table.insert(changes, c2) end
+                    pcall(function()
+                        local c2 = normalize(egg.SaveParameter)
+                        if c2 then table.insert(changes, c2) end
+                    end)
                 end
             end)
         end

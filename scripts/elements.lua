@@ -41,9 +41,28 @@ local function staticElements(charId)
     return staticTable[charId]
 end
 
--- Runtime lookup via the character database; nil when unavailable or when the
--- out-param marshaling does not work in this UE4SS build (probed at startup).
+-- Normalizes whatever the enum out-param marshals into (number, wrapper with
+-- :get(), or an "EPalElementType::Fire" style string) to an element name.
+local function toElementName(v)
+    if v == nil then return nil end
+    local n = tonumber(v)
+    if not n and type(v) ~= "string" then
+        pcall(function() n = tonumber(v:get()) end)
+        if not n then pcall(function() v = v:ToString() end) end
+    end
+    if n then return Elements.BY_ENUM[n] end
+    if type(v) == "string" then
+        local name = v:match("([%w]+)$")
+        if name and Elements.COLORS[name] then return name end
+    end
+    return nil
+end
+
+-- Runtime lookup via the character database; verified LAZILY on first real
+-- use against the baked table (never during savegame load - the call can
+-- crash natively while the world is still restoring).
 local runtimeBroken = false
+local runtimeVerified = false
 local function runtimeElements(charId, worldCtx)
     if runtimeBroken then return nil end
     local result = nil
@@ -53,13 +72,23 @@ local function runtimeElements(charId, worldCtx)
         local db = util:GetDatabaseCharacterParameter(worldCtx)
         if not (db and db:IsValid()) then return end
         local e1, e2 = db:GetElementType(FName(charId))
-        local n1 = tonumber(e1) or (e1 and e1.get and tonumber(e1:get()))
-        local n2 = tonumber(e2) or (e2 and e2.get and tonumber(e2:get()))
-        if n1 and Elements.BY_ENUM[n1] then
-            result = { Elements.BY_ENUM[n1] }
-            if n2 and Elements.BY_ENUM[n2] then result[2] = Elements.BY_ENUM[n2] end
+        local n1 = toElementName(e1)
+        if n1 then
+            result = { n1 }
+            local n2 = toElementName(e2)
+            if n2 then result[2] = n2 end
         end
     end)
+    if result and not runtimeVerified then
+        local st = staticElements(charId)
+        if st and st[1] and result[1] ~= st[1] then
+            runtimeBroken = true
+            Log(string.format("Runtime element lookup mismatch (%s vs %s) - using baked table",
+                result[1], st[1]))
+            return nil
+        end
+        runtimeVerified = true
+    end
     return result
 end
 
@@ -98,23 +127,6 @@ function Elements.adaptationElement(pair, worldCtx)
         end
     end
     return target[1]
-end
-
--- Startup probe: verifies the GetElementType out-param marshaling once and
--- pins the fallback when it disagrees with the baked data.
-function Elements.probeRuntime(worldCtx)
-    local rt = runtimeElements("Penguin", worldCtx)
-    local st = staticElements("Penguin")
-    if rt and st and rt[1] == st[1] then
-        if Config.devMode then Log("[probe-elementtype] runtime element lookup OK (" .. rt[1] .. ")") end
-        return true
-    end
-    runtimeBroken = true
-    if Config.devMode then
-        Log(string.format("[probe-elementtype] runtime lookup unusable (rt=%s st=%s) - using baked table",
-            rt and rt[1] or "nil", st and st[1] or "nil"))
-    end
-    return false
 end
 
 return Elements
