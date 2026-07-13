@@ -1,11 +1,13 @@
--- Palvolve-Kern: Eligibility, zweistufiger Confirm, transaktionaler Spezies-Swap,
--- Snapshot/Rollback, IV-Bonus und die Evolutions-Sequenz.
--- API-Fakten: Workspace/docs/Palvolve/RESEARCH.md. Sequenz-Design nach Codex-Review:
--- handle-gezielter Rueckruf (InactiveOtomoByHandle_PreProcess) + Aktivierung
--- (ActivatePalByHandle) statt der Current-Otomo-Funktionen, Swap erst nach
--- BESTAETIGTEM Despawn, Respawn wird verifiziert statt angenommen.
+-- Palvolve core: eligibility, two-stage confirm, transactional species swap,
+-- snapshots/rollback, IV bonus and the staged evolution sequence.
+-- API facts: Workspace/docs/Palvolve/RESEARCH.md. Sequence design: direct manager
+-- teardown first (the holder recall animates a mesh clone that ignores a hidden
+-- actor and is therefore only a fallback), species swap while despawned,
+-- activation pump with class-verified respawn, staged reveal driven by the
+-- selected FX prototype (fx.lua).
 
 local Config = require("config")
+local FX = require("fx")
 
 local Evolution = {}
 
@@ -16,7 +18,7 @@ local function Log(msg)
     print(string.format("[%s] %s\n", MOD_NAME, msg))
 end
 
--- ---------------------------------------------------------------- Utilities
+-- ---------------------------------------------------------------- utilities
 
 local function palUtility()
     local u = StaticFindObject("/Script/Pal.Default__PalUtility")
@@ -24,8 +26,8 @@ local function palUtility()
     return nil
 end
 
--- Owner-Check: Kennung steckt u.a. in der D-Komponente (lokaler Host = ...-0001),
--- deshalb alle vier Guid-Komponenten pruefen.
+-- Ownership lives in the guid components (local host = ...-0001 in D),
+-- so all four components must be checked.
 local function isOwned(param)
     local owned = false
     pcall(function()
@@ -85,9 +87,9 @@ local function findManager(ctx)
     return nil
 end
 
--- ---------------------------------------------------------------- Snapshots (Rollback)
+-- ---------------------------------------------------------------- snapshots (rollback)
 
--- Persistiert als ausfuehrbares Lua (einfachster robuster Weg ohne JSON-Lib).
+-- Persisted as executable Lua (simplest robust format without a JSON lib).
 local snapshots = {}
 
 local function loadSnapshots()
@@ -114,10 +116,10 @@ local function saveSnapshots()
         f:write("}\n")
         f:close()
     end)
-    if not ok then Log("Snapshot-Datei nicht schreibbar: " .. tostring(err)) end
+    if not ok then Log("Snapshot file not writable: " .. tostring(err)) end
 end
 
--- ---------------------------------------------------------------- FX-Bausteine
+-- ---------------------------------------------------------------- sound
 
 local function playFanfare(actor)
     pcall(function()
@@ -126,12 +128,6 @@ local function playFanfare(actor)
         if ake and ake:IsValid() and aks and aks:IsValid() then
             aks:PostEvent(ake, actor, 0, nil, false)
         end
-    end)
-end
-
-local function playEffect(actor, effectId)
-    pcall(function()
-        actor.VisualEffectComponent:AddVisualEffect(effectId, { FloatValues = {} })
     end)
 end
 
@@ -146,7 +142,7 @@ local function setFrozen(palActor, frozen)
     end)
 end
 
--- ---------------------------------------------------------------- Item-Kosten
+-- ---------------------------------------------------------------- item costs
 
 local function inventoryData()
     local inv = nil
@@ -169,8 +165,8 @@ local function countItem(staticItemId)
     return n
 end
 
--- Verbraucht need Stueck; Erfolg wird ueber die Count-Differenz verifiziert
--- (RequestConsumeInventoryItem ist der einzige BP-exponierte Konsum-Pfad).
+-- Consumes `need` items; success is verified via the count difference
+-- (RequestConsumeInventoryItem is the only BP-exposed consume path).
 local function tryConsumeItems(staticItemId, need)
     local ok = false
     pcall(function()
@@ -189,7 +185,7 @@ local function tryConsumeItems(staticItemId, need)
     return ok
 end
 
--- Prueft die Stein-Kosten fuer ein Paar; liefert ok, stoneId, anzeigename
+-- Checks the stone cost for a pair; returns ok, stoneId, displayName
 local function stoneCheck(pair)
     if not Config.requireStone then return true, nil, nil end
     local stoneId = Config.stoneItemIds[pair.stone]
@@ -198,7 +194,7 @@ local function stoneCheck(pair)
     return countItem(stoneId) >= Config.stoneCount, stoneId, stoneName
 end
 
--- ---------------------------------------------------------------- IV-Bonus
+-- ---------------------------------------------------------------- IV bonus
 
 local TALENT_FIELDS = { "Talent_HP", "Talent_Melee", "Talent_Shot", "Talent_Defense" }
 
@@ -223,16 +219,16 @@ local function applyIvBonus(param)
             table.insert(applied, string.format("%s %d->%d", field, cur, new))
         end)
         if not ok then
-            Log("IV-Bonus: Feld " .. field .. " nicht schreibbar (Feldname pruefen)")
+            Log("IV bonus: field " .. field .. " not writable (check field name)")
         end
     end
-    if #applied > 0 then Log("IV-Bonus: " .. table.concat(applied, ", ")) end
+    if #applied > 0 then Log("IV bonus: " .. table.concat(applied, ", ")) end
 end
 
--- ---------------------------------------------------------------- Polling-Helfer
+-- ---------------------------------------------------------------- polling helper
 
--- Prueft checkFn (Game-Thread) alle intervalMs, bis true oder timeoutMs erreicht;
--- ruft doneFn(success) genau einmal im Game-Thread auf.
+-- Runs checkFn on the game thread every intervalMs until it returns true or
+-- timeoutMs elapsed; calls doneFn(success) exactly once on the game thread.
 local function pollUntil(intervalMs, timeoutMs, checkFn, doneFn)
     local elapsed = 0
     local finished = false
@@ -256,18 +252,17 @@ local function pollUntil(intervalMs, timeoutMs, checkFn, doneFn)
     end)
 end
 
--- ---------------------------------------------------------------- Kern-Sequenz
+-- ---------------------------------------------------------------- core sequence
 
--- pending = { actor, param, pair, armedAt, key }
+-- pending = { actor, param, pair, holder, armedAt, key }
 local pending = nil
--- Globaler Sequenz-Lock: nie zwei Evolutionen parallel.
--- Watchdog: falls ein Fehlerpfad den Lock haengen laesst, gibt check() ihn
--- nach 30 s selbst wieder frei.
+-- Global sequence lock: never two evolutions in parallel. A watchdog in check()
+-- frees the lock after 30s in case an error path ever leaks it.
 local sequenceRunning = false
 local sequenceStartedAt = 0
 
--- Der Spieler kann nur 1 eigenen Pal gleichzeitig beschwoeren -> die autoritative
--- Quelle ist der Otomo-Holder, nicht ein FindAllOf-Scan (der auch Geister-Actor traefe).
+-- Only one own pal can be summoned at a time, so the otomo holder is the
+-- authoritative source (a FindAllOf scan would also hit ghost actors).
 local function findEligible()
     local holder = findHolder(nil)
     if not holder then return nil end
@@ -279,12 +274,12 @@ local function findEligible()
     local id = param:GetCharacterID():ToString()
     local pair = Config.findPair(id)
     if not pair then
-        return nil, string.format("%s hat keine Entwicklung", id)
+        return nil, string.format("%s has no evolution", id)
     end
     local level = 0
     pcall(function() level = param:GetLevel() end)
     if level < pair.minLevel then
-        return nil, string.format("%s braucht Level %d fuer die Entwicklung (aktuell %d)",
+        return nil, string.format("%s needs level %d to evolve (currently %d)",
             id, pair.minLevel, level)
     end
     return actor, param, pair, level, holder
@@ -295,43 +290,68 @@ local function performEvolution(p)
     pending = nil
     sequenceRunning = true
     sequenceStartedAt = os.clock()
+
+    -- Capture starting state (diagnostics + snapshot data + in-place staging)
+    local level, nickname = 0, ""
+    pcall(function() level = param:GetLevel() end)
+    pcall(function() nickname = param.SaveParameter.NickName and param.SaveParameter.NickName:ToString() or "" end)
+    local key = individualKey(param)
+    local talentsBefore = readTalents(param)
+    local oldX, oldY, oldZ, oldYaw, oldHalf = nil, nil, nil, 0, 0
+    pcall(function()
+        local loc = actor:K2_GetActorLocation()
+        oldX, oldY, oldZ = loc.X, loc.Y, loc.Z
+    end)
+    pcall(function() oldYaw = actor:K2_GetActorRotation().Yaw end)
+    pcall(function() oldHalf = actor:GetSimpleCollisionHalfHeight() end)
+
+    -- The FX prototype is fixed for the whole sequence, even if switched mid-run
+    local fx = FX.active()
+    local ctx = {
+        actor = actor, worldCtx = holder,
+        oldX = oldX, oldY = oldY, oldZ = oldZ, oldYaw = oldYaw, oldHalf = oldHalf,
+        fx = {},
+    }
+
     local function finish()
+        pcall(function() fx.cleanup(ctx) end)
         sequenceRunning = false
     end
+
     if not (actor:IsValid() and param:IsValid() and holder and holder:IsValid()) then
-        Log("Entwicklung abgebrochen: Pal/Holder nicht mehr gueltig")
+        Log("Evolution aborted: pal/holder no longer valid")
         finish()
         return
     end
 
     local mgr = findManager(actor)
     if not mgr then
-        Log("Entwicklung abgebrochen: PalCharacterManager nicht gefunden")
+        Log("Evolution aborted: PalCharacterManager not found")
         finish()
         return
     end
     local handle = nil
     pcall(function() handle = mgr:GetIndividualHandleFromCharacterParameter(param) end)
     if not (handle and handle:IsValid()) then
-        Log("Entwicklung abgebrochen: Individual-Handle nicht ermittelbar")
+        Log("Evolution aborted: individual handle unavailable")
         finish()
         return
     end
 
-    -- Stein-Kosten VOR der Sequenz einziehen (kein TOCTOU: schlaegt spaeter etwas
-    -- vor dem Swap fehl, wird der Stein zurueckerstattet; nach dem Swap ist er verdient)
+    -- Take the stone cost BEFORE the sequence (no TOCTOU: anything that fails
+    -- before the swap refunds the stone; after the swap it is earned)
     local paidStoneId = nil
     if Config.requireStone then
         local _, stoneId, stoneName = stoneCheck(pair)
         if stoneId then
             if not tryConsumeItems(stoneId, Config.stoneCount) then
-                Log(string.format("Entwicklung abgebrochen: %dx %s nicht verfuegbar/verbrauchbar",
+                Log(string.format("Evolution aborted: %dx %s not available/consumable",
                     Config.stoneCount, stoneName))
                 finish()
                 return
             end
             paidStoneId = stoneId
-            Log(string.format("%dx %s eingesetzt", Config.stoneCount, stoneName))
+            Log(string.format("%dx %s consumed", Config.stoneCount, stoneName))
         end
     end
     local function refundStone(reason)
@@ -340,46 +360,25 @@ local function performEvolution(p)
             local inv = inventoryData()
             if inv then
                 inv:AddItem_ServerInternal(FName(paidStoneId), Config.stoneCount, false, 0.0, true)
-                Log("Stein zurueckerstattet (" .. reason .. ")")
+                Log("Stone refunded (" .. reason .. ")")
             end
         end)
     end
 
-    -- Ausgangszustand festhalten (Diagnose + Snapshot-Daten + Position fuer
-    -- die Entwicklung VOR ORT)
-    local level, nickname = 0, ""
-    pcall(function() level = param:GetLevel() end)
-    pcall(function() nickname = param.SaveParameter.NickName and param.SaveParameter.NickName:ToString() or "" end)
-    local key = individualKey(param)
-    local talentsBefore = readTalents(param)
-    local oldLoc, oldRot = nil, nil
-    local oldX, oldY, oldZ, oldHalf = nil, nil, nil, 0
-    pcall(function()
-        oldLoc = actor:K2_GetActorLocation()
-        oldRot = actor:K2_GetActorRotation()
-        oldX, oldY, oldZ = oldLoc.X, oldLoc.Y, oldLoc.Z
-    end)
-    pcall(function() oldHalf = actor:GetSimpleCollisionHalfHeight() end)
-    Log(string.format("Sequenz-Start: %s Lv%d key=%s", pair.from, level, key))
+    Log(string.format("Sequence start: %s Lv%d key=%s fx=%s", pair.from, level, key, FX.get()))
 
-    -- Phase 1: Einfrieren + Evolutions-Optik. CaptureEmissive (ID 1) laesst den Pal
-    -- AN ORT UND STELLE weiss aufgluehen. VOR dem Rueckruf wird der Actor dann HART
-    -- versteckt (SetActorHiddenInGame) - die Ball-Einsaug-Animation laeuft damit
-    -- unsichtbar ins Leere (Codex-Design).
+    -- Phase 1: freeze + dissolve staging (white glow in place; the actor is
+    -- hard-hidden right before the teardown so no recall visuals ever show)
     setFrozen(actor, true)
     pcall(function() actor:SetActorEnableCollision(false) end)
-    playEffect(actor, 1)  -- CaptureEmissive: Weissglow vor Ort
+    pcall(function() fx.onDissolve(ctx) end)
     playFanfare(actor)
 
-    -- Phase 2: Rueckruf mit Eskalationskette, jede Stufe mit Despawn-Verifikation.
-    -- PreProcess allein baut den Actor NICHT ab (live belegt); da die Eligibility den
-    -- echten Current Otomo liefert, sind die Current-Funktionen hier zielsicher.
-    -- Direkter Manager-Teardown ZUERST: zerstoert den Actor ohne die Rueckruf-Action
-    -- des Holders - deren Ball-Optik laeuft ueber einen Mesh-Klon, den das Verstecken
-    -- des echten Actors nicht erfasst. InactivateCurrentOtomo bleibt Fallback, falls
-    -- der Direktweg den Otomo-Slot nicht sauber hinterlaesst.
+    -- Phase 2: teardown with per-strategy despawn verification. The direct
+    -- manager teardown destroys the actor without the holder recall action
+    -- (whose ball visuals run on a mesh clone that ignores a hidden actor).
     local recallStrategies = {
-        { name = "DirektTeardown", fn = function()
+        { name = "DirectTeardown", fn = function()
             mgr:DespawnCharacterByHandle(handle, nil)
         end },
         { name = "InactivateCurrentOtomo", fn = function()
@@ -391,32 +390,35 @@ local function performEvolution(p)
         end },
     }
 
-    -- Autoritative Sicht: der Holder weiss, ob ein Otomo draussen ist.
-    -- (handle:TryGetIndividualActor liefert auch nach dem Einzug noch einen
-    -- "gueltigen" Actor - live belegt, daher untauglich als Signal.)
+    -- Authoritative view: the holder knows whether an otomo is out.
+    -- (handle:TryGetIndividualActor stays "valid" after the recall - pooling.)
     local function isDespawned()
         local spawned = nil
         pcall(function() spawned = holder:TryGetSpawnedOtomo() end)
         return not (spawned and spawned:IsValid())
     end
 
-    local proceedAfterDespawn  -- forward declaration
+    local proceedAfterDespawn -- forward declaration
 
     local function tryRecall(i)
         if i > #recallStrategies then
-            Log("Rueckruf nicht bestaetigt (alle Strategien erschoepft) - breche OHNE Swap ab")
-            if actor:IsValid() then setFrozen(actor, false) end
-            refundStone("Rueckruf fehlgeschlagen")
+            Log("Despawn not confirmed (all strategies exhausted) - aborting WITHOUT swap")
+            if actor:IsValid() then
+                pcall(function() actor:SetActorHiddenInGame(false) end)
+                pcall(function() actor:SetActorEnableCollision(true) end)
+                setFrozen(actor, false)
+            end
+            refundStone("despawn failed")
             finish()
             return
         end
         local strat = recallStrategies[i]
         local okCall, errCall = pcall(strat.fn)
-        Log(string.format("Rueckruf-Versuch '%s' call=%s%s", strat.name, tostring(okCall),
+        Log(string.format("Teardown attempt '%s' call=%s%s", strat.name, tostring(okCall),
             okCall and "" or (" err=" .. tostring(errCall))))
         pollUntil(200, 2000, isDespawned, function(despawned)
             if despawned then
-                Log(string.format("Despawn bestaetigt via '%s'", strat.name))
+                Log(string.format("Despawn confirmed via '%s'", strat.name))
                 proceedAfterDespawn()
             else
                 tryRecall(i + 1)
@@ -425,10 +427,10 @@ local function performEvolution(p)
     end
 
     proceedAfterDespawn = function()
-        -- Phase 3: Swap im despawnten Zustand (sicherster Schreibmoment) + verifizieren
+        -- Phase 3: swap in the despawned state (safest write moment) + verify
         if not param:IsValid() then
-            Log("Abbruch: Parameter nach Despawn ungueltig")
-            refundStone("Parameter ungueltig")
+            Log("Aborted: parameter invalid after despawn")
+            refundStone("parameter invalid")
             finish()
             return
         end
@@ -439,16 +441,16 @@ local function performEvolution(p)
         local idNow = ""
         pcall(function() idNow = param:GetCharacterID():ToString() end)
         if not okSwap or idNow ~= pair.to then
-            Log(string.format("SWAP FEHLGESCHLAGEN (err=%s, id=%s) - kein Respawn-Versuch",
+            Log(string.format("SWAP FAILED (err=%s, id=%s) - no respawn attempt",
                 tostring(errSwap), idNow))
-            refundStone("Swap fehlgeschlagen")
+            refundStone("swap failed")
             finish()
             return
         end
         applyIvBonus(param)
         pcall(function() param:FullRecoveryHP() end)
 
-        -- Snapshot erst NACH erfolgreichem Swap (kein Phantom-Rollback-Eintrag)
+        -- Snapshot only AFTER a successful swap (no phantom rollback entries)
         table.insert(snapshots, {
             key = key, from = pair.from, to = pair.to, level = level, nickname = nickname,
             ivHP = talentsBefore.Talent_HP, ivMelee = talentsBefore.Talent_Melee,
@@ -456,26 +458,17 @@ local function performEvolution(p)
         })
         saveSnapshots()
 
-        -- Phase 4: Actor-Neuaufbau ERZWINGEN. Palworld poolt Pal-Actor - der Holder
-        -- reaktiviert sonst denselben (alten) Koerper (live belegt: Pengullet-Modell
-        -- trotz CaptainPenguin-Daten). Also: gepoolten Actor zerstoeren, dann an der
-        -- ALTEN Position neu aktivieren (Entwicklung vor Ort).
-        local okDespawn, errDespawn = pcall(function()
-            mgr:DespawnCharacterByHandle(handle, nil)
-        end)
-        if not okDespawn then
-            okDespawn = pcall(function() mgr:DespawnCharacterByHandle(handle) end)
-        end
-        Log(string.format("Actor-Teardown (DespawnCharacterByHandle) ok=%s%s",
-            tostring(okDespawn), okDespawn and "" or (" err=" .. tostring(errDespawn))))
+        -- Belt and braces: destroy the pooled actor even if a fallback strategy
+        -- did the recall (idempotent, pcall-guarded)
+        pcall(function() mgr:DespawnCharacterByHandle(handle, nil) end)
 
-        -- Phase 4+5: Aktivierungs-Pumpe mit inszeniertem Enthuellen.
+        -- Phase 4+5: activation pump with staged reveal
         local expectedClass = "BP_" .. pair.to .. "_C"
         local function isRespawned()
             local a = nil
             pcall(function() a = holder:TryGetSpawnedOtomo() end)
             if not (a and a:IsValid()) then return false end
-            -- SOFORT verstecken, bevor der Spawn sichtbar wird (Enthuellung kommt inszeniert)
+            -- hide instantly so the raw spawn is never visible (reveal is staged)
             pcall(function() a:SetActorHiddenInGame(true) end)
             pcall(function() a:SetActorEnableCollision(false) end)
             local cls = ""
@@ -483,21 +476,6 @@ local function performEvolution(p)
             return cls:find(expectedClass, 1, true) ~= nil
         end
 
-        -- Lichtsaeule an der Evolutions-Stelle (NS_Return = vanilla Licht-Aufloesung)
-        local function spawnGapLight()
-            pcall(function()
-                if not oldLoc then return end
-                local ns = StaticFindObject("/Game/Pal/Effect/Common/Return/NS_Return.NS_Return")
-                local lib = StaticFindObject("/Script/Niagara.Default__NiagaraFunctionLibrary")
-                if ns and ns:IsValid() and lib and lib:IsValid() then
-                    lib:SpawnSystemAtLocation(holder, ns, oldLoc, oldRot or {Pitch=0,Yaw=0,Roll=0},
-                        {X=1,Y=1,Z=1}, true, true, 0, false)
-                end
-            end)
-        end
-
-        -- Nur verifizierte Aufrufe: SetOpacityForCharacter/FadeIn hatten unklare
-        -- Semantik und liessen den neuen Pal unsichtbar (live beobachtet)
         local function revealActor(a)
             pcall(function() a:SetActorHiddenInGame(false) end)
             pcall(function() a:SetActorEnableCollision(true) end)
@@ -507,39 +485,39 @@ local function performEvolution(p)
             local newActor = nil
             pcall(function() newActor = holder:TryGetSpawnedOtomo() end)
             if success and newActor and newActor:IsValid() then
-                -- Inszeniertes Enthuellen an der alten Stelle. Hoehe NICHT selbst
-                -- rechnen (eigene Z-Mathematik hat den Pal begraben bzw. schweben
-                -- lassen): X/Y von der alten Stelle, Z von der gueltigen Platzierung,
-                -- die das Spiel dem frischen Spawn gegeben hat; Kollision vor dem
-                -- Teleport aktivieren, damit die Physik sauber absetzt.
+                -- Move to the evolution spot. Do NOT compute the height ourselves
+                -- (own capsule math buried or floated the pal): keep the Z of the
+                -- valid placement the game chose, only move X/Y, collision first
+                -- so physics settles cleanly.
                 if oldX then
                     pcall(function()
                         local cur = newActor:K2_GetActorLocation()
                         pcall(function() newActor:SetActorEnableCollision(true) end)
                         local target = { X = oldX, Y = oldY, Z = cur.Z }
-                        newActor:K2_TeleportTo(target, oldRot)
+                        newActor:K2_TeleportTo(target, { Pitch = 0, Yaw = oldYaw or 0, Roll = 0 })
                     end)
                 end
-                spawnGapLight()
-                ExecuteWithDelay(200, function()
+                pcall(function() fx.onPreReveal(ctx, newActor) end)
+                ExecuteWithDelay(fx.revealDelayMs(), function()
                     ExecuteInGameThread(function()
-                        -- Actor frisch holen (Referenz kann nach dem Spawn wechseln)
+                        -- refetch: the reference may change after the spawn
                         local a = nil
                         pcall(function() a = holder:TryGetSpawnedOtomo() end)
                         if not (a and a:IsValid()) then a = newActor end
                         if a and a:IsValid() then
                             revealActor(a)
-                            playEffect(a, 2)  -- SpawnFromBallEmissive: Weissglow-Erscheinen
+                            pcall(function() fx.onReveal(ctx, a) end)
                             setFrozen(a, false)
                             playFanfare(a)
                         end
+                        Log(string.format("EVOLVED: %s -> %s (level %d)%s - respawn with new model OK",
+                            pair.from, pair.to, level,
+                            nickname ~= "" and (" '" .. nickname .. "'") or ""))
+                        finish()
                     end)
                 end)
-                Log(string.format("ENTWICKELT: %s -> %s (Level %d)%s - Respawn mit neuem Modell OK",
-                    pair.from, pair.to, level,
-                    nickname ~= "" and (" '" .. nickname .. "'") or ""))
             else
-                -- Fehlerpfad: nichts unsichtbar zuruecklassen
+                -- failure path: never leave anything invisible behind
                 if newActor and newActor:IsValid() then
                     revealActor(newActor)
                     setFrozen(newActor, false)
@@ -548,22 +526,21 @@ local function performEvolution(p)
                 pcall(function()
                     if newActor and newActor:IsValid() then cls = newActor:GetClass():GetFullName() end
                 end)
-                Log(string.format("ENTWICKELT (Daten): %s -> %s (Level %d) - Respawn nicht bestaetigt (Klasse '%s' statt %s); bitte einmal manuell aussummonen",
+                Log(string.format("EVOLVED (data only): %s -> %s (level %d) - respawn not confirmed (class '%s' instead of %s); please resummon manually",
                     pair.from, pair.to, level, cls, expectedClass))
+                finish()
             end
-            finish()
         end
 
-        -- Aktivierungs-Pumpe: Die Engine gibt den neuen Actor erst nach variabler
-        -- Settle-Zeit frei (live: 4-10 s nach Teardown). Alle 1,2 s ein Impuls -
-        -- SpawnOtomoByLoad ZUERST (ballfrei), ActivateCurrentOtomoNearThePlayer nur
-        -- als Fallback (kann Wurf-Optik ausloesen). Verifikation alle 100 ms, damit
-        -- der Spawn sofort versteckt wird; die Lichtsaeule fuellt die Wartezeit.
+        -- Activation pump: the engine releases the new actor after a variable
+        -- settle time. Nudge every 1.2s - SpawnOtomoByLoad FIRST (ball-free),
+        -- ActivateCurrentOtomoNearThePlayer only as fallback (can trigger throw
+        -- visuals). Verify every 100ms so the spawn is hidden immediately.
         local startedAt = os.clock()
-        local lastNudge = startedAt  -- erste Impuls-Pause = Settle-Zeit
+        local lastNudge = startedAt -- first nudge pause doubles as settle time
         local nudgeCount = 0
         local pumpDone = false
-        spawnGapLight()
+        pcall(function() fx.onGap(ctx) end)
         LoopAsync(100, function()
             if pumpDone then return true end
             ExecuteInGameThread(function()
@@ -590,57 +567,60 @@ local function performEvolution(p)
                             holder:ActivateCurrentOtomoNearThePlayer()
                         end
                     end)
-                    spawnGapLight()
-                    Log(string.format("Aktivierungs-Impuls #%d ok=%s", nudgeCount, tostring(okNudge)))
+                    pcall(function() fx.onGap(ctx) end)
+                    Log(string.format("Activation nudge #%d ok=%s", nudgeCount, tostring(okNudge)))
                 end
             end)
             return pumpDone
         end)
     end
 
-    -- Rueckruf erst NACH dem Weissglow (ca. 1,2 s), und unmittelbar davor wird der
-    -- Actor HART unsichtbar gemacht - das Ball-Einsaugen ist dann nicht zu sehen
+    -- Start the teardown only AFTER the dissolve staging (~1.2s); the actor is
+    -- hard-hidden right before it so no despawn visuals are ever seen
     ExecuteWithDelay(1200, function()
         ExecuteInGameThread(function()
             local ok, err = pcall(function()
                 if actor:IsValid() then
+                    pcall(function() fx.onHide(ctx) end)
                     pcall(function() actor:SetActorHiddenInGame(true) end)
                     pcall(function() actor:SetActorEnableCollision(false) end)
                 end
                 tryRecall(1)
             end)
             if not ok then
-                Log("Rueckruf-Start FAIL: " .. tostring(err))
-                refundStone("Sequenzfehler")
+                Log("Teardown start FAIL: " .. tostring(err))
+                refundStone("sequence error")
                 finish()
             end
         end)
     end)
 end
 
--- ---------------------------------------------------------------- Public API
+-- ---------------------------------------------------------------- public API
 
 function Evolution.check()
     if sequenceRunning then
         if (os.clock() - sequenceStartedAt) > 30 then
-            Log("Sequenz-Lock haengt (>30s) - Watchdog gibt frei")
+            Log("Sequence lock stuck (>30s) - watchdog releasing it")
             sequenceRunning = false
         else
-            Log("Eine Entwicklung laeuft bereits - bitte warten")
+            Log("An evolution is already running - please wait")
             return
         end
     end
     local actor, param, pair, level, holder = findEligible()
     if not actor then
         if not pending then
-            Log(param or "Kein eigener Pal aussummont")
+            -- second return value carries the reason message when present
+            Log(param or "No own pal summoned")
         end
         return
     end
-    -- Stein-Kosten pruefen (greift erst mit requireStone=true, sobald die Steine existieren)
+
+    -- Stone cost check (only active with requireStone=true)
     local stoneOk, _, stoneName = stoneCheck(pair)
     if not stoneOk then
-        Log(string.format("%s (Lv %d) koennte sich zu %s entwickeln, aber es fehlt: %dx %s",
+        Log(string.format("%s (Lv %d) could evolve into %s, but missing: %dx %s",
             pair.from, level, pair.to, Config.stoneCount, stoneName))
         return
     end
@@ -649,33 +629,32 @@ function Evolution.check()
     local key = individualKey(param)
     if pending and (now - pending.armedAt) <= Config.confirmWindowSeconds then
         if pending.key == key then
-            -- FRISCHE Handles nutzen (der Pal kann seit dem Armieren neu ausgesummont
-            -- worden sein - alte Actor-/Holder-Referenzen waeren dann stale)
+            -- use FRESH handles (the pal may have been resummoned since arming)
             performEvolution({ actor = actor, param = param, pair = pair, holder = holder, key = key })
             return
         else
-            Log(string.format("Confirm-Ziel gewechselt (vorher %s, jetzt %s) - neu armiert", pending.key, key))
+            Log(string.format("Confirm target changed (was %s, now %s) - re-armed", pending.key, key))
         end
     end
     pending = { actor = actor, param = param, pair = pair, holder = holder, armedAt = now, key = key }
     playFanfare(actor)
     local costHint = ""
     if Config.requireStone and stoneName then
-        costHint = string.format(" [Kosten: %dx %s]", Config.stoneCount, stoneName)
+        costHint = string.format(" [cost: %dx %s]", Config.stoneCount, stoneName)
     end
-    Log(string.format("%s (Lv %d) kann sich zu %s entwickeln%s - %s erneut druecken zum Bestaetigen (%ds)",
+    Log(string.format("%s (Lv %d) can evolve into %s%s - press %s again to confirm (%ds)",
         pair.from, level, pair.to, costHint, Config.confirmKey, Config.confirmWindowSeconds))
 end
 
 function Evolution.rollbackLast()
     if sequenceRunning then
-        Log("Rollback blockiert: eine Entwicklung laeuft gerade")
+        Log("Rollback blocked: an evolution is currently running")
         return
     end
-    -- Snapshot erst NACH verifiziertem Restore entfernen (kein Datenverlust bei Fehlschlag)
+    -- Remove the snapshot only AFTER a verified restore (no data loss on failure)
     local last = snapshots[#snapshots]
     if not last then
-        Log("Rollback: kein Snapshot vorhanden")
+        Log("Rollback: no snapshot available")
         return
     end
     local reverted = false
@@ -683,8 +662,8 @@ function Evolution.rollbackLast()
     local hasKey = last.key and last.key ~= ""
     for _, p in ipairs(all) do
         if p:IsValid() and isOwned(p) and p:GetCharacterID():ToString() == last.to then
-            -- Mit Key NUR exakter Match (Spezies-Fallback traefe sonst z.B. den
-            -- falschen Yeti bei SmallYeti->Yeti vs. MopKing->Yeti)
+            -- With a key only the exact match counts (a species fallback could
+            -- hit the wrong individual, e.g. SmallYeti->Yeti vs MopKing->Yeti)
             local match = hasKey and (individualKey(p) == last.key) or (not hasKey)
             if match then
                 pcall(function()
@@ -715,16 +694,17 @@ function Evolution.rollbackLast()
     if reverted then
         table.remove(snapshots)
         saveSnapshots()
-        Log(string.format("Rollback %s -> %s: zurueckgesetzt inkl. IVs (neu aussummonen)",
+        Log(string.format("Rollback %s -> %s: restored including IVs (resummon to see the model)",
             last.to, last.from))
     else
-        Log(string.format("Rollback %s -> %s: kein passender Pal gefunden (Snapshot bleibt erhalten; Pal in die Naehe holen und erneut versuchen)",
+        Log(string.format("Rollback %s -> %s: no matching pal found (snapshot kept; bring the pal nearby and retry)",
             last.to, last.from))
     end
 end
 
 function Evolution.init()
     loadSnapshots()
+    FX.init(Config.fxPrototype)
 
     local lastPress = 0
     RegisterKeyBind(Key[Config.confirmKey], function()
@@ -737,7 +717,8 @@ function Evolution.init()
         end)
     end)
 
-    -- Level-Up-Benachrichtigung: meldet EINMAL pro Pal, sobald die Schwelle erreicht ist
+    -- Level-up notification: fires ONCE per individual and target once the
+    -- threshold is reached
     local notified = {}
     local hookRegistered = false
     local function tryHook()
@@ -752,16 +733,16 @@ function Evolution.init()
                     local id = param:GetCharacterID():ToString()
                     local pair = Config.findPair(id)
                     if not pair then return end
-                    -- nowLevel ist das Level VOR der Addition (live belegt)
+                    -- nowLevel is the level BEFORE the addition (verified live)
                     local newLevel = nowLevel:get() + addLevel:get()
                     if newLevel >= pair.minLevel then
-                        -- Key inkl. Ziel: nach einer Evolution meldet sich die
-                        -- naechste Kettenstufe (z.B. MopKing->Yeti) wieder neu
+                        -- key includes the target so the next chain stage
+                        -- (e.g. MopKing->Yeti) notifies again after evolving
                         local key = individualKey(param) .. ">" .. pair.to
                         if notified[key] then return end
                         notified[key] = true
                         playFanfare(actor)
-                        Log(string.format("%s hat Level %d erreicht und kann sich zu %s entwickeln! (%s druecken)",
+                        Log(string.format("%s reached level %d and can evolve into %s! (press %s)",
                             id, newLevel, pair.to, Config.confirmKey))
                     end
                 end)
@@ -777,26 +758,34 @@ function Evolution.init()
         end)
     end
 
-    -- Konsole: "palvolve rollback" | "palvolve check"
+    -- Console: "palvolve check|rollback|fx <name>"
     pcall(function()
         RegisterConsoleCommandHandler("palvolve", function(fullCommand, parameters)
             local sub = parameters[1] or "check"
+            local arg = parameters[2]
             ExecuteInGameThread(function()
                 local ok, err = pcall(function()
                     if sub == "rollback" then
                         Evolution.rollbackLast()
+                    elseif sub == "fx" then
+                        if arg and FX.set(arg) then
+                            Log("FX prototype set to '" .. arg .. "'")
+                        else
+                            Log(string.format("FX prototypes: %s (active: %s)",
+                                table.concat(FX.list(), ", "), FX.get()))
+                        end
                     else
                         Evolution.check()
                     end
                 end)
-                if not ok then Log("Konsole FAIL: " .. tostring(err)) end
+                if not ok then Log("Console FAIL: " .. tostring(err)) end
             end)
             return true
         end)
     end)
 
-    Log(string.format("Evolutions-Kern aktiv: %s = pruefen/bestaetigen, Konsole: palvolve check|rollback",
-        Config.confirmKey))
+    Log(string.format("Evolution core active: %s = check/confirm, console: palvolve check|rollback|fx <name> (FX: %s)",
+        Config.confirmKey, FX.get()))
 end
 
 return Evolution

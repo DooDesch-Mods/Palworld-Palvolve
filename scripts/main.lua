@@ -6,22 +6,22 @@ local function Log(msg)
     print(string.format("[%s] %s\n", MOD_NAME, msg))
 end
 
--- Pflicht-Zeile fuer den Dev-Loop: tail-ue4ss-log prueft auf "[Palvolve] loaded"
+-- Required line for the dev loop: tail-ue4ss-log waits for "[Palvolve] loaded"
 Log("loaded")
 
--- Evolutions-Kern
+-- Evolution core
 local okCore, errCore = pcall(function()
     require("evolution").init()
 end)
 if not okCore then
-    Log("Kern nicht geladen: " .. tostring(errCore))
+    Log("core failed to load: " .. tostring(errCore))
 end
 
--- Dev-Proben (nur im devMode; vor Release devMode=false + probes.lua nicht paketieren)
+-- Dev probes (devMode only; set devMode=false before release and do not package probes.lua)
 local okCfg, cfg = pcall(require, "config")
 if okCfg and cfg.devMode then
     local okProbes, errProbes = pcall(require, "probes")
     if not okProbes then
-        Log("Proben nicht geladen: " .. tostring(errProbes))
+        Log("probes failed to load: " .. tostring(errProbes))
     end
 end

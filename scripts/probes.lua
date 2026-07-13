@@ -1,22 +1,23 @@
--- Palvolve Dev-Proben (temporaer, vor Release loeschen).
--- Verifiziert die offenen Punkte aus Workspace/docs/Palvolve/RESEARCH.md live im Spiel.
--- Marker: [probe-pallevelup] [probe-expdb] [probe-speciesswap] [probe-vfx]
---         [probe-overlay] [probe-ake] [probe-freeze] [probe-giveexp] [probe-testkit]
+-- Palvolve dev probes (devMode only, never packaged for release).
+-- Live-verifies the open items from Workspace/docs/Palvolve/RESEARCH.md.
+-- Markers: [probe-pallevelup] [probe-expdb] [probe-speciesswap] [probe-vfx]
+--          [probe-overlay] [probe-ake] [probe-freeze] [probe-giveexp]
+--          [probe-testkit] [probe-revert]
 --
--- Keybinds (Testwelt "ModDev", eigenen Pal aussummonen):
---   F5 = Overlay-Glow an/aus (M_Glow)      F6 = AddVisualEffect CaptureEmissive
---   F7 = Species-Swap Penguin->CaptainPenguin (NUR Testwelt!)
---   F8 = Fanfare (AKE_CampLevelUp)         F9 = Freeze/Unfreeze naechster Pal
---   F10 = EXP an Pals im Umkreis (loest Level-Hook aus)
---   EINFG (Fallback F4) = Test-Kit: Sphaeren + Test-Pals (Eskalationskette mit Log)
-
+-- Keybinds (test world "ModDev", own pal summoned):
+--   F5 = overlay glow on/off (M_Glow)     F6 = cycle visual effects
+--   F7 = species swap probe (test world ONLY!)
+--   F8 = fanfare (AKE_CampLevelUp)        F9 = freeze/unfreeze nearest pal
+--   F10 = EXP to pals around (triggers the level-up hook)
+--   F3 = revert own evolved pals          INSERT (fallback F4) = test kit
+--
 local M = {}
 
 local function Log(msg)
     print(string.format("[Palvolve] %s\n", msg))
 end
 
--- UE4SS-Keybinds feuern doppelt (~35 ms Abstand, live beobachtet) -> Entprellung.
+-- UE4SS keybinds fire twice (~35ms apart, observed live) -> debounce.
 local lastFire = {}
 local function Debounced(name, fn)
     return function()
@@ -27,11 +28,11 @@ local function Debounced(name, fn)
     end
 end
 
--- ---------------------------------------------------------------- Hooks beim Laden
+-- ---------------------------------------------------------------- load-time hooks
 
--- Probe 1: feuert der BP-Level-Up-Handler? (UTF-8-Funktionsname mit japanischem "Event")
--- Der BP ist beim Lua-Init noch nicht geladen -> Registrierung mit Retry, bis die
--- Klasse existiert (spaetestens sobald der erste Pal in der Welt gespawnt ist).
+-- Probe 1: does the BP level-up handler fire? (UTF-8 function name with a
+-- Japanese "event" suffix.) The BP is not loaded during Lua init -> retry
+-- until the class exists (at the latest once the first pal spawns).
 local levelHookRegistered = false
 local function tryRegisterLevelHook()
     if levelHookRegistered then return true end
@@ -56,7 +57,7 @@ end
 
 local okNow, errNow = tryRegisterLevelHook()
 if not okNow then
-    Log(string.format("[probe-pallevelup] Sofort-Registrierung fehlgeschlagen (%s) - Retry alle 5 s", tostring(errNow)))
+    Log(string.format("[probe-pallevelup] immediate registration failed (%s) - retrying every 5s", tostring(errNow)))
     LoopAsync(5000, function()
         if levelHookRegistered then return true end
         ExecuteInGameThread(function()
@@ -66,7 +67,7 @@ if not okNow then
     end)
 end
 
--- Probe 2: laufen die PalExpDatabase-UFunctions ueber ProcessEvent?
+-- Probe 2: do the PalExpDatabase UFunctions go through ProcessEvent?
 for _, fn in ipairs({
     "/Script/Pal.PalExpDatabase:AddExpValue_forPlayerParty_Server",
     "/Script/Pal.PalExpDatabase:AddExp_forPlayerParty_ByExpCalcType",
@@ -78,10 +79,10 @@ for _, fn in ipairs({
     Log("[probe-expdb] hook " .. fn .. " ok=" .. tostring(hooked))
 end
 
--- ---------------------------------------------------------------- Helfer
+-- ---------------------------------------------------------------- helpers
 
 local function firstOwnedMonster()
-    -- Bevorzugt den eigenen (Otomo-)Pal; sonst den erstbesten gespawnten Monster-Actor.
+    -- Prefers the player's own (otomo) pal; otherwise the first spawned monster.
     local util = StaticFindObject("/Script/Pal.Default__PalUtility")
     local all = FindAllOf("BP_MonsterBase_C") or {}
     if util and util:IsValid() then
@@ -99,16 +100,16 @@ local function firstOwnedMonster()
     return nil
 end
 
--- ---------------------------------------------------------------- Keybind-Proben
+-- ---------------------------------------------------------------- keybind probes
 
--- F5: Overlay-Fallback (M_Glow), Restore nach ~2 s
+-- F5: overlay fallback (M_Glow), restored after ~2s
 RegisterKeyBind(Key.F5, Debounced("overlay", function()
     ExecuteInGameThread(function()
         local suc, e = pcall(function()
             local pal = firstOwnedMonster()
-            if not pal then Log("[probe-overlay] kein Pal gespawnt") return end
+            if not pal then Log("[probe-overlay] no pal spawned") return end
             local glow = StaticFindObject("/Game/Pal/Effect/Material/M_Glow.M_Glow")
-            if not glow or not glow:IsValid() then Log("[probe-overlay] M_Glow nicht gefunden") return end
+            if not glow or not glow:IsValid() then Log("[probe-overlay] M_Glow not found") return end
             local mesh = pal:GetMainMesh()
             mesh:SetOverlayMaterial(glow)
             ExecuteWithDelay(2000, function()
@@ -119,18 +120,18 @@ RegisterKeyBind(Key.F5, Debounced("overlay", function()
                     end
                 end)
             end)
-            Log("[probe-overlay] set auf " .. pal:GetFullName())
+            Log("[probe-overlay] set on " .. pal:GetFullName())
         end)
         if not suc then Log("[probe-overlay] FAIL: " .. tostring(e)) end
     end)
 end))
 
--- F6: spiel-eigene VisualEffects durchprobieren - jeder Druck der naechste Effekt.
--- Befund: 1=CaptureEmissive glueht auf und laesst den Pal VERSCHWINDEN (Fang-Verhalten)
--- = perfekte Phase 1 der Evolution; 2=SpawnFromBallEmissive sollte das Erscheinen sein.
+-- F6: cycle through the game's own visual effects - each press plays the next.
+-- Finding: 1=CaptureEmissive glows white and makes the pal VANISH (capture look)
+-- = perfect phase 1 of the evolution; 2=SpawnFromBallEmissive is the appear side.
 local VFX_IDS = {
-    { id = 1,  name = "CaptureEmissive (Glow + Verschwinden)" },
-    { id = 2,  name = "SpawnFromBallEmissive (Erscheinen mit Glow)" },
+    { id = 1,  name = "CaptureEmissive (glow + vanish)" },
+    { id = 2,  name = "SpawnFromBallEmissive (appear with glow)" },
     { id = 41, name = "PalEnhancement" },
     { id = 27, name = "RarePal" },
     { id = 5,  name = "FadeIn" },
@@ -140,7 +141,7 @@ local vfxIndex = 0
 RegisterKeyBind(Key.F6, Debounced("vfx", function()
     ExecuteInGameThread(function()
         local pal = firstOwnedMonster()
-        if not pal then Log("[probe-vfx] kein Pal gespawnt") return end
+        if not pal then Log("[probe-vfx] no pal spawned") return end
         vfxIndex = (vfxIndex % #VFX_IDS) + 1
         local entry = VFX_IDS[vfxIndex]
         local suc, e = pcall(function()
@@ -152,13 +153,13 @@ RegisterKeyBind(Key.F6, Debounced("vfx", function()
     end)
 end))
 
--- F7: Species-Swap-Kernprobe ueber mehrere Paare (NUR in der Testwelt ausloesen!)
--- Modell baut sich NICHT sofort neu (RequestRespawnPal wirkungslos) - erst beim
--- naechsten Beschwoeren/Box-Roundtrip spawnt der Actor als neue Spezies (live bewiesen).
+-- F7: raw species swap probe across several pairs (test world ONLY!)
+-- The model does NOT rebuild immediately - only the next summon/box roundtrip
+-- spawns the actor as the new species (verified live).
 local SWAP_PAIRS = {
     { from = "Penguin", to = "CaptainPenguin" },  -- Pengullet -> Penking
     { from = "MopBaby", to = "MopKing" },         -- Swee -> Sweepa
-    { from = "MopKing", to = "Yeti" },            -- Sweepa -> Wumpo (Fun-Kette)
+    { from = "MopKing", to = "Yeti" },            -- Sweepa -> Wumpo (fun chain)
 }
 RegisterKeyBind(Key.F7, Debounced("speciesswap", function()
     ExecuteInGameThread(function()
@@ -170,13 +171,13 @@ RegisterKeyBind(Key.F7, Debounced("speciesswap", function()
                         local hpBefore = p:GetMaxHP()
                         p.SaveParameter.CharacterID = FName(pair.to)
                         p.SaveParameterMirror.CharacterID = FName(pair.to)
-                        Log(string.format("[probe-speciesswap] %s -> %s, MaxHP %s -> %s (Box-Roundtrip/Resummon fuer Modell)",
+                        Log(string.format("[probe-speciesswap] %s -> %s, MaxHP %s -> %s (box roundtrip/resummon for the model)",
                             pair.from, p:GetCharacterID():ToString(), tostring(hpBefore), tostring(p:GetMaxHP())))
                         return
                     end
                 end
             end
-            -- Diagnose: welche Spezies sind ueberhaupt im Speicher?
+            -- diagnostics: which species are in memory at all?
             local seen, list = {}, {}
             for _, p in ipairs(all) do
                 if p:IsValid() then
@@ -188,22 +189,21 @@ RegisterKeyBind(Key.F7, Debounced("speciesswap", function()
                     end
                 end
             end
-            Log("[probe-speciesswap] kein Swap-Kandidat; Spezies im Speicher: " .. table.concat(list, ", "))
+            Log("[probe-speciesswap] no swap candidate; species in memory: " .. table.concat(list, ", "))
         end)
         if not suc then Log("[probe-speciesswap] FAIL: " .. tostring(e)) end
     end)
 end))
 
--- F3: Rueckverwandlung fuers Testen - NUR eigene Pals (Owner-Filter wie im echten Mod)
+-- F3: revert for testing - takes ALL candidates and logs the raw owner guid.
+-- Finding: the local host player's uid lives in the D component (...-0001).
 local REVERT_PAIRS = {
     { from = "CaptainPenguin", to = "Penguin" },  -- Penking -> Pengullet
     { from = "MopKing", to = "MopBaby" },         -- Sweepa -> Swee
     { from = "Yeti", to = "MopKing" },            -- Wumpo -> Sweepa
 }
--- Befund: OwnerPlayerUId.A war auch beim eigenen Penking 0 (oder nicht lesbar) ->
--- Revert nimmt vorerst ALLE Kandidaten und loggt den rohen Owner-Guid zur Diagnose.
 local function ownerGuidString(p)
-    local s = "unlesbar"
+    local s = "unreadable"
     pcall(function()
         local g = p.SaveParameter.OwnerPlayerUId
         s = string.format("%08X-%08X-%08X-%08X", g.A, g.B, g.C, g.D)
@@ -224,7 +224,7 @@ RegisterKeyBind(Key.F3, Debounced("revert", function()
                             p.SaveParameter.CharacterID = FName(pair.to)
                             p.SaveParameterMirror.CharacterID = FName(pair.to)
                             count = count + 1
-                            Log(string.format("[probe-revert] %s -> %s (OwnerGuid %s)",
+                            Log(string.format("[probe-revert] %s -> %s (owner guid %s)",
                                 pair.from, pair.to, ownerGuidString(p)))
                             break
                         end
@@ -232,24 +232,24 @@ RegisterKeyBind(Key.F3, Debounced("revert", function()
                 end
             end
             if count == 0 then
-                Log("[probe-revert] keine Rueckverwandlungs-Kandidaten gefunden")
+                Log("[probe-revert] no revert candidates found")
             else
-                Log(string.format("[probe-revert] %d Pal(s) zurueckverwandelt - ein-/aussummonen fuer das Modell", count))
+                Log(string.format("[probe-revert] %d pal(s) reverted - resummon for the model", count))
             end
         end)
         if not suc then Log("[probe-revert] FAIL: " .. tostring(e)) end
     end)
 end))
 
--- F8: Fanfare via Wwise
+-- F8: fanfare via Wwise
 RegisterKeyBind(Key.F8, Debounced("ake", function()
     ExecuteInGameThread(function()
         local suc, e = pcall(function()
             local pal = firstOwnedMonster()
             local ake = StaticFindObject("/Game/Pal/Sound/Events/SE/UI/CampLevelUp/AKE_CampLevelUp.AKE_CampLevelUp")
             local aks = StaticFindObject("/Script/AkAudio.Default__AkGameplayStatics")
-            if not (ake and ake:IsValid()) then Log("[probe-ake] AKE_CampLevelUp nicht gefunden") return end
-            if not (aks and aks:IsValid()) then Log("[probe-ake] AkGameplayStatics nicht gefunden") return end
+            if not (ake and ake:IsValid()) then Log("[probe-ake] AKE_CampLevelUp not found") return end
+            if not (aks and aks:IsValid()) then Log("[probe-ake] AkGameplayStatics not found") return end
             local id = aks:PostEvent(ake, pal, 0, nil, false)
             Log("[probe-ake] PostEvent id=" .. tostring(id))
         end)
@@ -257,13 +257,13 @@ RegisterKeyBind(Key.F8, Debounced("ake", function()
     end)
 end))
 
--- F9: Freeze-Toggle (AI aus + Move-Lock)
+-- F9: freeze toggle (AI off + move lock)
 local frozen = false
 RegisterKeyBind(Key.F9, Debounced("freeze", function()
     ExecuteInGameThread(function()
         local suc, e = pcall(function()
             local pal = firstOwnedMonster()
-            if not pal then Log("[probe-freeze] kein Pal gespawnt") return end
+            if not pal then Log("[probe-freeze] no pal spawned") return end
             frozen = not frozen
             local ctrl = pal:GetController()
             if ctrl and ctrl:IsValid() then ctrl:SetActiveAI(not frozen) end
@@ -271,22 +271,22 @@ RegisterKeyBind(Key.F9, Debounced("freeze", function()
             if util and util:IsValid() then
                 util:SetMoveDisableFlag(pal, frozen, FName("EvoSeq"))
             end
-            Log("[probe-freeze] frozen=" .. tostring(frozen) .. " auf " .. pal:GetFullName())
+            Log("[probe-freeze] frozen=" .. tostring(frozen) .. " on " .. pal:GetFullName())
         end)
         if not suc then Log("[probe-freeze] FAIL: " .. tostring(e)) end
     end)
 end))
 
--- Test-Kit (EINFG, Fallback F4): Eskalationskette, jeder Schritt loggt sein Ergebnis.
--- Befund 1. Versuch: RequestAddItem_ForDebug + Debug_Capture*_ToServer laufen fehlerfrei
--- durch, bewirken im Shipping-Build aber NICHTS (vermutlich Debug-Gate) -> jetzt die
--- autoritativen Wege mit Rueckgabewert-Auswertung.
+-- Test kit (INSERT, fallback F4): escalation chain, every step logs its result.
+-- Finding: RequestAddItem_ForDebug and the Debug_Capture*_ToServer RPCs run
+-- without errors but do NOTHING in the shipping build -> the authoritative
+-- paths with return value checks are used instead.
 local function giveItemsV2(inv)
-    -- Autoritativer Weg (Single-Player = lokale Autoritaet): Result-Enum auswerten
+    -- Authoritative path (single player = local authority): check the result enum
     local ok, err = pcall(function()
         local ret1 = inv:AddItem_ServerInternal(FName("PalSphere"), 20, false, 0.0, true)
         local ret2 = inv:AddItem_ServerInternal(FName("PalSphere_Mega"), 10, false, 0.0, true)
-        -- Palvolve-Steine (existieren nur, wenn PalSchema die Items geladen hat)
+        -- Palvolve stones (exist only when PalSchema loaded the items)
         local ret3 = inv:AddItem_ServerInternal(FName("Palvolve_EvolutionStone"), 5, false, 0.0, true)
         local ret4 = inv:AddItem_ServerInternal(FName("Palvolve_AdaptionStone"), 5, false, 0.0, true)
         Log(string.format("[probe-testkit] AddItem PalSphere=%s Mega=%s EvoStone=%s AdaptStone=%s",
@@ -298,27 +298,25 @@ end
 local function getCheatManager(pc)
     local cm = pc.CheatManager
     if cm and cm:IsValid() then return cm end
-    -- Shipping erzeugt den CheatManager erst nach EnableCheats
+    -- shipping builds create the cheat manager only after EnableCheats
     pcall(function() pc:EnableCheats() end)
     cm = pc.CheatManager
     if cm and cm:IsValid() then return cm end
     return nil
 end
 
--- Befund 2. Versuch (live): Debug_Capture*, cm:CaptureNewMonster, cm:SpawnMonsterForPlayer
--- und cm:GetItem laufen alle ok=true durch, bewirken im Retail aber NICHTS Sichtbares.
--- Pal-Give ist damit tot - Test-Pals werden manuell gefangen. Letzter Versuch hier:
--- cm:SpawnMonster (ohne ForPlayer) als einzelner Kandidat, sonst nur noch Sphaeren.
 local function givePalsV2(pc)
+    -- All pal-give paths are confirmed dead in retail; SpawnMonster stays as the
+    -- last candidate (result visible only in-world).
     local cm = getCheatManager(pc)
-    if not cm then
-        Log("[probe-testkit] kein CheatManager")
-        return
+    if cm then
+        local ok, err = pcall(function()
+            cm:SpawnMonster(FName("Penguin"), 31)
+        end)
+        Log(string.format("[probe-testkit] cm:SpawnMonster ok=%s err=%s", tostring(ok), tostring(err)))
+    else
+        Log("[probe-testkit] no CheatManager (even after EnableCheats)")
     end
-    local ok, err = pcall(function()
-        cm:SpawnMonster(FName("Penguin"), 31)
-    end)
-    Log(string.format("[probe-testkit] cm:SpawnMonster ok=%s err=%s", tostring(ok), tostring(err)))
 end
 
 local KIT_KEY = Key.INS or Key.F4
@@ -326,14 +324,14 @@ RegisterKeyBind(KIT_KEY, Debounced("testkit", function()
     ExecuteInGameThread(function()
         local suc, e = pcall(function()
             local pc = FindFirstOf("PalPlayerController")
-            if not pc or not pc:IsValid() then Log("[probe-testkit] kein PalPlayerController") return end
+            if not pc or not pc:IsValid() then Log("[probe-testkit] no PalPlayerController") return end
             local ps = pc:GetPalPlayerState()
-            if not ps or not ps:IsValid() then Log("[probe-testkit] kein PalPlayerState") return end
+            if not ps or not ps:IsValid() then Log("[probe-testkit] no PalPlayerState") return end
             local inv = ps:GetInventoryData()
             if inv and inv:IsValid() then
                 giveItemsV2(inv)
             else
-                Log("[probe-testkit] kein InventoryData")
+                Log("[probe-testkit] no InventoryData")
             end
             givePalsV2(pc)
         end)
@@ -341,26 +339,26 @@ RegisterKeyBind(KIT_KEY, Debounced("testkit", function()
     end)
 end))
 
--- F10: EXP-Hebel, um den Level-Hook reproduzierbar auszuloesen
+-- F10: EXP lever to trigger level-ups reproducibly
 RegisterKeyBind(Key.F10, Debounced("giveexp", function()
     ExecuteInGameThread(function()
         local suc, e = pcall(function()
             local player = FindFirstOf("PalPlayerCharacter")
-            if not player or not player:IsValid() then Log("[probe-giveexp] kein Spieler") return end
+            if not player or not player:IsValid() then Log("[probe-giveexp] no player") return end
             local util = StaticFindObject("/Script/Pal.Default__PalUtility")
-            -- GiveExpToAroundPlayerCharacter trifft nur SPIELER (live bestaetigt) ->
-            -- GiveExpToAroundCharacter mit CharacterClass=PalCharacter fuer die Pals
-            -- (Dump :64555: WorldContext, Center, Radius, Exp, CharacterClass, bCallDelegate)
+            -- GiveExpToAroundPlayerCharacter only hits PLAYERS (verified live) ->
+            -- GiveExpToAroundCharacter with CharacterClass=PalCharacter for pals
+            -- (dump :64555: WorldContext, Center, Radius, Exp, CharacterClass, bCallDelegate)
             local center = player:K2_GetActorLocation()
             local palClass = StaticFindObject("/Script/Pal.PalCharacter")
             util:GiveExpToAroundCharacter(player, center, 3000.0, 50000.0, palClass, true)
-            Log("[probe-giveexp] 50000 EXP an Pals im Umkreis vergeben")
+            Log("[probe-giveexp] 50000 EXP given to pals around")
         end)
         if not suc then Log("[probe-giveexp] FAIL: " .. tostring(e)) end
     end)
 end))
 
-Log(string.format("Proben aktiv: F3 Revert(eigene), F5 Overlay, F6 VFX, F7 SpeciesSwap, F8 Fanfare, F9 Freeze, F10 GiveExp, TestKit auf %s",
-    Key.INS and "EINFG" or "F4"))
+Log(string.format("Probes active: F3 revert(own), F5 overlay, F6 VFX, F7 species swap, F8 fanfare, F9 freeze, F10 give EXP, test kit on %s",
+    Key.INS and "INSERT" or "F4"))
 
 return M

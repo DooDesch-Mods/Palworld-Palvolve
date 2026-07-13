@@ -1,28 +1,33 @@
--- Palvolve-Konfiguration: Evolutions-Map und Einstellungen.
--- Kategorien: "evolution" (kleine -> grosse Form), "funchain" (ueber Familiengrenzen),
--- "adaptation" (Elementwechsel). stone: "evolution" | "adaptation" - Item-Kosten greifen
--- erst, wenn die PalSchema-Steine existieren (requireStone=false solange).
+-- Palvolve configuration: evolution map and settings.
+-- Categories: "evolution" (small -> big form), "funchain" (across family lines),
+-- "adaptation" (element variant). stone: "evolution" | "adaptation" - item costs
+-- only apply while requireStone is true.
 --
--- Map-Grundlage: DT_PalMonsterParameter (buildid 24088745), verifizierte Zeilennamen -
--- siehe Workspace/docs/Palvolve/RESEARCH.md. findPair nimmt den ERSTEN enabled-Treffer:
--- Evolutionen stehen deshalb VOR Adaptationen derselben Basis (z.B. Penguin).
--- BOSS_/GYM_/RAID_/_Oilrig/_Tower-IDs duerfen NIE Ziel sein (Boss-/Spawn-Logik).
+-- Map basis: DT_PalMonsterParameter (buildid 24088745), verified row names -
+-- see Workspace/docs/Palvolve/RESEARCH.md. findPair returns the FIRST enabled
+-- match: evolutions are therefore listed BEFORE adaptations of the same base
+-- (e.g. Penguin). BOSS_/GYM_/RAID_/_Oilrig/_Tower ids must NEVER be targets
+-- (boss/spawn logic is attached to them).
 
 local Config = {
-    -- Dev-Modus: laedt die Probe-Suite (F3/F5-F10/EINFG-Cheats). VOR RELEASE auf false
-    -- setzen UND probes.lua nicht paketieren.
+    -- Dev mode: loads the probe suite (F3/F5-F10/INSERT cheats). Set to false
+    -- BEFORE release AND do not package probes.lua.
     devMode = true,
 
-    -- Zweistufiger Confirm: erster Druck prueft und meldet, zweiter Druck bestaetigt.
+    -- Visual staging for the transformation gap: "pillar" | "shrink" | "statue"
+    -- | "cocoon" (see fx.lua). Switchable at runtime: `palvolve fx <name>`.
+    fxPrototype = "statue",
+
+    -- Two-stage confirm: first press checks and announces, second press confirms.
     confirmKey = "F2",
     confirmWindowSeconds = 10,
     debounceSeconds = 0.5,
 
-    -- IV-Bonus pro Evolutionsstufe (auf Talent_HP/Melee/Shot/Defense, Cap 100)
+    -- IV bonus per evolution stage (applied to Talent_HP/Melee/Shot/Defense, capped)
     ivBonusPerStage = 5,
     ivCap = 100,
 
-    -- Item-Kosten (Steine existieren via PalSchema; false = Gratis-Modus)
+    -- Item costs (stones exist via PalSchema; false = free mode)
     requireStone = true,
     stoneCount = 1,
     stoneItemIds = {
@@ -30,16 +35,16 @@ local Config = {
         adaptation = "Palvolve_AdaptionStone",
     },
     stoneNames = {
-        evolution = "Entwicklungsstein",
-        adaptation = "Adaptionsstein",
+        evolution = "Evolution Stone",
+        adaptation = "Adaption Stone",
     },
 
-    -- Schema-Version der Map (fuer spaetere Migrationen)
+    -- Map schema version (for future migrations)
     schemaVersion = 2,
     gameBuild = 24088745,
 
     map = {
-        -- ==================== Echte Evolutionen (kleine -> grosse Form) ====================
+        -- ==================== True evolutions (small -> big form) ====================
         { from = "Penguin",            to = "CaptainPenguin",   category = "evolution", minLevel = 30, stone = "evolution", enabled = true },  -- Pengullet -> Penking
         { from = "MopBaby",            to = "MopKing",          category = "evolution", minLevel = 25, stone = "evolution", enabled = true },  -- Swee -> Sweepa
         { from = "Alpaca",             to = "KingAlpaca",       category = "evolution", minLevel = 35, stone = "evolution", enabled = true },
@@ -49,16 +54,16 @@ local Config = {
         { from = "MonochromeMushroom", to = "MonochromeQueen",  category = "evolution", minLevel = 35, stone = "evolution", enabled = true },
         { from = "SmallYeti",          to = "Yeti",             category = "evolution", minLevel = 40, stone = "evolution", enabled = true },
 
-        -- ==================== Fun-Ketten (ueber Familiengrenzen) ====================
+        -- ==================== Fun chains (across family lines) ====================
         { from = "MopKing",         to = "Yeti",       category = "funchain", minLevel = 45, stone = "evolution", enabled = true },   -- Sweepa -> Wumpo
-        -- Thematische Kandidaten (Kuratierungs-Entscheidung, default AUS):
+        -- Thematic candidates (curation decisions, disabled by default):
         { from = "Bastet",          to = "Sekhmet",    category = "funchain", minLevel = 45, stone = "evolution", enabled = false },
         { from = "PinkCat",         to = "BadCatgirl", category = "funchain", minLevel = 35, stone = "evolution", enabled = false },
         { from = "SmallArmadillo",  to = "DrillGame",  category = "funchain", minLevel = 30, stone = "evolution", enabled = false },
         { from = "LeafPrincess",    to = "LilyQueen",  category = "funchain", minLevel = 45, stone = "evolution", enabled = false },
 
-        -- ==================== Element-Adaptationen (Basis -> Variante) ====================
-        -- Standard-Schwelle 30; alle Paare mechanisch verifiziert (beide Zeilen existieren).
+        -- ==================== Element adaptations (base -> variant) ====================
+        -- Default threshold 30; every pair mechanically verified (both rows exist).
         { from = "AmaterasuWolf",    to = "AmaterasuWolf_Dark",    category = "adaptation", minLevel = 30, stone = "adaptation", enabled = true },
         { from = "Baphomet",         to = "Baphomet_Dark",         category = "adaptation", minLevel = 30, stone = "adaptation", enabled = true },
         { from = "Bastet",           to = "Bastet_Ice",            category = "adaptation", minLevel = 30, stone = "adaptation", enabled = true },
@@ -74,7 +79,7 @@ local Config = {
         { from = "DarkScorpion",     to = "DarkScorpion_Ground",   category = "adaptation", minLevel = 30, stone = "adaptation", enabled = true },
         { from = "Deer",             to = "Deer_Ground",           category = "adaptation", minLevel = 30, stone = "adaptation", enabled = true },
         { from = "ElecSnail",        to = "ElecSnail_Fire",        category = "adaptation", minLevel = 30, stone = "adaptation", enabled = true },
-        { from = "ElecSnail",        to = "ElecSnail_Ground",      category = "adaptation", minLevel = 30, stone = "adaptation", enabled = false }, -- Alternative zu _Fire
+        { from = "ElecSnail",        to = "ElecSnail_Ground",      category = "adaptation", minLevel = 30, stone = "adaptation", enabled = false }, -- alternative to _Fire
         { from = "FairyDragon",      to = "FairyDragon_Water",     category = "adaptation", minLevel = 30, stone = "adaptation", enabled = true },
         { from = "FengyunDeeper",    to = "FengyunDeeper_Electric", category = "adaptation", minLevel = 30, stone = "adaptation", enabled = true },
         { from = "FireKirin",        to = "FireKirin_Dark",        category = "adaptation", minLevel = 30, stone = "adaptation", enabled = true },
@@ -110,13 +115,13 @@ local Config = {
         { from = "LizardMan",        to = "LizardMan_Fire",        category = "adaptation", minLevel = 30, stone = "adaptation", enabled = true },
         { from = "Manticore",        to = "Manticore_Dark",        category = "adaptation", minLevel = 30, stone = "adaptation", enabled = true },
         { from = "Monkey",           to = "Monkey_Fire",           category = "adaptation", minLevel = 30, stone = "adaptation", enabled = true },
-        { from = "Monkey",           to = "Monkey_Ice",            category = "adaptation", minLevel = 30, stone = "adaptation", enabled = false }, -- Alternative zu _Fire
+        { from = "Monkey",           to = "Monkey_Ice",            category = "adaptation", minLevel = 30, stone = "adaptation", enabled = false }, -- alternative to _Fire
         { from = "MushroomDragon",   to = "MushroomDragon_Dark",   category = "adaptation", minLevel = 30, stone = "adaptation", enabled = true },
         { from = "NegativeOctopus",  to = "NegativeOctopus_Neutral", category = "adaptation", minLevel = 30, stone = "adaptation", enabled = true },
         { from = "NightBlueHorse",   to = "NightBlueHorse_Neutral", category = "adaptation", minLevel = 30, stone = "adaptation", enabled = true },
         { from = "NightLady",        to = "NightLady_Dark",        category = "adaptation", minLevel = 35, stone = "adaptation", enabled = true },
         { from = "OctopusGirl",      to = "OctopusGirl_Neutral",   category = "adaptation", minLevel = 30, stone = "adaptation", enabled = true },
-        { from = "Penguin",          to = "Penguin_Electric",      category = "adaptation", minLevel = 30, stone = "adaptation", enabled = false }, -- von Evolution ueberlagert (findPair-Prioritaet)
+        { from = "Penguin",          to = "Penguin_Electric",      category = "adaptation", minLevel = 30, stone = "adaptation", enabled = false }, -- shadowed by the evolution (findPair priority)
         { from = "PinkRabbit",       to = "PinkRabbit_Grass",      category = "adaptation", minLevel = 30, stone = "adaptation", enabled = true },
         { from = "PlantSlime",       to = "PlantSlime_Flower",     category = "adaptation", minLevel = 30, stone = "adaptation", enabled = true },
         { from = "RaijinDaughter",   to = "RaijinDaughter_Water",  category = "adaptation", minLevel = 30, stone = "adaptation", enabled = true },
