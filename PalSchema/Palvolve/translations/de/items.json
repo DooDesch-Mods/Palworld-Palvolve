@@ -1,0 +1,10 @@
+{
+    "DT_ItemNameText": {
+        "ITEM_NAME_Palvolve_EvolutionStone": "Entwicklungsstein",
+        "ITEM_NAME_Palvolve_AdaptionStone": "Adaptionsstein"
+    },
+    "DT_ItemDescriptionText": {
+        "ITEM_DESC_Palvolve_EvolutionStone": "Ein geheimnisvoller Stein voller Lebensenergie. Erlaubt einem verbundenen Pal die Entwicklung in eine stärkere verwandte Form, sobald es das nötige Level erreicht hat.",
+        "ITEM_DESC_Palvolve_AdaptionStone": "Ein schimmernder Stein voller Elementarkraft. Erlaubt einem verbundenen Pal den Wechsel in eine seiner Elementarformen, sobald es das nötige Level erreicht hat."
+    }
+}

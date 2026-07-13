@@ -1,0 +1,10 @@
+{
+    "DT_ItemNameText": {
+        "ITEM_NAME_Palvolve_EvolutionStone": "Evolution Stone",
+        "ITEM_NAME_Palvolve_AdaptionStone": "Adaption Stone"
+    },
+    "DT_ItemDescriptionText": {
+        "ITEM_DESC_Palvolve_EvolutionStone": "A mysterious stone humming with life energy. Lets a bonded Pal evolve into a stronger related form once it has reached the required level.",
+        "ITEM_DESC_Palvolve_AdaptionStone": "A shimmering stone attuned to elemental forces. Lets a bonded Pal adapt into one of its elemental forms once it has reached the required level."
+    }
+}

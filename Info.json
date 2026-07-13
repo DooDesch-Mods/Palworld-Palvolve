@@ -11,6 +11,10 @@
     {
       "Type": "Lua",
       "Targets": ["scripts"]
+    },
+    {
+      "Type": "PalSchema",
+      "Targets": ["PalSchema"]
     }
   ]
 }
