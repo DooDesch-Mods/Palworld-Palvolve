@@ -9,21 +9,21 @@
 -- (e.g. Penguin). BOSS_/GYM_/RAID_/_Oilrig/_Tower ids must NEVER be targets
 -- (boss/spawn logic is attached to them).
 local Config = {
-    -- Dev mode: loads the probe suite (F3/F5-F10/INSERT cheats). Set to false
-    -- BEFORE release AND do not package probes.lua.
+    -- Dev mode: loads the probe suite (F3/F5-F10/INSERT cheats) and enables
+    -- the [diag] sequence telemetry in the log. Set to false BEFORE release
+    -- AND do not package probes.lua.
     devMode = true,
 
-    -- Visual staging for the transformation gap: "digimon" | "pillar" | "shrink"
-    -- | "statue" | "cocoon" (see fx.lua). Switchable at runtime: `palvolve fx <name>`.
-    fxPrototype = "digimon",
-
-    -- Timings for the "digimon" staging (spin-up -> shrink -> peak hold -> grow)
+    -- Timings for the evolution staging
+    -- (spin-up -> shrink -> peak hold -> grow -> finale hold)
     digimon = {
         spinUpMs = 3000,       -- phase A: accelerating spin, effects ramp up
         shrinkMs = 2500,       -- phase B: keeps spinning, scales down to nothing
         growMs = 3500,         -- reveal: grows back while the spin winds down
         peakDegPerSec = 1080,  -- top angular speed at the end of the shrink
-        finaleHoldMs = 3500    -- pal stays face-to-face until the finale fades
+        finaleHoldMs = 3500    -- finale: keeps turning majestically while the
+                               -- effects fade, steering into the face-player
+                               -- yaw at the very end
     },
 
     -- Two-stage confirm: first press checks and announces, second press confirms.
@@ -44,7 +44,7 @@ local Config = {
     },
     stoneNames = {
         evolution = "Evolution Stone",
-        adaptation = "Adaption Stone"
+        adaptation = "Adaptation Stone"
     },
 
     -- Map schema version (for future migrations)

@@ -3,8 +3,8 @@
 -- API facts: Workspace/docs/Palvolve/RESEARCH.md. Sequence design: direct manager
 -- teardown first (the holder recall animates a mesh clone that ignores a hidden
 -- actor and is therefore only a fallback), species swap while despawned,
--- activation pump with class-verified respawn, staged reveal driven by the
--- selected FX prototype (fx.lua).
+-- two-phase activation pump with class-verified respawn, staged reveal driven
+-- by the FX staging (fx.lua).
 
 local Config = require("config")
 local FX = require("fx")
@@ -12,7 +12,22 @@ local FX = require("fx")
 local Evolution = {}
 
 local MOD_NAME = "Palvolve"
-local STATE_FILE = "ue4ss\\Mods\\Palvolve\\palvolve_state.lua"
+
+-- Snapshot file next to the mod (derived from this script's location so the
+-- path works regardless of the game's working directory); falls back to the
+-- manual-install layout relative to Win64.
+local STATE_FILE = (function()
+    local path = nil
+    pcall(function()
+        local src = debug.getinfo(1, "S").source
+        if src:sub(1, 1) == "@" then
+            local dir = src:sub(2):match("^(.*)[/\\]")          -- .../Palvolve/scripts
+            local root = dir and dir:match("^(.*)[/\\]") or nil -- .../Palvolve
+            if root then path = root .. "\\palvolve_state.lua" end
+        end
+    end)
+    return path or "ue4ss\\Mods\\Palvolve\\palvolve_state.lua"
+end)()
 
 local function Log(msg)
     print(string.format("[%s] %s\n", MOD_NAME, msg))
@@ -142,11 +157,12 @@ local function setFrozen(palActor, frozen)
     end)
 end
 
--- The pooled actor grabbed after a teardown is still in the INACTIVE pal
--- state (bIsPalActiveActor=false): native code anchors inactive otomos to
--- their holder, which yanked revealed pals to the player and kept them
--- hovering there. Finish the activation the vanilla summon flow would have
--- done; MOVE_Falling lets the pal land naturally once it is unfrozen.
+-- Failure-path rescue ONLY: the success path gets a landed and active actor
+-- from the two-phase SpawnOtomoByLoad + ActivateCurrentOtomo flow and must
+-- not run this (forcing movement state made the revealed pal fight the
+-- staged spin). An actor left behind by a FAILED respawn is of unknown
+-- activation state though - finish the activation the vanilla summon flow
+-- would have done so it does not linger as an inactive ghost.
 local function completeOtomoActivation(palActor)
     pcall(function() palActor.ActionComponent:CancelAllAction() end)
     pcall(function() palActor:SetActiveActor(true) end)
@@ -220,21 +236,26 @@ local function readTalents(param)
     return t
 end
 
+local TALENT_LABELS = {
+    Talent_HP = "HP", Talent_Melee = "Melee",
+    Talent_Shot = "Shot", Talent_Defense = "Defense",
+}
+
 local function applyIvBonus(param)
-    local applied = {}
+    local parts = {}
     for _, field in ipairs(TALENT_FIELDS) do
         local ok = pcall(function()
             local cur = param.SaveParameter[field]
             local new = math.min(cur + Config.ivBonusPerStage, Config.ivCap)
             param.SaveParameter[field] = new
             param.SaveParameterMirror[field] = new
-            table.insert(applied, string.format("%s %d->%d", field, cur, new))
+            table.insert(parts, string.format("%s +%d", TALENT_LABELS[field] or field, new - cur))
         end)
         if not ok then
-            Log("IV bonus: field " .. field .. " not writable (check field name)")
+            Log("IV bonus for " .. field .. " could not be applied - a game update may have changed this field")
         end
     end
-    if #applied > 0 then Log("IV bonus: " .. table.concat(applied, ", ")) end
+    if #parts > 0 then Log("Evolution bonus (IVs): " .. table.concat(parts, ", ")) end
 end
 
 -- ---------------------------------------------------------------- polling helper
@@ -325,13 +346,27 @@ end
 
 -- ---------------------------------------------------------------- core sequence
 
--- pending = { actor, param, pair, holder, armedAt, key }
+-- pending = { armedAt, key, pair } - the armed confirm state; the confirm
+-- press always fetches FRESH handles via findEligible()
 local pending = nil
--- Global sequence lock: never two evolutions in parallel. A watchdog in check()
--- aborts a stuck sequence after 30s in case an error path ever leaks the lock.
+-- Global sequence lock: never two evolutions in parallel. A watchdog aborts a
+-- stuck sequence once its per-run budget (derived from the configured phase
+-- timings) has elapsed, in case an error path ever leaks the lock.
 local sequenceRunning = false
 local sequenceStartedAt = 0
+local sequenceBudgetS = 30
 local currentAbort = nil
+
+-- Frees a stuck lock (budget exceeded); returns true while the lock is busy.
+local function lockBusy()
+    if not sequenceRunning then return false end
+    if (os.clock() - sequenceStartedAt) > sequenceBudgetS then
+        Log("Sequence lock stuck - watchdog aborting the sequence")
+        if currentAbort then pcall(currentAbort) else sequenceRunning = false end
+        return sequenceRunning
+    end
+    return true
+end
 
 -- Only one own pal can be summoned at a time, so the otomo holder is the
 -- authoritative source (a FindAllOf scan would also hit ghost actors).
@@ -363,6 +398,11 @@ local function performEvolution(p)
     sequenceRunning = true
     sequenceStartedAt = os.clock()
 
+    -- Per-run cancellation token: once done is set (success, abort or
+    -- watchdog), every still-pending async callback of THIS run bails out
+    -- instead of mutating a finished or foreign sequence.
+    local seq = { done = false }
+
     -- Capture starting state (diagnostics + snapshot data + in-place staging)
     local level, nickname = 0, ""
     pcall(function() level = param:GetLevel() end)
@@ -380,8 +420,7 @@ local function performEvolution(p)
         pcall(function() oldHalf = actor.CapsuleComponent:GetScaledCapsuleHalfHeight() end)
     end
 
-    -- The FX prototype is fixed for the whole sequence, even if switched mid-run
-    local fx = FX.active()
+    local fx = FX
     local ctx = {
         actor = actor, worldCtx = holder,
         oldX = oldX, oldY = oldY, oldZ = oldZ, oldYaw = oldYaw, oldHalf = oldHalf,
@@ -390,17 +429,58 @@ local function performEvolution(p)
         fx = {},
     }
 
+    -- Watchdog budget for this run: dissolve + teardown strategies + pump
+    -- timeout + landing cap + reveal, plus the fx-driven post-reveal phase
+    -- for keepsFrozenUntilDone prototypes, plus margin.
+    pcall(function()
+        local budget = (fx.dissolveDurationMs and fx.dissolveDurationMs() or 1200) / 1000
+        budget = budget + 6 + 25 + 10 + (fx.revealDelayMs() / 1000)
+        if fx.keepsFrozenUntilDone then
+            local c = Config.digimon or {}
+            budget = budget + ((c.growMs or 1600) + (c.finaleHoldMs or 3000)) / 1000
+        end
+        sequenceBudgetS = budget + 10
+    end)
+
+    -- Stone transaction state: consumed upfront, refunded exactly once on any
+    -- abort that happens before the verified species swap; earned afterwards.
+    local paidStoneId = nil
+    local stoneRefunded = false
+    local swapDone = false
+    local function refundStone(reason)
+        if not paidStoneId or stoneRefunded then return end
+        stoneRefunded = true
+        pcall(function()
+            local inv = inventoryData()
+            if inv then
+                local res = inv:AddItem_ServerInternal(FName(paidStoneId), Config.stoneCount, false, 0.0, true)
+                if res == 0 then
+                    Log("Stone refunded (" .. reason .. ")")
+                else
+                    Log(string.format("Stone refund FAILED (result=%s) - please report", tostring(res)))
+                end
+            end
+        end)
+    end
+
     -- Success: reveal animations finish on their own (prototypes clean up their
-    -- placeholders in onReveal). Abort: cleanup must tear the staging down.
-    -- Prototypes with keepsFrozenUntilDone end the sequence themselves through
+    -- placeholders in onReveal). Abort: cleanup must tear the staging down and
+    -- the stone is refunded unless the swap already committed. Both are
+    -- idempotent; the first one to run wins. Prototypes with
+    -- keepsFrozenUntilDone end the sequence themselves through
     -- ctx.completeOk/completeAbort once their reveal animation is done.
     local function finishOk()
+        if seq.done then return end
+        seq.done = true
         currentAbort = nil
         sequenceRunning = false
     end
     local function finishAbort()
+        if seq.done then return end
+        seq.done = true
         currentAbort = nil
         pcall(function() fx.cleanup(ctx) end)
+        if not swapDone then refundStone("evolution aborted") end
         sequenceRunning = false
     end
     ctx.completeOk = finishOk
@@ -429,7 +509,6 @@ local function performEvolution(p)
 
     -- Take the stone cost BEFORE the sequence (no TOCTOU: anything that fails
     -- before the swap refunds the stone; after the swap it is earned)
-    local paidStoneId = nil
     if Config.requireStone then
         local _, stoneId, stoneName = stoneCheck(pair)
         if stoneId then
@@ -443,18 +522,8 @@ local function performEvolution(p)
             Log(string.format("%dx %s consumed", Config.stoneCount, stoneName))
         end
     end
-    local function refundStone(reason)
-        if not paidStoneId then return end
-        pcall(function()
-            local inv = inventoryData()
-            if inv then
-                inv:AddItem_ServerInternal(FName(paidStoneId), Config.stoneCount, false, 0.0, true)
-                Log("Stone refunded (" .. reason .. ")")
-            end
-        end)
-    end
 
-    Log(string.format("Sequence start: %s Lv%d key=%s fx=%s", pair.from, level, key, FX.get()))
+    Log(string.format("Evolving %s (Lv %d)...", pair.from, level))
     if Config.devMode then
         local pz = "?"
         pcall(function()
@@ -464,8 +533,8 @@ local function performEvolution(p)
                 pz = string.format("(%.0f,%.0f,%.0f)", pl.X, pl.Y, pl.Z)
             end
         end)
-        Log(string.format("[diag start] old=(%s,%s,%s) yaw=%.0f half=%.0f player=%s",
-            tostring(oldX), tostring(oldY), tostring(oldZ), oldYaw or 0, oldHalf or 0, pz))
+        Log(string.format("[diag start] key=%s old=(%s,%s,%s) yaw=%.0f half=%.0f player=%s",
+            key, tostring(oldX), tostring(oldY), tostring(oldZ), oldYaw or 0, oldHalf or 0, pz))
     end
 
     -- Phase 1: freeze + dissolve staging (white glow in place; the actor is
@@ -515,11 +584,16 @@ local function performEvolution(p)
         end
         local strat = recallStrategies[i]
         local okCall, errCall = pcall(strat.fn)
-        Log(string.format("Teardown attempt '%s' call=%s%s", strat.name, tostring(okCall),
-            okCall and "" or (" err=" .. tostring(errCall))))
+        if Config.devMode or not okCall then
+            Log(string.format("Teardown attempt '%s' call=%s%s", strat.name, tostring(okCall),
+                okCall and "" or (" err=" .. tostring(errCall))))
+        end
         pollUntil(200, 2000, isDespawned, function(despawned)
+            if seq.done then return end
             if despawned then
-                Log(string.format("Despawn confirmed via '%s'", strat.name))
+                if Config.devMode then
+                    Log(string.format("Despawn confirmed via '%s'", strat.name))
+                end
                 proceedAfterDespawn()
             else
                 tryRecall(i + 1)
@@ -548,6 +622,7 @@ local function performEvolution(p)
             finishAbort()
             return
         end
+        swapDone = true
         applyIvBonus(param)
         pcall(function() param:FullRecoveryHP() end)
 
@@ -565,7 +640,7 @@ local function performEvolution(p)
 
         -- Normalize the holder state: after a direct manager despawn the
         -- holder still counts the otomo as actively summoned. That half state
-        -- makes ActivatePalByHandle a silent no-op and leaves the follow-up
+        -- makes the follow-up activation a silent no-op and leaves a forced
         -- SpawnOtomoByLoad spawn in a broken placement loop (periodic warps
         -- to the trainer anchor at player Z +3000 - the exact state a manual
         -- recall+resummon heals). With the actor already gone this recall is
@@ -579,7 +654,12 @@ local function performEvolution(p)
             local pc = FindFirstOf("PalPlayerController")
             pc:SetOtomoSlot(idx)
         end)
-        Log(string.format("Holder state cleanup ok=%s reselect ok=%s", tostring(okInact), tostring(okSel)))
+        if not (okInact and okSel) then
+            Log(string.format("Holder state cleanup FAILED (inactivate=%s reselect=%s) - activation may stall",
+                tostring(okInact), tostring(okSel)))
+        elseif Config.devMode then
+            Log(string.format("Holder state cleanup ok=%s reselect ok=%s", tostring(okInact), tostring(okSel)))
+        end
 
         -- Phase 4+5: activation pump with staged reveal
         local expectedClass = "BP_" .. pair.to .. "_C"
@@ -587,13 +667,14 @@ local function performEvolution(p)
             local a = nil
             pcall(function() a = holder:TryGetSpawnedOtomo() end)
             if not (a and a:IsValid()) then return false end
+            local cls = ""
+            pcall(function() cls = a:GetClass():GetFullName() end)
+            if not cls:find(expectedClass, 1, true) then return false end
             -- Hide instantly so the raw spawn is never visible (reveal is
             -- staged). Collision stays ON: the native landing flow needs it,
             -- and it is only switched off for the teleport itself.
             pcall(function() a:SetActorHiddenInGame(true) end)
-            local cls = ""
-            pcall(function() cls = a:GetClass():GetFullName() end)
-            return cls:find(expectedClass, 1, true) ~= nil
+            return true
         end
 
         local function revealActor(a)
@@ -602,6 +683,7 @@ local function performEvolution(p)
         end
 
         local function finishRespawn(success)
+            if seq.done then return end
             local newActor = nil
             pcall(function() newActor = holder:TryGetSpawnedOtomo() end)
             if success and newActor and newActor:IsValid() then
@@ -612,11 +694,9 @@ local function performEvolution(p)
                     pcall(function()
                         pcall(function() newActor:K2_DetachFromActor(1, 1, 1) end)
                         pcall(function() newActor:SetActorEnableCollision(false) end)
-                        -- The fresh pooled actor still sits at its parking spot far
-                        -- under the world here, so its current Z is useless. Anchor
-                        -- the new capsule so its feet end up where the old pal
-                        -- stood; with unknown capsule sizes lift a bit instead and
-                        -- let MOVE_Falling settle it after the unfreeze.
+                        -- Anchor the new capsule so its feet end up where the
+                        -- old pal stood; with unknown capsule sizes lift a bit
+                        -- instead and let gravity settle it after the unfreeze.
                         local newHalf = 0
                         pcall(function() newHalf = newActor:GetSimpleCollisionHalfHeight() end)
                         if not newHalf or newHalf <= 0 then
@@ -625,22 +705,23 @@ local function performEvolution(p)
                         local targetZ = oldZ + 40
                         if (oldHalf or 0) > 0 and newHalf > 0 then
                             targetZ = oldZ - oldHalf + newHalf + 10
+                            ctx.newHalf = newHalf
                         end
                         local target = { X = oldX, Y = oldY, Z = targetZ }
-                        -- pin target for prototypes that keep re-anchoring the actor
-                        -- against the games summon/landing logic (see fx digimon)
-                        ctx.fx.pin = { x = oldX, y = oldY, z = targetZ }
                         local moved = newActor:K2_TeleportTo(target, { Pitch = 0, Yaw = oldYaw or 0, Roll = 0 })
-                        local after = newActor:K2_GetActorLocation()
-                        local activeState = "?"
-                        pcall(function() activeState = tostring(newActor.bIsPalActiveActor) end)
-                        Log(string.format("Reveal teleport moved=%s target=(%.0f,%.0f,%.0f) actual=(%.0f,%.0f,%.0f) halves=%.0f/%.0f active=%s",
-                            tostring(moved), oldX, oldY, targetZ, after.X, after.Y, after.Z, oldHalf or 0, newHalf, activeState))
+                        if Config.devMode then
+                            local after = newActor:K2_GetActorLocation()
+                            local activeState = "?"
+                            pcall(function() activeState = tostring(newActor.bIsPalActiveActor) end)
+                            Log(string.format("Reveal teleport moved=%s target=(%.0f,%.0f,%.0f) actual=(%.0f,%.0f,%.0f) halves=%.0f/%.0f active=%s",
+                                tostring(moved), oldX, oldY, targetZ, after.X, after.Y, after.Z, oldHalf or 0, newHalf, activeState))
+                        end
                     end)
                 end
                 pcall(function() fx.onPreReveal(ctx, newActor) end)
                 ExecuteWithDelay(fx.revealDelayMs(), function()
                     ExecuteInGameThread(function()
+                        if seq.done then return end
                         -- refetch: the reference may change after the spawn
                         local a = nil
                         pcall(function() a = holder:TryGetSpawnedOtomo() end)
@@ -652,14 +733,13 @@ local function performEvolution(p)
                             return
                         end
                         revealActor(a)
-                        -- No completeOtomoActivation here: the pal arrives
-                        -- landed and active through the clean two-phase
-                        -- activation, and forcing MOVE_Falling plus active
-                        -- collision movement made the character visibly fight
-                        -- the staged reveal spin.
+                        -- No activation fixup here: the pal arrives landed
+                        -- and active through the clean two-phase activation,
+                        -- and forcing movement state made the character
+                        -- visibly fight the staged reveal spin.
                         local okReveal = pcall(function() fx.onReveal(ctx, a) end)
                         playFanfare(a)
-                        Log(string.format("EVOLVED: %s -> %s (level %d)%s - respawn with new model OK",
+                        Log(string.format("EVOLVED: %s -> %s (level %d)%s",
                             pair.from, pair.to, level,
                             nickname ~= "" and (" '" .. nickname .. "'") or ""))
                         startRevealDiagnostics(holder, pair.to)
@@ -702,11 +782,10 @@ local function performEvolution(p)
             end
         end
 
-        -- The engine finishes its own placement flow (trainer anchor at
-        -- player Z +3000, then adjust-to-floor) some time after the spawn.
-        -- Touching the actor before that flow is done leaves a pending
-        -- placement that warps the pal back to the anchor AFTER our reveal.
-        -- Wait until it has landed (MOVE_Walking) or a cap, then stage.
+        -- The pump has already activated the pal at our position; the engine's
+        -- brief settle finishes moments later (grounded or flying, active).
+        -- Wait for that state (or a 10s cap) so the hidden teleport and staged
+        -- reveal never race the in-flight settle, then stage.
         local function startLandingWatch()
             local watchStart = os.clock()
             local watchDone = false
@@ -714,18 +793,25 @@ local function performEvolution(p)
                 if watchDone then return true end
                 ExecuteInGameThread(function()
                     if watchDone then return end
+                    if seq.done then
+                        watchDone = true
+                        return
+                    end
                     local landed, activeFlag = false, false
                     pcall(function()
                         local a = holder:TryGetSpawnedOtomo()
                         activeFlag = (a.bIsPalActiveActor == true)
-                        landed = (a.CharacterMovement.MovementMode == 1)
+                        local mode = a.CharacterMovement.MovementMode
+                        landed = (mode == 1 or mode == 5) -- Walking or Flying (hoverers)
                     end)
                     local waited = os.clock() - watchStart
                     if (landed and activeFlag) or waited > 10 then
                         watchDone = true
-                        Log(string.format("Landing %s after %.1fs (landed=%s active=%s)",
-                            (landed and activeFlag) and "confirmed" or "timeout - proceeding",
-                            waited, tostring(landed), tostring(activeFlag)))
+                        if Config.devMode or not (landed and activeFlag) then
+                            Log(string.format("Landing %s after %.1fs (landed=%s active=%s)",
+                                (landed and activeFlag) and "confirmed" or "timeout - proceeding",
+                                waited, tostring(landed), tostring(activeFlag)))
+                        end
                         finishRespawn(true)
                     end
                 end)
@@ -743,7 +829,7 @@ local function performEvolution(p)
         -- rejects it until an internal settle completes, so retry until the
         -- actor shows up. Verify every 100ms so the spawn is hidden instantly.
         local startedAt = os.clock()
-        local lastNudge = startedAt - 1.2 -- first attempt after ~0.8s
+        local lastNudge = startedAt - 1.2 -- first attempt after ~0.3s
         local nudgeCount = 0
         local pumpDone = false
         pcall(function() fx.onGap(ctx) end)
@@ -751,6 +837,10 @@ local function performEvolution(p)
             if pumpDone then return true end
             ExecuteInGameThread(function()
                 if pumpDone then return end
+                if seq.done then
+                    pumpDone = true
+                    return
+                end
                 if isRespawned() then
                     pumpDone = true
                     startLandingWatch()
@@ -803,8 +893,10 @@ local function performEvolution(p)
                         end
                     end
                     pcall(function() fx.onGap(ctx) end)
-                    Log(string.format("Activation attempt #%d (%s) ok=%s ret=%s",
-                        nudgeCount, how, tostring(okNudge), tostring(ret)))
+                    if Config.devMode then
+                        Log(string.format("Activation attempt #%d (%s) ok=%s ret=%s",
+                            nudgeCount, how, tostring(okNudge), tostring(ret)))
+                    end
                 end
             end)
             return pumpDone
@@ -819,6 +911,7 @@ local function performEvolution(p)
     end)
     ExecuteWithDelay(dissolveMs, function()
         ExecuteInGameThread(function()
+            if seq.done then return end
             local ok, err = pcall(function()
                 if actor:IsValid() then
                     pcall(function() fx.onHide(ctx) end)
@@ -839,18 +932,9 @@ end
 -- ---------------------------------------------------------------- public API
 
 function Evolution.check()
-    if sequenceRunning then
-        if (os.clock() - sequenceStartedAt) > 30 then
-            Log("Sequence lock stuck (>30s) - watchdog aborting the sequence")
-            if currentAbort then
-                pcall(currentAbort)
-            else
-                sequenceRunning = false
-            end
-        else
-            Log("An evolution is already running - please wait")
-            return
-        end
+    if lockBusy() then
+        Log("An evolution is already running - please wait")
+        return
     end
     local actor, param, pair, level, holder = findEligible()
     if not actor then
@@ -877,10 +961,11 @@ function Evolution.check()
             performEvolution({ actor = actor, param = param, pair = pair, holder = holder, key = key })
             return
         else
-            Log(string.format("Confirm target changed (was %s, now %s) - re-armed", pending.key, key))
+            Log(string.format("Confirm target changed (was %s, now %s) - re-armed",
+                pending.pair and pending.pair.from or "?", pair.from))
         end
     end
-    pending = { actor = actor, param = param, pair = pair, holder = holder, armedAt = now, key = key }
+    pending = { armedAt = now, key = key, pair = pair }
     playFanfare(actor)
     local costHint = ""
     if Config.requireStone and stoneName then
@@ -891,7 +976,7 @@ function Evolution.check()
 end
 
 function Evolution.rollbackLast()
-    if sequenceRunning then
+    if lockBusy() then
         Log("Rollback blocked: an evolution is currently running")
         return
     end
@@ -929,6 +1014,10 @@ function Evolution.rollbackLast()
                             end)
                         end
                     end
+                    -- mirror the forward path: normalize HP after the
+                    -- species/IV change (current HP may exceed the smaller
+                    -- form's maximum otherwise)
+                    pcall(function() p:FullRecoveryHP() end)
                     reverted = true
                 end
                 break
@@ -948,7 +1037,6 @@ end
 
 function Evolution.init()
     loadSnapshots()
-    FX.init(Config.fxPrototype)
 
     local lastPress = 0
     RegisterKeyBind(Key[Config.confirmKey], function()
@@ -977,7 +1065,7 @@ function Evolution.init()
                     local id = param:GetCharacterID():ToString()
                     local pair = Config.findPair(id)
                     if not pair then return end
-                    -- nowLevel is the level BEFORE the addition (verified live)
+                    -- nowLevel is the level BEFORE the addition
                     local newLevel = nowLevel:get() + addLevel:get()
                     if newLevel >= pair.minLevel then
                         -- key includes the target so the next chain stage
@@ -1002,22 +1090,14 @@ function Evolution.init()
         end)
     end
 
-    -- Console: "palvolve check|rollback|fx <name>"
+    -- Console: "palvolve check|rollback"
     pcall(function()
         RegisterConsoleCommandHandler("palvolve", function(fullCommand, parameters)
             local sub = parameters[1] or "check"
-            local arg = parameters[2]
             ExecuteInGameThread(function()
                 local ok, err = pcall(function()
                     if sub == "rollback" then
                         Evolution.rollbackLast()
-                    elseif sub == "fx" then
-                        if arg and FX.set(arg) then
-                            Log("FX prototype set to '" .. arg .. "'")
-                        else
-                            Log(string.format("FX prototypes: %s (active: %s)",
-                                table.concat(FX.list(), ", "), FX.get()))
-                        end
                     else
                         Evolution.check()
                     end
@@ -1028,8 +1108,8 @@ function Evolution.init()
         end)
     end)
 
-    Log(string.format("Evolution core active: %s = check/confirm, console: palvolve check|rollback|fx <name> (FX: %s)",
-        Config.confirmKey, FX.get()))
+    Log(string.format("Evolution core active: %s = check/confirm, console: palvolve check|rollback",
+        Config.confirmKey))
 end
 
 return Evolution

@@ -23,7 +23,7 @@
     },
     "Palvolve_AdaptionStone": {
         "Type": "Generic",
-        "Name": "Adaption Stone",
+        "Name": "Adaptation Stone",
         "Description": "A shimmering stone attuned to elemental forces. Lets a bonded Pal adapt into one of its elemental forms once it has reached the required level.",
         "IconTexture": "$resource/Palvolve/adaptionstone",
         "TypeA": "Material",

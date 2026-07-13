@@ -1,6 +1,7 @@
--- Palvolve FX: interchangeable visual stagings ("prototypes") for the gap between
--- the old form dissolving and the new form appearing. Selected via
--- Config.fxPrototype or at runtime with the console command `palvolve fx <name>`.
+-- Palvolve FX: the evolution staging - the pal faces the player, spins up
+-- while shrinking into nothing, a burst peak bridges the respawn gap, and
+-- the new form grows back out of the vortex with the spin winding down,
+-- holding face-to-face until the finale effects have faded.
 --
 -- Hook contract (all hooks run on the game thread, driven by evolution.lua):
 --   onDissolve(ctx)             sequence start, old actor still visible
@@ -9,23 +10,26 @@
 --   revealDelayMs()             how long to hold the staging before unhiding
 --   onPreReveal(ctx, newActor)  new actor exists but is still hidden (teleported)
 --   onReveal(ctx, newActor)     right after the new actor became visible
---   cleanup(ctx)                ALWAYS on sequence end (success or abort)
--- Optional:
+--   cleanup(ctx)                on abort/failure ONLY - never on success;
+--                               the staging tears itself down in its own
+--                               reveal driver
 --   dissolveDurationMs()        how long the dissolve staging runs before the
---                               teardown starts (default 1200)
---   keepsFrozenUntilDone        the prototype unfreezes the new actor itself
---                               once its reveal animation has finished
+--                               teardown starts
+--   keepsFrozenUntilDone        this staging drives the post-reveal phase
+--                               itself: it freezes the new actor (ctx.freeze
+--                               in onPreReveal), unfreezes it when its reveal
+--                               animation is done, and MUST then end the
+--                               sequence via ctx.completeOk (or completeAbort
+--                               on any mid-animation failure) - the core
+--                               keeps the sequence lock held until then
 --
--- ctx: { actor, oldX, oldY, oldZ, oldYaw, oldHalf, unfreeze(a), fx = {} } -
--- prototypes keep their private state inside ctx.fx.
+-- ctx: { actor, worldCtx, oldX, oldY, oldZ, oldYaw, oldHalf, newHalf?,
+--        freeze(a), unfreeze(a), completeOk(), completeAbort(), fx = {} }
+-- worldCtx is the pal's otomo holder (world context for Niagara spawns, also
+-- exposes TryGetSpawnedOtomo); newHalf is the new form's capsule half height
+-- when it could be measured; run-private state lives inside ctx.fx.
 
 local Config = require("config")
-
-local M = {}
-
-local function Log(msg)
-    print(string.format("[Palvolve] %s\n", msg))
-end
 
 -- ---------------------------------------------------------------- shared helpers
 
@@ -53,244 +57,7 @@ local function spawnLight(worldCtx, x, y, z)
     end)
 end
 
-local function destroyActor(a)
-    if a and a:IsValid() then
-        pcall(function() a:K2_DestroyActor() end)
-    end
-end
-
--- Linear scale animation driven from Lua (placeholder actors must not rely on ticks)
-local function animateScale(actor, fromScale, toScale, durationMs, onDone)
-    local startedAt = os.clock()
-    local durationS = durationMs / 1000
-    local finished = false
-    LoopAsync(33, function()
-        if finished then return true end
-        ExecuteInGameThread(function()
-            if finished then return end
-            if not (actor and actor:IsValid()) then
-                finished = true
-                return
-            end
-            local t = math.min((os.clock() - startedAt) / durationS, 1.0)
-            local s = fromScale + (toScale - fromScale) * t
-            pcall(function() actor:SetActorScale3D({ X = s, Y = s, Z = s }) end)
-            if t >= 1.0 then
-                finished = true
-                if onDone then pcall(onDone) end
-            end
-        end)
-        return finished
-    end)
-end
-
--- Continuous sine wobble; returns a stop function
-local function startWobble(actor, baseScale, amplitude, speed)
-    local stopped = false
-    LoopAsync(33, function()
-        if stopped then return true end
-        ExecuteInGameThread(function()
-            if stopped then return end
-            if not (actor and actor:IsValid()) then
-                stopped = true
-                return
-            end
-            local s = baseScale * (1.0 + amplitude * math.sin(os.clock() * speed))
-            pcall(function() actor:SetActorScale3D({ X = s, Y = s, Z = s }) end)
-        end)
-        return stopped
-    end)
-    return function() stopped = true end
-end
-
-local function meshAssetOf(palActor)
-    local asset = nil
-    pcall(function()
-        asset = palActor:GetMainMesh():GetSkinnedAsset()
-    end)
-    if asset and asset:IsValid() then return asset end
-    return nil
-end
-
--- ---------------------------------------------------------------- prototypes
-
-local prototypes = {}
-
--- "pillar": light bursts only (the original baseline)
-prototypes.pillar = {
-    revealDelayMs = function() return 200 end,
-    onDissolve = function(ctx)
-        playEffect(ctx.actor, 1) -- CaptureEmissive: white glow in place
-    end,
-    onHide = function(ctx) end,
-    onGap = function(ctx)
-        spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ)
-    end,
-    onPreReveal = function(ctx, newActor) end,
-    onReveal = function(ctx, newActor)
-        playEffect(newActor, 2) -- SpawnFromBallEmissive: appear out of white glow
-    end,
-    cleanup = function(ctx) end,
-}
-
--- "shrink": old form shrinks into nothing, new form grows out of nothing
-prototypes.shrink = {
-    revealDelayMs = function() return 100 end,
-    onDissolve = function(ctx)
-        playEffect(ctx.actor, 1)
-        animateScale(ctx.actor, 1.0, 0.05, 1050)
-    end,
-    onHide = function(ctx) end,
-    onGap = function(ctx)
-        spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ)
-    end,
-    onPreReveal = function(ctx, newActor)
-        pcall(function() newActor:SetActorScale3D({ X = 0.05, Y = 0.05, Z = 0.05 }) end)
-    end,
-    onReveal = function(ctx, newActor)
-        playEffect(newActor, 2)
-        ctx.fx.grownActor = newActor
-        animateScale(newActor, 0.05, 1.0, 900, function()
-            ctx.fx.grownActor = nil
-        end)
-    end,
-    cleanup = function(ctx)
-        -- never leave a mini pal behind on aborts
-        local a = ctx.fx.grownActor
-        if a and a:IsValid() then
-            pcall(function() a:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
-        end
-        if ctx.actor and ctx.actor:IsValid() then
-            pcall(function() ctx.actor:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
-        end
-    end,
-}
-
--- "statue": a white frozen copy of the old form holds the spot, morphs into the
--- white silhouette of the new form, then the real pal is revealed in color
-prototypes.statue = {
-    revealDelayMs = function() return 600 end,
-    onDissolve = function(ctx)
-        playEffect(ctx.actor, 1)
-        ctx.fx.oldMeshAsset = meshAssetOf(ctx.actor)
-    end,
-    onHide = function(ctx)
-        if not ctx.fx.oldMeshAsset then
-            Log("fx statue: old mesh asset unavailable, falling back to light pillar")
-            return
-        end
-        pcall(function()
-            local world = ctx.actor:GetWorld()
-            local cls = StaticFindObject("/Script/Engine.SkeletalMeshActor")
-            if not (world and world:IsValid() and cls and cls:IsValid()) then return end
-            local statue = world:SpawnActor(cls,
-                { X = ctx.oldX, Y = ctx.oldY, Z = ctx.oldZ },
-                { Pitch = 0, Yaw = ctx.oldYaw or 0, Roll = 0 })
-            if not (statue and statue:IsValid()) then return end
-            local comp = statue.SkeletalMeshComponent
-            comp:SetSkinnedAssetAndUpdate(ctx.fx.oldMeshAsset, true)
-            pcall(function() comp.bPauseAnims = true end)
-            pcall(function() comp:SetComponentTickEnabled(false) end)
-            local glow = glowMaterial()
-            if glow then pcall(function() comp:SetOverlayMaterial(glow) end) end
-            statue:SetActorEnableCollision(false)
-            ctx.fx.statue = statue
-        end)
-        if ctx.fx.statue then
-            Log("fx statue: placeholder spawned")
-        else
-            Log("fx statue: spawn failed, falling back to light pillar")
-        end
-    end,
-    onGap = function(ctx)
-        if not ctx.fx.statue then
-            spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ)
-        end
-    end,
-    onPreReveal = function(ctx, newActor)
-        -- morph the white silhouette into the NEW form while everything is hidden
-        local statue = ctx.fx.statue
-        if not (statue and statue:IsValid()) then return end
-        local newAsset = meshAssetOf(newActor)
-        if newAsset then
-            pcall(function()
-                statue.SkeletalMeshComponent:SetSkinnedAssetAndUpdate(newAsset, true)
-            end)
-            spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ)
-        end
-    end,
-    onReveal = function(ctx, newActor)
-        destroyActor(ctx.fx.statue)
-        ctx.fx.statue = nil
-        playEffect(newActor, 2)
-    end,
-    cleanup = function(ctx)
-        destroyActor(ctx.fx.statue)
-        ctx.fx.statue = nil
-    end,
-}
-
--- "cocoon": a glowing, wobbling sphere encases the spot and bursts on reveal
-prototypes.cocoon = {
-    revealDelayMs = function() return 250 end,
-    onDissolve = function(ctx)
-        playEffect(ctx.actor, 1)
-    end,
-    onHide = function(ctx)
-        pcall(function()
-            local world = ctx.actor:GetWorld()
-            local cls = StaticFindObject("/Script/Engine.StaticMeshActor")
-            local mesh = StaticFindObject("/Engine/EngineMeshes/Sphere.Sphere")
-            if not (world and world:IsValid() and cls and cls:IsValid()
-                    and mesh and mesh:IsValid()) then return end
-            local ball = world:SpawnActor(cls,
-                { X = ctx.oldX, Y = ctx.oldY, Z = ctx.oldZ }, { Pitch = 0, Yaw = 0, Roll = 0 })
-            if not (ball and ball:IsValid()) then return end
-            pcall(function() ball:SetMobility(2) end) -- Movable, MUST precede any transform change
-            local comp = ball.StaticMeshComponent
-            comp:SetStaticMesh(mesh)
-            local glow = glowMaterial()
-            if glow then
-                pcall(function() comp:SetOverlayMaterial(glow) end)
-                pcall(function() comp:SetMaterial(0, glow) end)
-            end
-            ball:SetActorEnableCollision(false)
-            -- engine sphere radius is ~160uu; wrap the pal capsule with some margin
-            local half = (ctx.oldHalf and ctx.oldHalf > 0) and ctx.oldHalf or 60
-            local base = (half * 1.25) / 160.0
-            ball:SetActorScale3D({ X = base, Y = base, Z = base })
-            ctx.fx.cocoon = ball
-            ctx.fx.stopWobble = startWobble(ball, base, 0.12, 5.0)
-        end)
-        if ctx.fx.cocoon then
-            Log("fx cocoon: placeholder spawned")
-        else
-            Log("fx cocoon: spawn failed, falling back to light pillar")
-        end
-    end,
-    onGap = function(ctx)
-        if not ctx.fx.cocoon then
-            spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ)
-        end
-    end,
-    onPreReveal = function(ctx, newActor) end,
-    onReveal = function(ctx, newActor)
-        if ctx.fx.stopWobble then ctx.fx.stopWobble() end
-        destroyActor(ctx.fx.cocoon)
-        ctx.fx.cocoon = nil
-        spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ) -- burst moment
-        playEffect(newActor, 2)
-    end,
-    cleanup = function(ctx)
-        if ctx.fx.stopWobble then ctx.fx.stopWobble() end
-        destroyActor(ctx.fx.cocoon)
-        ctx.fx.cocoon = nil
-    end,
-}
-
--- "digimon": the pal faces the player, spins up faster and faster while
--- shrinking into nothing, a burst peak holds the spot, and the new form grows
--- back out of the vortex with the same spin winding down (user-specced staging)
+-- ---------------------------------------------------------------- staging
 
 local function digimonCfg()
     local c = Config.digimon or {}
@@ -321,7 +88,7 @@ local function setYaw(actor, yaw)
     end)
 end
 
-prototypes.digimon = {
+local M = {
     keepsFrozenUntilDone = true,
     dissolveDurationMs = function()
         local c = digimonCfg()
@@ -432,13 +199,10 @@ prototypes.digimon = {
         spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY - 80, ctx.oldZ + 100)
         playEffect(newActor, 2)
 
-        -- One continuous driver from reveal to the end of the finale hold.
-        -- The ACTOR is set to face the player exactly once (the freeze keeps
-        -- it there); the spin itself runs on the MESH relative rotation -
-        -- purely visual, so no movement or facing system can fight it (the
-        -- actor-level spin visibly stuttered). The mesh keeps spinning
-        -- through the hold and steers back into its exact base rotation at
-        -- the very end.
+        -- One continuous driver from reveal to the end of the finale hold:
+        -- the pal grows while the spin winds down, keeps turning majestically
+        -- through the hold and steers back into the face-player yaw at the
+        -- very end.
         local c = digimonCfg()
         local faceYaw = yawTowardsPlayer(ctx.oldX, ctx.oldY) or (ctx.fx.faceYaw or 0)
         setYaw(newActor, faceYaw)
@@ -529,18 +293,19 @@ prototypes.digimon = {
                     speed = math.min(math.max(deltaCW / remaining, 240), c.peakDegPerSec)
                 end
                 state.offset = state.offset + speed * dt
-                -- Keep the height in sync with the growth: the engine snaps
-                -- the frozen actor to the floor while it is TINY and never
-                -- re-snaps as it grows, so at full size the feet ended up in
-                -- the ground (verified: after the unfreeze the game lifted it
-                -- exactly back to the old pals Z). Center = ground + half *
-                -- scale keeps the feet on the ground the whole time.
+                -- Keep the height in sync with the growth: the engine
+                -- floor-snaps the frozen actor while it is TINY and never
+                -- re-snaps as it grows, so at full size the feet would end up
+                -- in the ground. Center = ground + capsule half * scale keeps
+                -- the feet on the ground the whole time (ground derives from
+                -- the old pal's center and capsule).
                 local sNow = state.scale or 1
-                local halfH = (ctx.oldHalf and ctx.oldHalf > 0) and ctx.oldHalf or 30
+                local oldH = (ctx.oldHalf and ctx.oldHalf > 0) and ctx.oldHalf or 30
+                local newH = (ctx.newHalf and ctx.newHalf > 0) and ctx.newHalf or oldH
                 pcall(function()
                     newActor:K2_SetActorLocation({
                         X = ctx.oldX or 0, Y = ctx.oldY or 0,
-                        Z = (ctx.oldZ or 0) - halfH * (1 - sNow),
+                        Z = (ctx.oldZ or 0) - oldH + newH * sNow,
                     }, false, {}, false)
                 end)
                 if t >= totalS then
@@ -562,9 +327,10 @@ prototypes.digimon = {
         if ctx.fx.dissolveState then ctx.fx.dissolveState.stopped = true end
         if ctx.fx.stopPeak then ctx.fx.stopPeak() end
         local grow = ctx.fx.growState
-        -- "not finished" covers both a running grow AND the finale hold; the
-        -- finished flag also cancels the pending hold callback so it cannot
-        -- double-complete a sequence that was aborted meanwhile
+        -- "not finished" covers both a running grow AND the finale hold (both
+        -- run in the same LoopAsync driver); stopped halts that driver, and
+        -- finished marks the run as handled so a repeated cleanup skips the
+        -- restore branch below.
         local growUnfinished = grow and not grow.finished
         if grow then
             grow.stopped = true
@@ -579,41 +345,11 @@ prototypes.digimon = {
         end
         if ctx.actor and ctx.actor:IsValid() then
             pcall(function() ctx.actor:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
+            -- the dissolve applies the white overlay to the old actor's mesh;
+            -- an abort before the teardown must take it off again
+            pcall(function() ctx.actor:GetMainMesh():SetOverlayMaterial(nil) end)
         end
     end,
 }
-
--- ---------------------------------------------------------------- selection
-
-local current = "statue"
-
-function M.list()
-    local names = {}
-    for name, _ in pairs(prototypes) do table.insert(names, name) end
-    table.sort(names)
-    return names
-end
-
-function M.set(name)
-    if prototypes[name] then
-        current = name
-        return true
-    end
-    return false
-end
-
-function M.get()
-    return current
-end
-
-function M.active()
-    return prototypes[current]
-end
-
-function M.init(defaultName)
-    if defaultName and prototypes[defaultName] then
-        current = defaultName
-    end
-end
 
 return M

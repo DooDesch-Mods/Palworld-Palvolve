@@ -195,8 +195,8 @@ RegisterKeyBind(Key.F7, Debounced("speciesswap", function()
     end)
 end))
 
--- F3: revert for testing - takes ALL candidates and logs the raw owner guid.
--- Finding: the local host player's uid lives in the D component (...-0001).
+-- F3: revert for testing - takes all OWNED candidates and logs the raw owner
+-- guid. The local host player's uid lives in the D component (...-0001).
 local REVERT_PAIRS = {
     { from = "CaptainPenguin_Black", to = "Penguin" },  -- black Penking -> Pengullet
     { from = "CaptainPenguin", to = "Penguin" },        -- Penking -> Pengullet
@@ -213,13 +213,22 @@ local function ownerGuidString(p)
     return s
 end
 
+local function hasOwner(p)
+    local owned = false
+    pcall(function()
+        local g = p.SaveParameter.OwnerPlayerUId
+        owned = (g.A ~= 0 or g.B ~= 0 or g.C ~= 0 or g.D ~= 0)
+    end)
+    return owned
+end
+
 RegisterKeyBind(Key.F3, Debounced("revert", function()
     ExecuteInGameThread(function()
         local suc, e = pcall(function()
             local all = FindAllOf("PalIndividualCharacterParameter") or {}
             local count = 0
             for _, p in ipairs(all) do
-                if p:IsValid() then
+                if p:IsValid() and hasOwner(p) then
                     local id = p:GetCharacterID():ToString()
                     for _, pair in ipairs(REVERT_PAIRS) do
                         if id == pair.from then
