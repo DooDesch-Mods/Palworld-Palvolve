@@ -509,12 +509,14 @@ prototypes.digimon = {
                     speed = c.peakDegPerSec * (1 - p) + 360 * p
                     local invp = 1 - p
                     local s = 0.02 + 0.98 * (1.0 - invp * invp)
+                    state.scale = s
                     pcall(function() newActor:SetActorScale3D({ X = s, Y = s, Z = s }) end)
                 elseif t < totalS - alignS then
                     -- finale hold: keep turning majestically while the
                     -- effects play out (never below the dominance floor)
                     if not state.scaleDone then
                         state.scaleDone = true
+                        state.scale = 1
                         pcall(function() newActor:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
                     end
                     local h = (t - growS) / math.max(holdS, 0.05)
@@ -527,6 +529,20 @@ prototypes.digimon = {
                     speed = math.min(math.max(deltaCW / remaining, 240), c.peakDegPerSec)
                 end
                 state.offset = state.offset + speed * dt
+                -- Keep the height in sync with the growth: the engine snaps
+                -- the frozen actor to the floor while it is TINY and never
+                -- re-snaps as it grows, so at full size the feet ended up in
+                -- the ground (verified: after the unfreeze the game lifted it
+                -- exactly back to the old pals Z). Center = ground + half *
+                -- scale keeps the feet on the ground the whole time.
+                local sNow = state.scale or 1
+                local halfH = (ctx.oldHalf and ctx.oldHalf > 0) and ctx.oldHalf or 30
+                pcall(function()
+                    newActor:K2_SetActorLocation({
+                        X = ctx.oldX or 0, Y = ctx.oldY or 0,
+                        Z = (ctx.oldZ or 0) - halfH * (1 - sNow),
+                    }, false, {}, false)
+                end)
                 if t >= totalS then
                     state.stopped = true
                     state.finished = true
