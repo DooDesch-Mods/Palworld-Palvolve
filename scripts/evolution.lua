@@ -652,11 +652,11 @@ local function performEvolution(p)
                             return
                         end
                         revealActor(a)
-                        -- Complete the interrupted activation now (collision back,
-                        -- active state, falling): the freeze still holds the pal in
-                        -- place until the staging is done, but once unfrozen the
-                        -- game no longer treats it as a stuck inactive otomo.
-                        completeOtomoActivation(a)
+                        -- No completeOtomoActivation here: the pal arrives
+                        -- landed and active through the clean two-phase
+                        -- activation, and forcing MOVE_Falling plus active
+                        -- collision movement made the character visibly fight
+                        -- the staged reveal spin.
                         local okReveal = pcall(function() fx.onReveal(ctx, a) end)
                         playFanfare(a)
                         Log(string.format("EVOLVED: %s -> %s (level %d)%s - respawn with new model OK",
