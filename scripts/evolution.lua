@@ -563,6 +563,16 @@ local function performEvolution(p)
         -- did the recall (idempotent, pcall-guarded)
         pcall(function() mgr:DespawnCharacterByHandle(handle, nil) end)
 
+        -- Normalize the holder state: after a direct manager despawn the
+        -- holder still counts the otomo as actively summoned. That half state
+        -- makes ActivatePalByHandle a silent no-op and leaves the follow-up
+        -- SpawnOtomoByLoad spawn in a broken placement loop (periodic warps
+        -- to the trainer anchor at player Z +3000 - the exact state a manual
+        -- recall+resummon heals). With the actor already gone this recall is
+        -- pure bookkeeping and shows no ball visuals.
+        local okInact = pcall(function() holder:InactivateCurrentOtomo() end)
+        Log(string.format("Holder state cleanup (InactivateCurrentOtomo) ok=%s", tostring(okInact)))
+
         -- Phase 4+5: activation pump with staged reveal
         local expectedClass = "BP_" .. pair.to .. "_C"
         local function isRespawned()
