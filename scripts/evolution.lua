@@ -762,56 +762,49 @@ local function performEvolution(p)
                     finishRespawn(false)
                     return
                 end
-                if (now - lastNudge) >= 2.5 then
+                if (now - lastNudge) >= 1.5 then
                     lastNudge = now
                     nudgeCount = nudgeCount + 1
-                    -- Strategy ladder, cycled - this exact mix produced the
-                    -- only healthy spawn so far (ActivateCurrentOtomo as
-                    -- attempt #6, ~13s in, landing at our transform): some of
-                    -- the other calls evidently prime holder state that the
-                    -- activation needs, because pure ActivateCurrentOtomo
-                    -- retries stay dead for 25s. Instrumented with return
-                    -- value and holder state per attempt to nail down WHICH
-                    -- precondition unblocks it.
+                    -- Two-phase respawn (proven via return-value telemetry):
+                    -- 1. SpawnOtomoByLoad CREATES the fresh actor - it sits in
+                    --    the holders ReservePalLocationList, invisible to
+                    --    TryGetSpawnedOtomo, so no spawn is "seen" yet.
+                    -- 2. ActivateCurrentOtomo(transform) returns false while
+                    --    no actor exists and true once it activates the
+                    --    reserve actor AT OUR POSITION (landed+active 0.2s
+                    --    later, no trainer-anchor placement).
+                    -- Re-fire the load every 5th attempt in case the first
+                    -- one raced the engines teardown settle.
                     local how, okNudge, ret
-                    local step = ((nudgeCount - 1) % 4) + 1
-                    if step == 1 and oldX then
-                        how = "ActivatePalByHandle"
-                        okNudge = pcall(function()
-                            holder:ActivatePalByHandle(handle,
-                                { X = oldX, Y = oldY, Z = (oldZ or 0) + 50 },
-                                { Pitch = 0, Yaw = oldYaw or 0, Roll = 0 }, true)
-                        end)
-                    elseif step == 2 and oldX then
-                        how = "ActivateCurrentOtomo"
-                        okNudge = pcall(function()
-                            ret = holder:ActivateCurrentOtomo({
-                                Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
-                                Translation = { X = oldX, Y = oldY, Z = (oldZ or 0) + 50 },
-                                Scale3D = { X = 1, Y = 1, Z = 1 },
-                            })
-                        end)
-                    elseif step == 3 then
-                        how = "ActivateCurrentOtomoNearThePlayer"
-                        okNudge = pcall(function()
-                            ret = holder:ActivateCurrentOtomoNearThePlayer()
-                        end)
-                    else
+                    if nudgeCount == 1 or (nudgeCount % 5 == 0) then
                         how = "SpawnOtomoByLoad"
                         okNudge = pcall(function()
                             local idx = holder:GetSlotIndexByIndividualHandle(handle)
                             holder:SpawnOtomoByLoad(idx)
                         end)
+                    else
+                        how = "ActivateCurrentOtomo"
+                        okNudge = pcall(function()
+                            ret = holder:ActivateCurrentOtomo({
+                                Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
+                                Translation = { X = oldX or 0, Y = oldY or 0, Z = (oldZ or 0) + 50 },
+                                Scale3D = { X = 1, Y = 1, Z = 1 },
+                            })
+                        end)
+                        -- Hide in the SAME game-thread tick: the activation
+                        -- places the pal full-size at our spot, and waiting
+                        -- for the next verify poll (100ms) shows it as a
+                        -- brief flash before the staged tiny-grow reveal.
+                        if ret == true then
+                            pcall(function()
+                                local a = holder:TryGetSpawnedOtomo()
+                                a:SetActorHiddenInGame(true)
+                            end)
+                        end
                     end
-                    local st = ""
-                    pcall(function()
-                        st = string.format(" slot=%s actSel=%s",
-                            tostring(holder:GetSlotIndexByIndividualHandle(handle)),
-                            tostring(holder:IsActivatedSelectOtomo()))
-                    end)
                     pcall(function() fx.onGap(ctx) end)
-                    Log(string.format("Activation attempt #%d (%s) ok=%s ret=%s%s",
-                        nudgeCount, how, tostring(okNudge), tostring(ret), st))
+                    Log(string.format("Activation attempt #%d (%s) ok=%s ret=%s",
+                        nudgeCount, how, tostring(okNudge), tostring(ret)))
                 end
             end)
             return pumpDone

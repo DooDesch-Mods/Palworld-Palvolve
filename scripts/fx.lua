@@ -371,8 +371,10 @@ prototypes.digimon = {
                     local s = 1.0 - 0.98 * (st * st)
                     pcall(function() a:SetActorScale3D({ X = s, Y = s, Z = s }) end)
                 end
-                -- white overlay from the middle of the spin-up
-                if not state.glowApplied and t > spinUpS * 0.5 then
+                -- White overlay only once the shrink starts: earlier the spin
+                -- is still so slow that the white-out reads as a texture
+                -- glitch instead of part of the effect.
+                if not state.glowApplied and t > spinUpS then
                     state.glowApplied = true
                     local glow = glowMaterial()
                     if glow then

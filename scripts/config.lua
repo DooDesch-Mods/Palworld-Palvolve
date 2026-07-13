@@ -23,7 +23,7 @@ local Config = {
         shrinkMs = 1200,       -- phase B: keeps spinning, scales down to nothing
         growMs = 1600,         -- reveal: grows back while the spin winds down
         peakDegPerSec = 1080,  -- top angular speed at the end of the shrink
-        finaleHoldMs = 1800    -- pal stays face-to-face until the finale fades
+        finaleHoldMs = 3000    -- pal stays face-to-face until the finale fades
     },
 
     -- Two-stage confirm: first press checks and announces, second press confirms.
