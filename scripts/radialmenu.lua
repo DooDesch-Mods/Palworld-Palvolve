@@ -111,9 +111,15 @@ function RadialMenu.init(evolutionCheck)
             pre = function(self)
                 buildingActionMenu = true
                 menuNumBumped = false
+                -- breadcrumb so a native crash inside the build window is
+                -- attributable from the log tail
+                if Config.devMode then Log("[radial] action menu build begin") end
             end,
             post = function(self)
                 buildingActionMenu = false
+                if Config.devMode then
+                    Log(string.format("[radial] action menu build end (bumped=%s)", tostring(menuNumBumped)))
+                end
                 -- capture the UObject NOW: hook params are only valid during
                 -- the callback, the deferred injection then uses the object
                 local menu = nil
@@ -131,11 +137,13 @@ function RadialMenu.init(evolutionCheck)
                 if not buildingActionMenu then return end
                 pcall(function()
                     local n = NewMenuNum:get()
+                    -- log BEFORE the write-back: if set() dies natively,
+                    -- the log tail still shows how far we got
+                    if Config.devMode then
+                        Log(string.format("[radial] bumping menuNum %d -> %d", n, n + 1))
+                    end
                     NewMenuNum:set(n + 1)
                     menuNumBumped = true
-                    if Config.devMode then
-                        Log(string.format("[radial] menuNum bumped %d -> %d", n, n + 1))
-                    end
                 end)
             end,
         },

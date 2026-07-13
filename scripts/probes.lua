@@ -1,14 +1,13 @@
 -- Palvolve dev probes (devMode only, never packaged for release).
 -- Live-verifies the open items from Workspace/docs/Palvolve/RESEARCH.md.
--- Markers: [probe-pallevelup] [probe-expdb] [probe-speciesswap] [probe-vfx]
---          [probe-overlay] [probe-ake] [probe-freeze] [probe-giveexp]
---          [probe-testkit] [probe-revert]
+-- Markers: [probe-speciesswap] [probe-vfx] [probe-overlay] [probe-ake]
+--          [probe-freeze] [probe-giveexp] [probe-testkit] [probe-revert]
 --
 -- Keybinds (test world "ModDev", own pal summoned):
 --   F5 = overlay glow on/off (M_Glow)     F6 = cycle visual effects
 --   F7 = species swap probe (test world ONLY!)
 --   F8 = fanfare (AKE_CampLevelUp)        F9 = freeze/unfreeze nearest pal
---   F10 = EXP to pals around (triggers the level-up hook)
+--   F10 = EXP to pals around (level-up smoke test)
 --   F3 = revert own evolved pals          INSERT (fallback F4) = test kit
 --
 local M = {}
@@ -28,56 +27,11 @@ local function Debounced(name, fn)
     end
 end
 
--- ---------------------------------------------------------------- load-time hooks
-
--- Probe 1: does the BP level-up handler fire? (UTF-8 function name with a
--- Japanese "event" suffix.) The BP is not loaded during Lua init -> retry
--- until the class exists (at the latest once the first pal spawns).
-local levelHookRegistered = false
-local function tryRegisterLevelHook()
-    if levelHookRegistered then return true end
-    local ok, err = pcall(RegisterHook,
-        "/Game/Pal/Blueprint/Character/Monster/BP_MonsterBase.BP_MonsterBase_C:OnUpdateLevelDelegate_イベント_0",
-        function(self, addLevel, nowLevel)
-            local suc, e = pcall(function()
-                local actor = self:get()
-                local param = actor.CharacterParameterComponent:GetIndividualParameter()
-                Log(string.format("[probe-pallevelup] id=%s addLevel=%d nowLevel=%d ownedGuidA=%s",
-                    param:GetCharacterID():ToString(), addLevel:get(), nowLevel:get(),
-                    tostring(param.SaveParameter.OwnerPlayerUId.A)))
-            end)
-            if not suc then Log("[probe-pallevelup] handler FAIL: " .. tostring(e)) end
-        end)
-    if ok then
-        levelHookRegistered = true
-        Log("[probe-pallevelup] hook registered ok=true")
-    end
-    return ok, err
-end
-
-local okNow, errNow = tryRegisterLevelHook()
-if not okNow then
-    Log(string.format("[probe-pallevelup] immediate registration failed (%s) - retrying every 5s", tostring(errNow)))
-    LoopAsync(5000, function()
-        if levelHookRegistered then return true end
-        ExecuteInGameThread(function()
-            tryRegisterLevelHook()
-        end)
-        return levelHookRegistered
-    end)
-end
-
--- Probe 2: do the PalExpDatabase UFunctions go through ProcessEvent?
-for _, fn in ipairs({
-    "/Script/Pal.PalExpDatabase:AddExpValue_forPlayerParty_Server",
-    "/Script/Pal.PalExpDatabase:AddExp_forPlayerParty_ByExpCalcType",
-    "/Script/Pal.PalExpDatabase:AddExp_EnemyDeath",
-}) do
-    local hooked = pcall(RegisterHook, fn, function()
-        Log("[probe-expdb] fired " .. fn)
-    end)
-    Log("[probe-expdb] hook " .. fn .. " ok=" .. tostring(hooked))
-end
+-- The former load-time research hooks (level-up delegate, PalExpDatabase)
+-- are gone: their questions are answered in RESEARCH.md, and the retry
+-- loop could register the level-up script hook twice when UE4SS had
+-- already queued a deferred registration internally - two script hooks
+-- on one BP function are a crash risk when the function fires.
 
 -- ---------------------------------------------------------------- helpers
 
