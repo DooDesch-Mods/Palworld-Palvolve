@@ -485,9 +485,11 @@ prototypes.digimon = {
                         newActor:K2_TeleportTo({ X = pin.x, Y = pin.y, Z = pin.z },
                             { Pitch = 0, Yaw = yawNow, Roll = 0 })
                     end)
-                else
-                    setYaw(newActor, yawNow)
                 end
+                -- Explicit rotation on top of the teleport: on the fully
+                -- activated character the TeleportTo rotation does not stick,
+                -- so the grow spin was invisible without this.
+                setYaw(newActor, yawNow)
                 if finalTick then
                     state.stopped = true
                     pcall(function() newActor:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)

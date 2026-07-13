@@ -19,11 +19,11 @@ local Config = {
 
     -- Timings for the "digimon" staging (spin-up -> shrink -> peak hold -> grow)
     digimon = {
-        spinUpMs = 1200,       -- phase A: accelerating spin, effects ramp up
-        shrinkMs = 1200,       -- phase B: keeps spinning, scales down to nothing
-        growMs = 1600,         -- reveal: grows back while the spin winds down
+        spinUpMs = 3000,       -- phase A: accelerating spin, effects ramp up
+        shrinkMs = 2500,       -- phase B: keeps spinning, scales down to nothing
+        growMs = 3500,         -- reveal: grows back while the spin winds down
         peakDegPerSec = 1080,  -- top angular speed at the end of the shrink
-        finaleHoldMs = 3000    -- pal stays face-to-face until the finale fades
+        finaleHoldMs = 3500    -- pal stays face-to-face until the finale fades
     },
 
     -- Two-stage confirm: first press checks and announces, second press confirms.
