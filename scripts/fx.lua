@@ -411,6 +411,9 @@ prototypes.digimon = {
     onGap = function(ctx) end, -- the peak loop already carries the hold state
 
     onPreReveal = function(ctx, newActor)
+        -- freeze the fresh actor so its own summon/landing logic cannot fight
+        -- the grow animation
+        if ctx.freeze then pcall(ctx.freeze, newActor) end
         pcall(function() newActor:SetActorScale3D({ X = 0.02, Y = 0.02, Z = 0.02 }) end)
         setYaw(newActor, ctx.fx.faceYaw or 0)
     end,
@@ -464,15 +467,30 @@ prototypes.digimon = {
                 state.yaw = (state.yaw + speed * dt) % 360
                 local s = 0.02 + 0.98 * (1.0 - inv * inv) -- ease-out growth
                 pcall(function() newActor:SetActorScale3D({ X = s, Y = s, Z = s }) end)
-                if t >= 1.0 then
+                -- re-pin every tick: the summon/landing flow keeps re-anchoring
+                -- the actor to the player until it completes (which the freeze
+                -- blocks) - detach + teleport each tick wins that fight
+                local pin = ctx.fx.pin
+                local finalTick = (t >= 1.0)
+                local yawNow = state.yaw
+                if finalTick then
+                    yawNow = yawTowardsPlayer(ctx.oldX, ctx.oldY) or state.yaw
+                end
+                if pin then
+                    pcall(function() newActor:K2_DetachFromActor(1, 1, 1) end)
+                    pcall(function()
+                        newActor:K2_TeleportTo({ X = pin.x, Y = pin.y, Z = pin.z },
+                            { Pitch = 0, Yaw = yawNow, Roll = 0 })
+                    end)
+                else
+                    setYaw(newActor, yawNow)
+                end
+                if finalTick then
                     state.stopped = true
                     state.finished = true
                     pcall(function() newActor:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
-                    setYaw(newActor, yawTowardsPlayer(ctx.oldX, ctx.oldY) or state.yaw)
                     if ctx.unfreeze then pcall(ctx.unfreeze, newActor) end
                     if ctx.completeOk then pcall(ctx.completeOk) end
-                else
-                    setYaw(newActor, state.yaw)
                 end
             end)
             return state.stopped

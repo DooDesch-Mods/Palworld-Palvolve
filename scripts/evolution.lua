@@ -312,6 +312,7 @@ local function performEvolution(p)
         actor = actor, worldCtx = holder,
         oldX = oldX, oldY = oldY, oldZ = oldZ, oldYaw = oldYaw, oldHalf = oldHalf,
         unfreeze = function(a) setFrozen(a, false) end,
+        freeze = function(a) setFrozen(a, true) end,
         fx = {},
     }
 
@@ -513,6 +514,9 @@ local function performEvolution(p)
                         pcall(function() newActor:K2_DetachFromActor(1, 1, 1) end)
                         local cur = newActor:K2_GetActorLocation()
                         local target = { X = oldX, Y = oldY, Z = cur.Z }
+                        -- pin target for prototypes that keep re-anchoring the actor
+                        -- against the games summon/landing logic (see fx digimon)
+                        ctx.fx.pin = { x = oldX, y = oldY, z = cur.Z }
                         local moved = newActor:K2_TeleportTo(target, { Pitch = 0, Yaw = oldYaw or 0, Roll = 0 })
                         local after = newActor:K2_GetActorLocation()
                         Log(string.format("Reveal teleport moved=%s target=(%.0f,%.0f,%.0f) actual=(%.0f,%.0f,%.0f)",
