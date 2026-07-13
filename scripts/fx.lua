@@ -299,6 +299,7 @@ local function digimonCfg()
         shrinkMs = math.max(c.shrinkMs or 1200, 1),
         growMs = math.max(c.growMs or 1600, 1),
         peakDegPerSec = math.max(c.peakDegPerSec or 1080, 0),
+        finaleHoldMs = math.max(c.finaleHoldMs or 1800, 0),
     }
 end
 
@@ -487,10 +488,29 @@ prototypes.digimon = {
                 end
                 if finalTick then
                     state.stopped = true
-                    state.finished = true
                     pcall(function() newActor:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
-                    if ctx.unfreeze then pcall(ctx.unfreeze, newActor) end
-                    if ctx.completeOk then pcall(ctx.completeOk) end
+                    -- Finale hold: keep the pal frozen face-to-face while the
+                    -- finale effects play out - released right at grow end it
+                    -- immediately walked off to its AI chores mid-finale.
+                    ExecuteWithDelay(c.finaleHoldMs, function()
+                        ExecuteInGameThread(function()
+                            if state.finished then return end
+                            state.finished = true
+                            local a = (newActor and newActor:IsValid()) and newActor or nil
+                            if not a then
+                                pcall(function()
+                                    local h = ctx.worldCtx
+                                    local re = (h and h:IsValid()) and h:TryGetSpawnedOtomo() or nil
+                                    if re and re:IsValid() then a = re end
+                                end)
+                            end
+                            if a then
+                                pcall(function() a:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
+                                if ctx.unfreeze then pcall(ctx.unfreeze, a) end
+                            end
+                            if ctx.completeOk then pcall(ctx.completeOk) end
+                        end)
+                    end)
                 end
             end)
             return state.stopped
@@ -501,8 +521,14 @@ prototypes.digimon = {
         if ctx.fx.dissolveState then ctx.fx.dissolveState.stopped = true end
         if ctx.fx.stopPeak then ctx.fx.stopPeak() end
         local grow = ctx.fx.growState
-        local growUnfinished = grow and not grow.stopped
-        if grow then grow.stopped = true end
+        -- "not finished" covers both a running grow AND the finale hold; the
+        -- finished flag also cancels the pending hold callback so it cannot
+        -- double-complete a sequence that was aborted meanwhile
+        local growUnfinished = grow and not grow.finished
+        if grow then
+            grow.stopped = true
+            grow.finished = true
+        end
         -- never leave a mini/frozen pal behind on aborts
         local a = ctx.fx.revealActor
         if a and a:IsValid() and growUnfinished then
