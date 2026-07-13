@@ -7,16 +7,19 @@
 -- draws menuNum segments procedurally and the entry labels are
 -- WBP_PlayerRadialMenu_MenuContent widgets registered per segment index via
 -- "Set Additional Widget" (Canvas is an OUT param there). Label positions
--- are computed against menuNum AT REGISTRATION TIME, so growing the wheel
--- after the build misplaces every vanilla label. The open flow calls
--- RecalcMenuNum right before CreatePlayerActionMenu, so we bump its
--- newMenuNum parameter whenever the receiving wheel belongs to
--- WBP_PlayerRadialMenu (outer-chain check): vanilla then positions all of
--- its own labels for the extra segment already and we only append our
--- label to the reserved last index after the build. The committed segment
--- lands in OnDecidedPlayerActionMenu(Index), whose BP switch simply
--- ignores indices it does not know - so the appended entry is exclusively
--- ours.
+-- are computed against menuNum AT REGISTRATION TIME.
+--
+-- UE4SS constraint (verified against the shipped v3.0.1 build's source):
+-- RegisterHook on /Game/ BP functions is always a POST-hook - the callback
+-- runs after the BP body, parameter writes land in dead locals and a post
+-- callback argument is silently ignored. So there is no way to grow the
+-- wheel before vanilla lays out its labels; instead the injection runs
+-- after the build and redoes the layout: grow via a direct
+-- wheel:RecalcMenuNum(vanilla + 1) call, re-register the vanilla labels
+-- for the new segment count, then append our label to the last index.
+-- The committed segment lands in OnDecidedPlayerActionMenu(Index), whose
+-- BP switch simply ignores indices it does not know - so the appended
+-- entry is exclusively ours.
 
 local Config = require("config")
 
@@ -27,33 +30,11 @@ local function Log(msg)
 end
 
 local MENU_WBP = "/Game/Pal/Blueprint/UI/PlayerRadialMenu/WBP_PlayerRadialMenu.WBP_PlayerRadialMenu_C"
-local WHEEL_WBP = "/Game/Pal/Blueprint/UI/CommonWidget/RadialMenu/WBP_CommonRadialMenuBase.WBP_CommonRadialMenuBase_C"
 local CONTENT_WBP = "/Game/Pal/Blueprint/UI/PlayerRadialMenu/WBP_PlayerRadialMenu_MenuContent.WBP_PlayerRadialMenu_MenuContent_C"
 
 -- state of the currently open wheel
 local ourIndex = nil
--- set when the action wheel's RecalcMenuNum was bumped; consumed by the
--- deferred injection so a rebuild without a preceding bump never adds a
--- label to a segment that does not exist
-local pendingBump = false
-
--- The open flow calls RecalcMenuNum BEFORE CreatePlayerActionMenu (3 ms
--- apart in the live log), so a build-window flag can never cover it.
--- Identify the action wheel by its outer chain instead: the inner
--- WBP_CommonRadialMenuBase lives in WBP_PlayerRadialMenu's widget tree.
-local function isActionWheel(wheel)
-    local ok, res = pcall(function()
-        local o = wheel:GetOuter()
-        for _ = 1, 3 do
-            if not (o and o:IsValid()) then return false end
-            local cls = o:GetClass():GetFullName()
-            if string.find(cls, "WBP_PlayerRadialMenu_C", 1, true) then return true end
-            o = o:GetOuter()
-        end
-        return false
-    end)
-    return ok and res == true
-end
+local ourWidget = nil
 
 local function labelText()
     -- vanilla labels are localized, so at least follow the game language
@@ -88,69 +69,166 @@ local function makeLabelWidget(owner)
     return nil
 end
 
+local function canvasSlot(widget)
+    local lib = StaticFindObject("/Script/UMG.Default__WidgetLayoutLibrary")
+    return lib:SlotAsCanvasSlot(widget)
+end
+
 local function injectEntry(menu)
-    pcall(function()
+    local okAll, errAll = pcall(function()
         local wheel = menu.WBP_CommonRadialMenuBase
         if not (wheel and wheel:IsValid()) then
             if Config.devMode then Log("[radial] wheel reference missing") end
             return
         end
-        if not pendingBump then
-            ourIndex = nil
-            if Config.devMode then Log("[radial] no bump before this build - entry skipped") end
+        local canvas = wheel.CanvasPanel_Inner
+        if not (canvas and canvas:IsValid()) then
+            if Config.devMode then Log("[radial] canvas missing") end
             return
         end
-        pendingBump = false
-        -- the RecalcMenuNum pre-hook already reserved the last segment
-        ourIndex = wheel.menuNum - 1
-        local widget = makeLabelWidget(menu)
-        if not widget then
-            ourIndex = nil
+
+        -- drop our label from the previous open: a vanilla rebuild only
+        -- overwrites indices 0..N-1 and would leave ours as a ghost
+        if ourWidget then
+            pcall(function()
+                if ourWidget:IsValid() then ourWidget:RemoveFromParent() end
+            end)
+            ourWidget = nil
+        end
+        ourIndex = nil
+
+        -- census: the vanilla label widgets currently on the wheel canvas,
+        -- in add order = segment index order
+        local labels = {}
+        local childCount = canvas:GetChildrenCount()
+        for i = 0, childCount - 1 do
+            local child = canvas:GetChildAt(i)
+            if child and child:IsValid() then
+                local cls = child:GetClass():GetFullName()
+                if string.find(cls, "WBP_PlayerRadialMenu_MenuContent_C", 1, true) then
+                    table.insert(labels, child)
+                end
+            end
+        end
+        if Config.devMode then
+            Log(string.format("[radial] canvas census: %d children, %d labels, menuNum=%d",
+                childCount, #labels, wheel.menuNum))
+        end
+        if #labels == 0 then return end
+
+        local vanillaCount = #labels
+        local newCount = vanillaCount + 1
+
+        -- capture the layout BEFORE growing: positions still reflect the
+        -- vanilla segment count and give us radius and base angle
+        local geo = {}
+        for i, lbl in ipairs(labels) do
+            pcall(function()
+                local p = canvasSlot(lbl):GetPosition()
+                geo[i] = { x = p.X, y = p.Y }
+            end)
+        end
+        if Config.devMode and geo[1] then
+            Log(string.format("[radial] label0 pos=(%.1f, %.1f)", geo[1].x, geo[1].y))
+        end
+
+        -- grow the wheel: a direct call runs the full vanilla redraw
+        local okGrow, errGrow = pcall(function() wheel:RecalcMenuNum(newCount) end)
+        if Config.devMode then
+            Log(string.format("[radial] grow to %d: ok=%s menuNum=%d%s",
+                newCount, tostring(okGrow), wheel.menuNum,
+                okGrow and "" or (" err=" .. tostring(errGrow))))
+        end
+        if not (okGrow and wheel.menuNum == newCount) then return end
+
+        ourWidget = makeLabelWidget(menu)
+        if not ourWidget then
             if Config.devMode then Log("[radial] label widget creation failed") end
             return
         end
-        local okSet = pcall(function()
-            -- last argument fills the Canvas OUT param slot; the value
-            -- itself is ignored by the function
-            wheel["Set Additional Widget"](wheel, ourIndex, widget, wheel.CanvasPanel_Inner)
-        end)
+
+        -- preferred path: let the wheel register everything itself, which
+        -- also keeps the AdditionalWidget map intact for hover highlights
+        local sawErr = nil
+        local function saw(idx, w)
+            local okS, e = pcall(function()
+                wheel["Set Additional Widget"](wheel, idx, w, canvas)
+            end)
+            if not okS and not sawErr then sawErr = tostring(e) end
+            return okS
+        end
+        local sawOk = true
+        for i, lbl in ipairs(labels) do
+            sawOk = saw(i - 1, lbl) and sawOk
+        end
+        sawOk = saw(vanillaCount, ourWidget) and sawOk
+        if sawOk then
+            ourIndex = vanillaCount
+            if Config.devMode then
+                Log(string.format("[radial] Evolve entry injected at index %d via Set Additional Widget", ourIndex))
+            end
+            return
+        end
         if Config.devMode then
-            Log(string.format("[radial] Evolve entry injected at index %d (menuNum %d, set=%s)",
-                ourIndex, wheel.menuNum, tostring(okSet)))
+            Log("[radial] Set Additional Widget failed: " .. tostring(sawErr))
+        end
+
+        -- fallback: reposition the labels ourselves through the canvas
+        -- slots. Anchors/alignment 0.5 center the coordinates on the wheel
+        -- middle: pos = (r sin th, -r cos th), th clockwise from the top.
+        local base = geo[1]
+        local radius = base and math.sqrt(base.x * base.x + base.y * base.y) or 0
+        if radius < 1 then
+            if Config.devMode then Log("[radial] fallback geometry unusable") end
+            return
+        end
+        local offset = math.atan(base.x, -base.y)
+        local function place(widget, idx)
+            local th = offset + idx * (2 * math.pi / newCount)
+            pcall(function()
+                canvasSlot(widget):SetPosition({
+                    X = radius * math.sin(th),
+                    Y = -radius * math.cos(th),
+                })
+            end)
+        end
+        for i, lbl in ipairs(labels) do
+            place(lbl, i - 1)
+        end
+        local okAdd, errAdd = pcall(function()
+            canvas:AddChildToCanvas(ourWidget)
+            local slot = canvasSlot(ourWidget)
+            slot:SetAnchors({ Minimum = { X = 0.5, Y = 0.5 }, Maximum = { X = 0.5, Y = 0.5 } })
+            slot:SetAlignment({ X = 0.5, Y = 0.5 })
+            slot:SetAutoSize(true)
+        end)
+        if not okAdd then
+            if Config.devMode then Log("[radial] fallback add failed: " .. tostring(errAdd)) end
+            pcall(function() ourWidget:RemoveFromParent() end)
+            ourWidget = nil
+            return
+        end
+        place(ourWidget, vanillaCount)
+        ourIndex = vanillaCount
+        if Config.devMode then
+            Log(string.format("[radial] Evolve entry injected at index %d via slot fallback (no hover highlight)", ourIndex))
         end
     end)
+    if not okAll and Config.devMode then
+        Log("[radial] injectEntry error: " .. tostring(errAll))
+    end
 end
 
 function RadialMenu.init(evolutionCheck)
     if not (Config.radialMenu == nil or Config.radialMenu) then return end
 
-    -- post callbacks on script hooks never fired in this UE4SS build (the
-    -- live log showed pre lines but no post lines), so everything runs in
-    -- pre callbacks; the injection defers one tick, which lands after the
-    -- BP body has completed
     local hooks = {
         {
-            path = WHEEL_WBP .. ":RecalcMenuNum",
-            fn = function(self, NewMenuNum)
-                local wheel = nil
-                pcall(function() wheel = self:get() end)
-                if not (wheel and isActionWheel(wheel)) then return end
-                pcall(function()
-                    local n = NewMenuNum:get()
-                    -- log BEFORE the write-back: if set() dies natively,
-                    -- the log tail still shows how far we got
-                    if Config.devMode then
-                        Log(string.format("[radial] bumping menuNum %d -> %d", n, n + 1))
-                    end
-                    NewMenuNum:set(n + 1)
-                    pendingBump = true
-                end)
-            end,
-        },
-        {
+            -- fires AFTER the BP body (script hooks are post-hooks); the
+            -- injection defers one more tick so the open flow has settled
             path = MENU_WBP .. ":CreatePlayerActionMenu",
             fn = function(self)
-                if Config.devMode then Log("[radial] action menu build begin") end
+                if Config.devMode then Log("[radial] action menu built") end
                 -- capture the UObject NOW: hook params are only valid during
                 -- the callback, the deferred injection then uses the object
                 local menu = nil
