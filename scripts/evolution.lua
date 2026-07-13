@@ -507,14 +507,16 @@ local function performEvolution(p)
             local newActor = nil
             pcall(function() newActor = holder:TryGetSpawnedOtomo() end)
             if success and newActor and newActor:IsValid() then
-                -- Inszeniertes Enthuellen an der alten Stelle. WICHTIG: Die neue Form
-                -- ist groesser - Ziel-Z aus Bodenhoehe + neuer Kapsel-Haelfte rechnen,
-                -- sonst steckt der Pal im Boden und faellt durch die Welt.
+                -- Inszeniertes Enthuellen an der alten Stelle. Hoehe NICHT selbst
+                -- rechnen (eigene Z-Mathematik hat den Pal begraben bzw. schweben
+                -- lassen): X/Y von der alten Stelle, Z von der gueltigen Platzierung,
+                -- die das Spiel dem frischen Spawn gegeben hat; Kollision vor dem
+                -- Teleport aktivieren, damit die Physik sauber absetzt.
                 if oldX then
                     pcall(function()
-                        local newHalf = 0
-                        pcall(function() newHalf = newActor:GetSimpleCollisionHalfHeight() end)
-                        local target = { X = oldX, Y = oldY, Z = oldZ - oldHalf + newHalf + 15 }
+                        local cur = newActor:K2_GetActorLocation()
+                        pcall(function() newActor:SetActorEnableCollision(true) end)
+                        local target = { X = oldX, Y = oldY, Z = cur.Z }
                         newActor:K2_TeleportTo(target, oldRot)
                     end)
                 end
