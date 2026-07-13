@@ -926,6 +926,25 @@ function Evolution.isArmed()
     return pending ~= nil and (os.clock() - pending.armedAt) <= Config.confirmWindowSeconds
 end
 
+-- Localized pal display name via the game's own text system (returns the
+-- raw character id when the lookup fails). GetLocalizedText has a plain
+-- return value, which works from Lua - unlike out-params in this build.
+local function palDisplayName(id)
+    local name = nil
+    pcall(function()
+        local mdt = StaticFindObject("/Script/Pal.Default__PalMasterDataTablesUtility")
+        local ctx = FindFirstOf("PalPlayerCharacter")
+        if not (mdt and mdt:IsValid() and ctx and ctx:IsValid()) then return end
+        -- EPalLocalizeTextCategory::PalMonsterName = 4
+        local txt = mdt:GetLocalizedText(ctx, 4, FName("PAL_NAME_" .. id))
+        if txt then
+            local s = txt:ToString()
+            if s and s ~= "" then name = s end
+        end
+    end)
+    return name or id
+end
+
 -- Light-weight availability for the radial label: an owned pal is
 -- summoned and has at least one configured option. Level and costs are
 -- only checked in the submenu - this runs on every wheel rebuild.
@@ -964,7 +983,7 @@ function Evolution.listOptions()
     pcall(function() level = param:GetLevel() end)
     local options = {}
     for _, pair in ipairs(pairList) do
-        local opt = { pair = pair }
+        local opt = { pair = pair, label = palDisplayName(pair.to) }
         if level < pair.minLevel then
             opt.blocked = string.format("%s needs level %d (currently %d)",
                 pair.to, pair.minLevel, level)

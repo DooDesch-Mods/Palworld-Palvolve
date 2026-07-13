@@ -66,6 +66,10 @@ local subModeSince = 0
 local subOptions = nil
 local subHoverIdx = nil
 local subWidgets = {}
+-- true while the action wheel is on screen; a 4-press in that state is
+-- the vanilla cancel gesture and must close without committing anything
+local wheelOpen = false
+local cancelRequested = false
 
 -- vanilla hover sound while it is muted on our segment: the per-frame
 -- index reset would retrigger it every recompute, so the first (real)
@@ -92,12 +96,13 @@ local function restoreHoverSound(wheel)
 end
 
 -- the wheel plays its hover tick inside the native index update, which
--- runs while the sound is still muted when the cursor leaves our segment
--- for a vanilla one - post the swallowed tick manually (Wwise event, same
--- route as the evolution fanfare)
+-- runs while the sound is still muted - post the swallowed tick manually
+-- (Wwise event, same route as the evolution fanfare); works both from the
+-- muted state (savedHoverSound) and the live property
 local function playHoverTick(wheel)
     pcall(function()
-        local snd = wheel.HoveredSound
+        local snd = savedHoverSound
+        if not (snd and snd:IsValid()) then snd = wheel.HoveredSound end
         if not (snd and snd:IsValid()) then return end
         local aks = StaticFindObject("/Script/AkAudio.Default__AkGameplayStatics")
         if not (aks and aks:IsValid()) then return end
@@ -299,7 +304,13 @@ local function injectMainEntry(menu)
     end
     pcall(function() ourWidget:SetText(FText(labelText())) end)
     if not offered and not ourWidgetGreyed then
-        ourWidgetGreyed = applyGrey(ourWidget, readGrey(menu))
+        local flat = readGrey(menu)
+        ourWidgetGreyed = applyGrey(ourWidget, flat)
+        if Config.devMode then
+            Log(string.format("[radial] grey attempt: read=%s applied=%s",
+                flat and string.format("%.2f/%.2f/%.2f/%.2f", flat.R, flat.G, flat.B, flat.A) or "nil",
+                tostring(ourWidgetGreyed)))
+        end
     end
 
     -- preferred path: let the wheel register everything itself, which
@@ -397,11 +408,6 @@ local function buildSubmenu(menu)
             saw(wheel, i - 1, w)
         end
     end
-
-    -- vanilla's decide handlers must never act on option indices; the
-    -- emote submenu unbinds them the same way. The next regular menu open
-    -- rebinds through the vanilla open flow.
-    pcall(function() menu:UnbindPlayerActionMenuEvent() end)
 
     if Config.devMode then
         Log(string.format("[radial] submenu built with %d options", #options))
@@ -501,8 +507,27 @@ function RadialMenu.init(evolutionApi)
             if not (wheel and wheel:IsValid() and isActionWheel(wheel)) then return end
             local idx = wheel.nowSelectedIndex
             if subMode then
-                if idx ~= nil and idx >= 0 and subOptions and idx < #subOptions then
-                    subHoverIdx = idx
+                -- every segment is ours here, but the vanilla decide is
+                -- still bound (UnbindPlayerActionMenuEvent only detaches
+                -- otomo delegates) - suppress ALL indices and track the
+                -- hover ourselves; dead filler segments select "nothing"
+                if idx ~= nil and idx >= 0 then
+                    local newHover = nil
+                    if subOptions and idx < #subOptions then newHover = idx end
+                    if newHover ~= subHoverIdx then
+                        local wasMuted = savedHoverSound ~= nil
+                        subHoverIdx = newHover
+                        if Config.devMode then
+                            Log(string.format("[radial] sub hover idx=%s", tostring(newHover)))
+                        end
+                        -- vanilla's own tick already played while unmuted;
+                        -- from then on the flapping is silent, so replay
+                        if newHover ~= nil and wasMuted then
+                            playHoverTick(wheel)
+                        end
+                    end
+                    muteHoverSound(wheel)
+                    wheel.nowSelectedIndex = -1
                 end
                 return
             end
@@ -544,6 +569,8 @@ function RadialMenu.init(evolutionApi)
                 pcall(function() menu = self:get() end)
                 if not menu then return end
                 menuRef = menu
+                wheelOpen = true
+                cancelRequested = false
                 ExecuteInGameThread(function()
                     pcall(function() injectEntry(menu) end)
                 end)
@@ -557,30 +584,39 @@ function RadialMenu.init(evolutionApi)
             end,
         },
         {
-            -- decide with vanilla unbound (submenu) or without a known
-            -- selection (main mode, suppressed index) ends up here
+            -- fires on the real decide gesture (click/commit release)
             path = WHEEL_WBP .. ":OnDecided",
             fn = function(self)
                 local wheel = nil
                 pcall(function() wheel = self:get() end)
                 if not (wheel and isActionWheel(wheel)) then return end
-                if subMode then subCommit() end
+                if Config.devMode then Log("[radial] wheel OnDecided") end
+                if subMode then subCommit() else commitOurs() end
             end,
         },
         {
-            -- release without a vanilla-known selection skips the decide
-            -- path, so the wheel close is the reliable commit point
+            -- closes on both commit and cancel; a preceding 4-press marks
+            -- the vanilla cancel gesture, which must not run anything
             path = WHEEL_WBP .. ":Close",
             fn = function(self)
                 local wheel = nil
                 pcall(function() wheel = self:get() end)
                 if wheel and isActionWheel(wheel) then
-                    if subMode then
+                    if cancelRequested then
+                        if Config.devMode and (ourHover or subMode) then
+                            Log("[radial] close: cancelled, nothing committed")
+                        end
+                        subMode = false
+                        subOptions = nil
+                        subHoverIdx = nil
+                    elseif subMode then
                         subCommit()
                     else
                         commitOurs()
                     end
                     restoreHoverSound(wheel)
+                    wheelOpen = false
+                    cancelRequested = false
                 end
                 ourHover = false
             end,
@@ -601,6 +637,20 @@ function RadialMenu.init(evolutionApi)
             post = suppressHandler,
         },
     }
+    -- the vanilla cancel gesture: pressing 4 while the wheel is on screen
+    -- closes it without running any action - mirror that for our commits.
+    -- UE4SS keybinds fire on press, so the press that OPENS the menu comes
+    -- before wheelOpen is set and never counts as cancel.
+    pcall(function()
+        local key = Key.NUM_FOUR or Key.FOUR
+        RegisterKeyBind(key, function()
+            if wheelOpen then
+                cancelRequested = true
+                if Config.devMode then Log("[radial] cancel gesture (4) detected") end
+            end
+        end)
+    end)
+
     local registered = {}
     local function tryHooks()
         local allOk = true
