@@ -493,13 +493,11 @@ local function performEvolution(p)
             end)
         end
 
+        -- Nur verifizierte Aufrufe: SetOpacityForCharacter/FadeIn hatten unklare
+        -- Semantik und liessen den neuen Pal unsichtbar (live beobachtet)
         local function revealActor(a)
             pcall(function() a:SetActorHiddenInGame(false) end)
             pcall(function() a:SetActorEnableCollision(true) end)
-            pcall(function()
-                local u = palUtility()
-                if u then u:SetOpacityForCharacter(a, 1.0) end
-            end)
         end
 
         local function finishRespawn(success)
@@ -514,11 +512,15 @@ local function performEvolution(p)
                 spawnGapLight()
                 ExecuteWithDelay(200, function()
                     ExecuteInGameThread(function()
-                        if newActor:IsValid() then
-                            revealActor(newActor)
-                            playEffect(newActor, 5)  -- FadeIn (PalEnhancement klebte dauerhaft)
-                            setFrozen(newActor, false)
-                            playFanfare(newActor)
+                        -- Actor frisch holen (Referenz kann nach dem Spawn wechseln)
+                        local a = nil
+                        pcall(function() a = holder:TryGetSpawnedOtomo() end)
+                        if not (a and a:IsValid()) then a = newActor end
+                        if a and a:IsValid() then
+                            revealActor(a)
+                            playEffect(a, 2)  -- SpawnFromBallEmissive: Weissglow-Erscheinen
+                            setFrozen(a, false)
+                            playFanfare(a)
                         end
                     end)
                 end)
@@ -593,10 +595,6 @@ local function performEvolution(p)
                 if actor:IsValid() then
                     pcall(function() actor:SetActorHiddenInGame(true) end)
                     pcall(function() actor:SetActorEnableCollision(false) end)
-                    pcall(function()
-                        local u = palUtility()
-                        if u then u:SetOpacityForCharacter(actor, 0.0) end
-                    end)
                 end
                 tryRecall(1)
             end)
