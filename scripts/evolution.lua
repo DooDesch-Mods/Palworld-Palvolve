@@ -360,11 +360,12 @@ local function performEvolution(p)
     Log(string.format("Sequenz-Start: %s Lv%d key=%s", pair.from, level, key))
 
     -- Phase 1: Einfrieren + Evolutions-Optik. CaptureEmissive (ID 1) laesst den Pal
-    -- AN ORT UND STELLE weiss aufgluehen und verschwinden - kein sichtbares
-    -- Ball-Einsaugen. Der eigentliche Rueckruf laeuft erst danach am bereits
-    -- unsichtbaren Pal (Delay unten in tryRecall-Start).
+    -- AN ORT UND STELLE weiss aufgluehen. VOR dem Rueckruf wird der Actor dann HART
+    -- versteckt (SetActorHiddenInGame) - die Ball-Einsaug-Animation laeuft damit
+    -- unsichtbar ins Leere (Codex-Design).
     setFrozen(actor, true)
-    playEffect(actor, 1)  -- CaptureEmissive: Weissglow + Aufloesung vor Ort
+    pcall(function() actor:SetActorEnableCollision(false) end)
+    playEffect(actor, 1)  -- CaptureEmissive: Weissglow vor Ort
     playFanfare(actor)
 
     -- Phase 2: Rueckruf mit Eskalationskette, jede Stufe mit Despawn-Verifikation.
@@ -464,36 +465,72 @@ local function performEvolution(p)
         Log(string.format("Actor-Teardown (DespawnCharacterByHandle) ok=%s%s",
             tostring(okDespawn), okDespawn and "" or (" err=" .. tostring(errDespawn))))
 
-        -- Phase 4+5: Aktivierung als Eskalationskette, jede Stufe verifiziert
-        -- (Holder zeigt gespawnten Otomo mit der NEUEN Actor-Klasse).
+        -- Phase 4+5: Aktivierungs-Pumpe mit inszeniertem Enthuellen.
         local expectedClass = "BP_" .. pair.to .. "_C"
         local function isRespawned()
             local a = nil
             pcall(function() a = holder:TryGetSpawnedOtomo() end)
             if not (a and a:IsValid()) then return false end
+            -- SOFORT verstecken, bevor der Spawn sichtbar wird (Enthuellung kommt inszeniert)
+            pcall(function() a:SetActorHiddenInGame(true) end)
+            pcall(function() a:SetActorEnableCollision(false) end)
             local cls = ""
             pcall(function() cls = a:GetClass():GetFullName() end)
             return cls:find(expectedClass, 1, true) ~= nil
         end
 
+        -- Lichtsaeule an der Evolutions-Stelle (NS_Return = vanilla Licht-Aufloesung)
+        local function spawnGapLight()
+            pcall(function()
+                if not oldLoc then return end
+                local ns = StaticFindObject("/Game/Pal/Effect/Common/Return/NS_Return.NS_Return")
+                local lib = StaticFindObject("/Script/Niagara.Default__NiagaraFunctionLibrary")
+                if ns and ns:IsValid() and lib and lib:IsValid() then
+                    lib:SpawnSystemAtLocation(holder, ns, oldLoc, oldRot or {Pitch=0,Yaw=0,Roll=0},
+                        {X=1,Y=1,Z=1}, true, true, 0, false)
+                end
+            end)
+        end
+
+        local function revealActor(a)
+            pcall(function() a:SetActorHiddenInGame(false) end)
+            pcall(function() a:SetActorEnableCollision(true) end)
+            pcall(function()
+                local u = palUtility()
+                if u then u:SetOpacityForCharacter(a, 1.0) end
+            end)
+        end
+
         local function finishRespawn(success)
             local newActor = nil
             pcall(function() newActor = holder:TryGetSpawnedOtomo() end)
-            if newActor and newActor:IsValid() then
-                if success and oldLoc then
-                    -- Evolution passiert VOR ORT: neuen Pal an die alte Position
-                    -- versetzen und aus weissem Glow materialisieren lassen
+            if success and newActor and newActor:IsValid() then
+                -- Inszeniertes Enthuellen: versteckt an die alte Position, dann
+                -- im naechsten Moment mit FadeIn + Glow + Fanfare erscheinen
+                if oldLoc then
                     pcall(function() newActor:K2_TeleportTo(oldLoc, oldRot) end)
-                    playEffect(newActor, 2)  -- SpawnFromBallEmissive: Erscheinen aus Weissglow
                 end
-                setFrozen(newActor, false)
-            end
-            if success then
-                playFanfare(newActor or actor)
+                spawnGapLight()
+                ExecuteWithDelay(200, function()
+                    ExecuteInGameThread(function()
+                        if newActor:IsValid() then
+                            revealActor(newActor)
+                            playEffect(newActor, 5)   -- FadeIn
+                            playEffect(newActor, 41)  -- PalEnhancement-Glow als Abschluss
+                            setFrozen(newActor, false)
+                            playFanfare(newActor)
+                        end
+                    end)
+                end)
                 Log(string.format("ENTWICKELT: %s -> %s (Level %d)%s - Respawn mit neuem Modell OK",
                     pair.from, pair.to, level,
                     nickname ~= "" and (" '" .. nickname .. "'") or ""))
             else
+                -- Fehlerpfad: nichts unsichtbar zuruecklassen
+                if newActor and newActor:IsValid() then
+                    revealActor(newActor)
+                    setFrozen(newActor, false)
+                end
                 local cls = ""
                 pcall(function()
                     if newActor and newActor:IsValid() then cls = newActor:GetClass():GetFullName() end
@@ -505,15 +542,16 @@ local function performEvolution(p)
         end
 
         -- Aktivierungs-Pumpe: Die Engine gibt den neuen Actor erst nach variabler
-        -- Settle-Zeit frei (live: 4-10 s nach Teardown, unabhaengig vom Aufrufweg).
-        -- Statt starrer Timeout-Stufen wird alle 1,2 s ein Aktivierungs-Impuls
-        -- gesetzt (abwechselnd die beiden funktionierenden Wege) und durchgehend
-        -- alle 250 ms verifiziert - der Penking erscheint im fruehestmoeglichen Moment.
+        -- Settle-Zeit frei (live: 4-10 s nach Teardown). Alle 1,2 s ein Impuls -
+        -- SpawnOtomoByLoad ZUERST (ballfrei), ActivateCurrentOtomoNearThePlayer nur
+        -- als Fallback (kann Wurf-Optik ausloesen). Verifikation alle 100 ms, damit
+        -- der Spawn sofort versteckt wird; die Lichtsaeule fuellt die Wartezeit.
         local startedAt = os.clock()
         local lastNudge = startedAt  -- erste Impuls-Pause = Settle-Zeit
         local nudgeCount = 0
         local pumpDone = false
-        LoopAsync(250, function()
+        spawnGapLight()
+        LoopAsync(100, function()
             if pumpDone then return true end
             ExecuteInGameThread(function()
                 if pumpDone then return end
@@ -533,12 +571,13 @@ local function performEvolution(p)
                     nudgeCount = nudgeCount + 1
                     local okNudge = pcall(function()
                         if nudgeCount % 2 == 1 then
-                            holder:ActivateCurrentOtomoNearThePlayer()
-                        else
                             local idx = holder:GetSlotIndexByIndividualHandle(handle)
                             holder:SpawnOtomoByLoad(idx)
+                        else
+                            holder:ActivateCurrentOtomoNearThePlayer()
                         end
                     end)
+                    spawnGapLight()
                     Log(string.format("Aktivierungs-Impuls #%d ok=%s", nudgeCount, tostring(okNudge)))
                 end
             end)
@@ -546,11 +585,21 @@ local function performEvolution(p)
         end)
     end
 
-    -- Rueckruf erst NACH dem Weissglow-Verschwinden (ca. 1,3 s) - der Pal ist dann
-    -- bereits unsichtbar und das Ball-Einsaugen ist nicht mehr zu sehen
-    ExecuteWithDelay(1300, function()
+    -- Rueckruf erst NACH dem Weissglow (ca. 1,2 s), und unmittelbar davor wird der
+    -- Actor HART unsichtbar gemacht - das Ball-Einsaugen ist dann nicht zu sehen
+    ExecuteWithDelay(1200, function()
         ExecuteInGameThread(function()
-            local ok, err = pcall(function() tryRecall(1) end)
+            local ok, err = pcall(function()
+                if actor:IsValid() then
+                    pcall(function() actor:SetActorHiddenInGame(true) end)
+                    pcall(function() actor:SetActorEnableCollision(false) end)
+                    pcall(function()
+                        local u = palUtility()
+                        if u then u:SetOpacityForCharacter(actor, 0.0) end
+                    end)
+                end
+                tryRecall(1)
+            end)
             if not ok then
                 Log("Rueckruf-Start FAIL: " .. tostring(err))
                 refundStone("Sequenzfehler")
