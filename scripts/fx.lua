@@ -470,25 +470,16 @@ prototypes.digimon = {
                 state.yaw = (state.yaw + speed * dt) % 360
                 local s = 0.02 + 0.98 * (1.0 - inv * inv) -- ease-out growth
                 pcall(function() newActor:SetActorScale3D({ X = s, Y = s, Z = s }) end)
-                -- re-pin every tick: the summon/landing flow keeps re-anchoring
-                -- the actor to the player until it completes (which the freeze
-                -- blocks) - detach + teleport each tick wins that fight
-                local pin = ctx.fx.pin
+                -- Rotation only, exactly like the dissolve spin: the per-tick
+                -- position pin (detach + teleport) from the anchor-loop era
+                -- made CharacterMovement pull the rotation back every tick -
+                -- the pal visibly fought the spin. The clean two-phase
+                -- activation holds position on its own now.
                 local finalTick = (t >= 1.0)
                 local yawNow = state.yaw
                 if finalTick then
                     yawNow = yawTowardsPlayer(ctx.oldX, ctx.oldY) or state.yaw
                 end
-                if pin then
-                    pcall(function() newActor:K2_DetachFromActor(1, 1, 1) end)
-                    pcall(function()
-                        newActor:K2_TeleportTo({ X = pin.x, Y = pin.y, Z = pin.z },
-                            { Pitch = 0, Yaw = yawNow, Roll = 0 })
-                    end)
-                end
-                -- Explicit rotation on top of the teleport: on the fully
-                -- activated character the TeleportTo rotation does not stick,
-                -- so the grow spin was invisible without this.
                 setYaw(newActor, yawNow)
                 if finalTick then
                     state.stopped = true
