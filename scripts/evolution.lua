@@ -762,40 +762,56 @@ local function performEvolution(p)
                     finishRespawn(false)
                     return
                 end
-                if (now - lastNudge) >= 2.0 then
+                if (now - lastNudge) >= 2.5 then
                     lastNudge = now
                     nudgeCount = nudgeCount + 1
-                    -- ActivateCurrentOtomo with an explicit transform is the
-                    -- ONLY call that produces a healthy spawn after the
-                    -- teardown + holder cleanup: the pal appears at the given
-                    -- position, already landed and active - no trainer-anchor
-                    -- placement at all. The engine rejects it silently until
-                    -- some internal settle completes, so keep retrying. The
-                    -- other activation APIs either no-op (ActivatePalByHandle,
-                    -- Current* before settle) or spawn through the broken
-                    -- anchor placement (SpawnOtomoByLoad without cleanup).
-                    -- One-shot fallback at attempt 6: the vanilla summon
-                    -- toggle (spawns near the player through the full clean
-                    -- flow; the landing watch + teleport still stage it).
-                    local how, okNudge
-                    if nudgeCount == 6 then
-                        how = "PC:TrySwitchOtomo"
+                    -- Strategy ladder, cycled - this exact mix produced the
+                    -- only healthy spawn so far (ActivateCurrentOtomo as
+                    -- attempt #6, ~13s in, landing at our transform): some of
+                    -- the other calls evidently prime holder state that the
+                    -- activation needs, because pure ActivateCurrentOtomo
+                    -- retries stay dead for 25s. Instrumented with return
+                    -- value and holder state per attempt to nail down WHICH
+                    -- precondition unblocks it.
+                    local how, okNudge, ret
+                    local step = ((nudgeCount - 1) % 4) + 1
+                    if step == 1 and oldX then
+                        how = "ActivatePalByHandle"
                         okNudge = pcall(function()
-                            local pc = FindFirstOf("PalPlayerController")
-                            pc:TrySwitchOtomo()
+                            holder:ActivatePalByHandle(handle,
+                                { X = oldX, Y = oldY, Z = (oldZ or 0) + 50 },
+                                { Pitch = 0, Yaw = oldYaw or 0, Roll = 0 }, true)
                         end)
-                    else
+                    elseif step == 2 and oldX then
                         how = "ActivateCurrentOtomo"
                         okNudge = pcall(function()
-                            holder:ActivateCurrentOtomo({
+                            ret = holder:ActivateCurrentOtomo({
                                 Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
-                                Translation = { X = oldX or 0, Y = oldY or 0, Z = (oldZ or 0) + 50 },
+                                Translation = { X = oldX, Y = oldY, Z = (oldZ or 0) + 50 },
                                 Scale3D = { X = 1, Y = 1, Z = 1 },
                             })
                         end)
+                    elseif step == 3 then
+                        how = "ActivateCurrentOtomoNearThePlayer"
+                        okNudge = pcall(function()
+                            ret = holder:ActivateCurrentOtomoNearThePlayer()
+                        end)
+                    else
+                        how = "SpawnOtomoByLoad"
+                        okNudge = pcall(function()
+                            local idx = holder:GetSlotIndexByIndividualHandle(handle)
+                            holder:SpawnOtomoByLoad(idx)
+                        end)
                     end
+                    local st = ""
+                    pcall(function()
+                        st = string.format(" slot=%s actSel=%s",
+                            tostring(holder:GetSlotIndexByIndividualHandle(handle)),
+                            tostring(holder:IsActivatedSelectOtomo()))
+                    end)
                     pcall(function() fx.onGap(ctx) end)
-                    Log(string.format("Activation attempt #%d (%s) ok=%s", nudgeCount, how, tostring(okNudge)))
+                    Log(string.format("Activation attempt #%d (%s) ok=%s ret=%s%s",
+                        nudgeCount, how, tostring(okNudge), tostring(ret), st))
                 end
             end)
             return pumpDone
