@@ -745,16 +745,34 @@ local function performEvolution(p)
                     finishRespawn(false)
                     return
                 end
-                if (now - lastNudge) >= 3.0 then
+                if (now - lastNudge) >= 2.5 then
                     lastNudge = now
                     nudgeCount = nudgeCount + 1
-                    local how = "ActivatePalByHandle"
-                    local okNudge
-                    if nudgeCount <= 2 and oldX then
+                    -- Strategy ladder, cycled: position-controlled activations
+                    -- first, the near-player summon (known-good spawner) next,
+                    -- the by-load restore (needs a still-summoned otomo) last.
+                    local how, okNudge
+                    local step = ((nudgeCount - 1) % 4) + 1
+                    if step == 1 and oldX then
+                        how = "ActivatePalByHandle"
                         okNudge = pcall(function()
                             holder:ActivatePalByHandle(handle,
                                 { X = oldX, Y = oldY, Z = (oldZ or 0) + 50 },
                                 { Pitch = 0, Yaw = oldYaw or 0, Roll = 0 }, true)
+                        end)
+                    elseif step == 2 and oldX then
+                        how = "ActivateCurrentOtomo"
+                        okNudge = pcall(function()
+                            holder:ActivateCurrentOtomo({
+                                Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
+                                Translation = { X = oldX, Y = oldY, Z = (oldZ or 0) + 50 },
+                                Scale3D = { X = 1, Y = 1, Z = 1 },
+                            })
+                        end)
+                    elseif step == 3 then
+                        how = "ActivateCurrentOtomoNearThePlayer"
+                        okNudge = pcall(function()
+                            holder:ActivateCurrentOtomoNearThePlayer()
                         end)
                     else
                         how = "SpawnOtomoByLoad"
