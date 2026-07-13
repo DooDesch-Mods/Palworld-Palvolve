@@ -431,7 +431,14 @@ local function subCommit()
         Log(string.format("[radial] submenu commit: %s",
             opt and optionLabel(opt) or "no selection"))
     end
-    if not opt then return end
+    if not opt or opt.cancel then
+        if opt and opt.cancel and menuRef and menuRef:IsValid() then
+            ExecuteInGameThread(function()
+                pcall(function() menuRef:CloseMenu() end)
+            end)
+        end
+        return
+    end
     ExecuteInGameThread(function()
         pcall(function()
             if menuRef and menuRef:IsValid() then
@@ -479,6 +486,12 @@ function RadialMenu.init(evolutionApi)
                     Log(reason or "No evolution available")
                     return
                 end
+                -- an explicit cancel entry: no dead segments, backing out
+                -- is always visible and clickable
+                table.insert(opts, {
+                    cancel = true,
+                    label = gameIsGerman() and "Abbrechen" or "Cancel",
+                })
                 subOptions = opts
                 subHoverIdx = nil
                 subMode = true
@@ -515,14 +528,8 @@ function RadialMenu.init(evolutionApi)
                 -- hover ourselves; dead filler segments select "nothing"
                 if idx ~= nil and idx >= 0 then
                     local newHover = nil
-                    if subOptions then
-                        if #subOptions == 1 then
-                            -- a single option shares the wheel with a dead
-                            -- filler segment - any position selects it
-                            newHover = 0
-                        elseif idx < #subOptions then
-                            newHover = idx
-                        end
+                    if subOptions and idx < #subOptions then
+                        newHover = idx
                     end
                     if newHover ~= subHoverIdx then
                         local wasMuted = savedHoverSound ~= nil

@@ -942,6 +942,9 @@ local function palDisplayName(id)
             if s and s ~= "" then name = s end
         end
     end)
+    if Config.devMode then
+        Log(string.format("[radial] name lookup %s -> %s", id, name or "FAIL"))
+    end
     return name or id
 end
 
