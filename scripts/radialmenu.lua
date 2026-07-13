@@ -378,7 +378,7 @@ end
 -- ---------------------------------------------------------------- submenu
 
 local function optionLabel(opt)
-    return opt.pair and opt.pair.to or "?"
+    return opt.label or (opt.pair and opt.pair.to) or "?"
 end
 
 local function buildSubmenu(menu)
