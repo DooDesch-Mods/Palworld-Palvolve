@@ -422,6 +422,18 @@ local function performEvolution(p)
     end
 
     Log(string.format("Sequence start: %s Lv%d key=%s fx=%s", pair.from, level, key, FX.get()))
+    if Config.devMode then
+        local pz = "?"
+        pcall(function()
+            local p = FindFirstOf("PalPlayerCharacter")
+            if p and p:IsValid() then
+                local pl = p:K2_GetActorLocation()
+                pz = string.format("(%.0f,%.0f,%.0f)", pl.X, pl.Y, pl.Z)
+            end
+        end)
+        Log(string.format("[diag start] old=(%s,%s,%s) yaw=%.0f half=%.0f player=%s",
+            tostring(oldX), tostring(oldY), tostring(oldZ), oldYaw or 0, oldHalf or 0, pz))
+    end
 
     -- Phase 1: freeze + dissolve staging (white glow in place; the actor is
     -- hard-hidden right before the teardown so no recall visuals ever show)
