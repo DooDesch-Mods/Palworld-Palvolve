@@ -273,7 +273,7 @@ local function startRevealDiagnostics(holderRef, label)
     local ticks = 0
     LoopAsync(500, function()
         ticks = ticks + 1
-        if ticks > 12 then return true end
+        if ticks > 24 then return true end
         ExecuteInGameThread(function()
             pcall(function()
                 local a = nil
@@ -283,11 +283,8 @@ local function startRevealDiagnostics(holderRef, label)
                     return
                 end
                 local loc = a:K2_GetActorLocation()
-                local parentName = "none"
-                pcall(function()
-                    local parent = a:GetAttachParentActor()
-                    if parent and parent:IsValid() then parentName = parent:GetFullName() end
-                end)
+                local inst = "?"
+                pcall(function() inst = a:GetFullName():match("([^%.]+)$") or "?" end)
                 local mode = "?"
                 pcall(function() mode = tostring(a.CharacterMovement.MovementMode) end)
                 local scaleX = -1
@@ -299,13 +296,30 @@ local function startRevealDiagnostics(holderRef, label)
                 end)
                 local active = "?"
                 pcall(function() active = tostring(a.bIsPalActiveActor) end)
-                local action = "?"
-                pcall(function() action = tostring(a.ActionComponent:GetCurrentActionType()) end)
-                Log(string.format("[diag %s t=%d] pos=(%.0f,%.0f,%.0f) dzPlayer=%.0f scale=%.2f moveMode=%s parent=%s active=%s action=%s",
-                    label, ticks, loc.X, loc.Y, loc.Z, dz, scaleX, mode, parentName, active, action))
+                -- census: EVERY actor of the target class, to catch duplicate
+                -- spawns (holder flipping between two actors)
+                local census = ""
+                pcall(function()
+                    local all = FindAllOf("BP_" .. label .. "_C") or {}
+                    census = string.format(" census=%d", #all)
+                    for i, o in ipairs(all) do
+                        pcall(function()
+                            if o and o:IsValid() then
+                                local oi = o:GetFullName():match("([^%.]+)$") or "?"
+                                local ol = o:K2_GetActorLocation()
+                                local hid = "?"
+                                pcall(function() hid = tostring(o.bHidden) end)
+                                census = census .. string.format(" [%s @(%.0f,%.0f,%.0f) hidden=%s]",
+                                    oi, ol.X, ol.Y, ol.Z, hid)
+                            end
+                        end)
+                    end
+                end)
+                Log(string.format("[diag %s t=%d] inst=%s pos=(%.0f,%.0f,%.0f) dzPlayer=%.0f scale=%.2f moveMode=%s active=%s%s",
+                    label, ticks, inst, loc.X, loc.Y, loc.Z, dz, scaleX, mode, active, census))
             end)
         end)
-        return ticks > 12
+        return ticks > 24
     end)
 end
 
@@ -555,9 +569,10 @@ local function performEvolution(p)
             local a = nil
             pcall(function() a = holder:TryGetSpawnedOtomo() end)
             if not (a and a:IsValid()) then return false end
-            -- hide instantly so the raw spawn is never visible (reveal is staged)
+            -- Hide instantly so the raw spawn is never visible (reveal is
+            -- staged). Collision stays ON: the native landing flow needs it,
+            -- and it is only switched off for the teleport itself.
             pcall(function() a:SetActorHiddenInGame(true) end)
-            pcall(function() a:SetActorEnableCollision(false) end)
             local cls = ""
             pcall(function() cls = a:GetClass():GetFullName() end)
             return cls:find(expectedClass, 1, true) ~= nil
@@ -574,12 +589,11 @@ local function performEvolution(p)
             if success and newActor and newActor:IsValid() then
                 -- Move to the evolution spot WHILE still hidden and collision-free:
                 -- with collision enabled K2_TeleportTo sweeps and refuses/shifts the
-                -- landing when anything blocks, leaving the pal wherever it spawned.
-                -- Keep the Z of the valid placement the game chose, only move X/Y;
-                -- collision comes back at reveal time.
+                -- landing when anything blocks. Collision comes back at reveal time.
                 if oldX then
                     pcall(function()
                         pcall(function() newActor:K2_DetachFromActor(1, 1, 1) end)
+                        pcall(function() newActor:SetActorEnableCollision(false) end)
                         -- The fresh pooled actor still sits at its parking spot far
                         -- under the world here, so its current Z is useless. Anchor
                         -- the new capsule so its feet end up where the old pal
@@ -661,10 +675,41 @@ local function performEvolution(p)
             end
         end
 
-        -- Activation pump: the engine releases the new actor after a variable
-        -- settle time. Nudge every 1.2s - SpawnOtomoByLoad FIRST (ball-free),
-        -- ActivateCurrentOtomoNearThePlayer only as fallback (can trigger throw
-        -- visuals). Verify every 100ms so the spawn is hidden immediately.
+        -- The engine finishes its own placement flow (trainer anchor at
+        -- player Z +3000, then adjust-to-floor) some time after the spawn.
+        -- Touching the actor before that flow is done leaves a pending
+        -- placement that warps the pal back to the anchor AFTER our reveal.
+        -- Wait until it has landed (MOVE_Walking) or a cap, then stage.
+        local function startLandingWatch()
+            local watchStart = os.clock()
+            local watchDone = false
+            LoopAsync(200, function()
+                if watchDone then return true end
+                ExecuteInGameThread(function()
+                    if watchDone then return end
+                    local landed = false
+                    pcall(function()
+                        local a = holder:TryGetSpawnedOtomo()
+                        landed = (a.CharacterMovement.MovementMode == 1)
+                    end)
+                    local waited = os.clock() - watchStart
+                    if landed or waited > 6 then
+                        watchDone = true
+                        Log(string.format("Landing %s after %.1fs",
+                            landed and "confirmed" or "timeout - proceeding", waited))
+                        finishRespawn(true)
+                    end
+                end)
+                return watchDone
+            end)
+        end
+
+        -- Activation pump: after the teardown the engine normally respawns
+        -- the still-summoned otomo BY ITSELF after a settle time (~3s). A
+        -- nudge is only a fallback - nudging too early races a second spawn
+        -- against the engine one: TryGetSpawnedOtomo then flips between two
+        -- actors and the loser keeps hovering at the trainer anchor forever.
+        -- Verify every 100ms so the spawn is hidden immediately.
         local startedAt = os.clock()
         local lastNudge = startedAt -- first nudge pause doubles as settle time
         local nudgeCount = 0
@@ -676,7 +721,7 @@ local function performEvolution(p)
                 if pumpDone then return end
                 if isRespawned() then
                     pumpDone = true
-                    finishRespawn(true)
+                    startLandingWatch()
                     return
                 end
                 local now = os.clock()
@@ -685,16 +730,12 @@ local function performEvolution(p)
                     finishRespawn(false)
                     return
                 end
-                if (now - lastNudge) >= 1.2 then
+                if (now - lastNudge) >= 4.0 then
                     lastNudge = now
                     nudgeCount = nudgeCount + 1
                     local okNudge = pcall(function()
-                        if nudgeCount % 2 == 1 then
-                            local idx = holder:GetSlotIndexByIndividualHandle(handle)
-                            holder:SpawnOtomoByLoad(idx)
-                        else
-                            holder:ActivateCurrentOtomoNearThePlayer()
-                        end
+                        local idx = holder:GetSlotIndexByIndividualHandle(handle)
+                        holder:SpawnOtomoByLoad(idx)
                     end)
                     pcall(function() fx.onGap(ctx) end)
                     Log(string.format("Activation nudge #%d ok=%s", nudgeCount, tostring(okNudge)))
