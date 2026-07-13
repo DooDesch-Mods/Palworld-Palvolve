@@ -499,16 +499,19 @@ local function performEvolution(p)
             local newActor = nil
             pcall(function() newActor = holder:TryGetSpawnedOtomo() end)
             if success and newActor and newActor:IsValid() then
-                -- Move to the evolution spot. Do NOT compute the height ourselves
-                -- (own capsule math buried or floated the pal): keep the Z of the
-                -- valid placement the game chose, only move X/Y, collision first
-                -- so physics settles cleanly.
+                -- Move to the evolution spot WHILE still hidden and collision-free:
+                -- with collision enabled K2_TeleportTo sweeps and refuses/shifts the
+                -- landing when anything blocks, leaving the pal wherever it spawned.
+                -- Keep the Z of the valid placement the game chose, only move X/Y;
+                -- collision comes back at reveal time.
                 if oldX then
                     pcall(function()
                         local cur = newActor:K2_GetActorLocation()
-                        pcall(function() newActor:SetActorEnableCollision(true) end)
                         local target = { X = oldX, Y = oldY, Z = cur.Z }
-                        newActor:K2_TeleportTo(target, { Pitch = 0, Yaw = oldYaw or 0, Roll = 0 })
+                        local moved = newActor:K2_TeleportTo(target, { Pitch = 0, Yaw = oldYaw or 0, Roll = 0 })
+                        local after = newActor:K2_GetActorLocation()
+                        Log(string.format("Reveal teleport moved=%s target=(%.0f,%.0f,%.0f) actual=(%.0f,%.0f,%.0f)",
+                            tostring(moved), oldX, oldY, cur.Z, after.X, after.Y, after.Z))
                     end)
                 end
                 pcall(function() fx.onPreReveal(ctx, newActor) end)
