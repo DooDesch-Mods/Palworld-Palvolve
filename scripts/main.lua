@@ -24,6 +24,7 @@ if Evolution then
     local okRadial, errRadial = pcall(function()
         require("radialmenu").init({
             check = Evolution.check,
+            canOffer = Evolution.canOffer,
             listOptions = Evolution.listOptions,
             executeOption = Evolution.executeOption,
         })

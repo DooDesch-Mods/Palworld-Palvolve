@@ -926,6 +926,24 @@ function Evolution.isArmed()
     return pending ~= nil and (os.clock() - pending.armedAt) <= Config.confirmWindowSeconds
 end
 
+-- Light-weight availability for the radial label: an owned pal is
+-- summoned and has at least one configured option. Level and costs are
+-- only checked in the submenu - this runs on every wheel rebuild.
+function Evolution.canOffer()
+    local ok, res = pcall(function()
+        local holder = findHolder(nil)
+        if not holder then return false end
+        local actor = nil
+        pcall(function() actor = holder:TryGetSpawnedOtomo() end)
+        if not (actor and actor:IsValid()) then return false end
+        local param = paramOf(actor)
+        if not (param and isOwned(param)) then return false end
+        local id = param:GetCharacterID():ToString()
+        return #Config.findPairs(id) > 0
+    end)
+    return ok and res == true
+end
+
 -- All evolution/adaptation options for the currently summoned pal with
 -- affordability info - feeds the radial submenu. Returns nil, reason when
 -- nothing is available.

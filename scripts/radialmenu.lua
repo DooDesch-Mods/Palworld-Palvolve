@@ -51,6 +51,9 @@ local api = nil
 -- state of the currently open wheel (main mode)
 local ourIndex = nil
 local ourWidget = nil
+-- whether the cached label currently carries the vanilla "no otomo" grey;
+-- flipping back to available recreates the widget (default color)
+local ourWidgetGreyed = false
 -- true while the cursor rests on our segment (maintained by the native
 -- UpdateSelectedIndex post-hooks); consumed on wheel close/decide
 local ourHover = false
@@ -185,6 +188,14 @@ local function saw(wheel, idx, widget)
     end)
 end
 
+-- vanilla's grey for unavailable entries (used on Feed/Pet without an
+-- otomo); read from the menu so the struct layout always matches
+local function greyColorOf(menu)
+    local c = nil
+    pcall(function() c = menu.TextColor_NothingOtomo end)
+    return c
+end
+
 -- ---------------------------------------------------------------- main mode
 
 local function injectMainEntry(menu)
@@ -240,14 +251,36 @@ local function injectMainEntry(menu)
         return
     end
 
+    -- grey out like Feed/Pet while no own pal with options is summoned
+    local offered = true
+    if api and api.canOffer then
+        local okAvail, avail = pcall(api.canOffer)
+        offered = okAvail and avail == true
+    end
+    if offered and ourWidgetGreyed and ourWidget then
+        -- recreating restores the widget's default text color
+        pcall(function()
+            if ourWidget:IsValid() then ourWidget:RemoveFromParent() end
+        end)
+        ourWidget = nil
+        ourWidgetGreyed = false
+    end
     if not (ourWidget and ourWidget:IsValid()) then
         ourWidget = makeLabelWidget(menu, labelText())
+        ourWidgetGreyed = false
     end
     if not ourWidget then
         if Config.devMode then Log("[radial] label widget creation failed") end
         return
     end
     pcall(function() ourWidget:SetText(FText(labelText())) end)
+    if not offered and not ourWidgetGreyed then
+        local grey = greyColorOf(menu)
+        if grey then
+            local okGrey = pcall(function() ourWidget:SetTextColor(grey) end)
+            ourWidgetGreyed = okGrey
+        end
+    end
 
     -- preferred path: let the wheel register everything itself, which
     -- keeps the AdditionalWidget map intact for hover highlights
@@ -330,21 +363,17 @@ local function buildSubmenu(menu)
         return
     end
 
+    -- fresh widgets per build (runs once per submenu open): the default
+    -- text color is the available state, blocked options get vanilla's
+    -- no-otomo grey
+    local grey = greyColorOf(menu)
     for i, opt in ipairs(options) do
-        local w = subWidgets[i]
-        if not (w and w:IsValid()) then
-            w = makeLabelWidget(menu, optionLabel(opt))
-            subWidgets[i] = w
-        end
+        local w = makeLabelWidget(menu, optionLabel(opt))
+        subWidgets[i] = w
         if w then
-            pcall(function() w:SetText(FText(optionLabel(opt))) end)
-            pcall(function()
-                if opt.blocked then
-                    w:SetTextColor({ R = 0.45, G = 0.45, B = 0.45, A = 1.0 })
-                else
-                    w:SetTextColor({ R = 1.0, G = 1.0, B = 1.0, A = 1.0 })
-                end
-            end)
+            if opt.blocked and grey then
+                pcall(function() w:SetTextColor(grey) end)
+            end
             saw(wheel, i - 1, w)
         end
     end
