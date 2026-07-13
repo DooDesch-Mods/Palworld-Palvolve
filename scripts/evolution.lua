@@ -506,6 +506,11 @@ local function performEvolution(p)
                 -- collision comes back at reveal time.
                 if oldX then
                     pcall(function()
+                        -- The spawn parks the otomo ATTACHED to the player until its
+                        -- landing sequence runs; our freeze interrupts that, so the
+                        -- pal would hover above and follow the player. Detach first
+                        -- (KeepWorld), then teleport.
+                        pcall(function() newActor:K2_DetachFromActor(1, 1, 1) end)
                         local cur = newActor:K2_GetActorLocation()
                         local target = { X = oldX, Y = oldY, Z = cur.Z }
                         local moved = newActor:K2_TeleportTo(target, { Pitch = 0, Yaw = oldYaw or 0, Roll = 0 })
