@@ -8,6 +8,8 @@
 
 local Config = require("config")
 local FX = require("fx")
+local Costs = require("costs")
+local Elements = require("elements")
 
 local Evolution = {}
 
@@ -168,58 +170,6 @@ local function completeOtomoActivation(palActor)
     pcall(function() palActor:SetActiveActor(true) end)
     pcall(function() palActor:SetActiveCollisionMovement(true) end)
     pcall(function() palActor.CharacterMovement:SetMovementMode(3, 0) end)
-end
-
--- ---------------------------------------------------------------- item costs
-
-local function inventoryData()
-    local inv = nil
-    pcall(function()
-        local pc = FindFirstOf("PalPlayerController")
-        if pc and pc:IsValid() then
-            inv = pc:GetPalPlayerState():GetInventoryData()
-        end
-    end)
-    if inv and inv:IsValid() then return inv end
-    return nil
-end
-
-local function countItem(staticItemId)
-    local n = 0
-    pcall(function()
-        local inv = inventoryData()
-        if inv then n = inv:CountItemNum(FName(staticItemId)) end
-    end)
-    return n
-end
-
--- Consumes `need` items; success is verified via the count difference
--- (RequestConsumeInventoryItem is the only BP-exposed consume path).
-local function tryConsumeItems(staticItemId, need)
-    local ok = false
-    pcall(function()
-        local inv = inventoryData()
-        if not inv then return end
-        local id = FName(staticItemId)
-        local before = inv:CountItemNum(id)
-        if before < need then return end
-        local cdo = StaticFindObject("/Script/Pal.Default__PalIncidentBase")
-        if cdo and cdo:IsValid() then
-            cdo:RequestConsumeInventoryItem(inv, id, need)
-        end
-        local after = inv:CountItemNum(id)
-        ok = (before - after) == need
-    end)
-    return ok
-end
-
--- Checks the stone cost for a pair; returns ok, stoneId, displayName
-local function stoneCheck(pair)
-    if not Config.requireStone then return true, nil, nil end
-    local stoneId = Config.stoneItemIds[pair.stone]
-    local stoneName = Config.stoneNames[pair.stone] or pair.stone
-    if not stoneId then return true, nil, nil end
-    return countItem(stoneId) >= Config.stoneCount, stoneId, stoneName
 end
 
 -- ---------------------------------------------------------------- IV bonus
@@ -442,33 +392,19 @@ local function performEvolution(p)
         sequenceBudgetS = budget + 10
     end)
 
-    -- Stone transaction state: consumed upfront, refunded exactly once on any
-    -- abort that happens before the verified species swap; earned afterwards.
-    local paidStoneId = nil
-    local stoneRefunded = false
+    -- Cost transaction: consumed upfront, refunded exactly once on any abort
+    -- that happens before the verified species swap; earned afterwards.
+    local txn = nil
     local swapDone = false
-    local function refundStone(reason)
-        if not paidStoneId or stoneRefunded then return end
-        stoneRefunded = true
-        pcall(function()
-            local inv = inventoryData()
-            if inv then
-                local res = inv:AddItem_ServerInternal(FName(paidStoneId), Config.stoneCount, false, 0.0, true)
-                if res == 0 then
-                    Log("Stone refunded (" .. reason .. ")")
-                else
-                    Log(string.format("Stone refund FAILED (result=%s) - please report", tostring(res)))
-                end
-            end
-        end)
+    local function refundCost(reason)
+        if txn and not swapDone then txn.refund(reason) end
     end
 
-    -- Success: reveal animations finish on their own (prototypes clean up their
-    -- placeholders in onReveal). Abort: cleanup must tear the staging down and
-    -- the stone is refunded unless the swap already committed. Both are
-    -- idempotent; the first one to run wins. Prototypes with
-    -- keepsFrozenUntilDone end the sequence themselves through
-    -- ctx.completeOk/completeAbort once their reveal animation is done.
+    -- Success: reveal animations finish on their own (the staging cleans up
+    -- in its own reveal driver). Abort: cleanup must tear the staging down
+    -- and the cost is refunded unless the swap already committed. Both are
+    -- idempotent; the first one to run wins. keepsFrozenUntilDone stagings
+    -- end the sequence themselves through ctx.completeOk/completeAbort.
     local function finishOk()
         if seq.done then return end
         seq.done = true
@@ -480,7 +416,7 @@ local function performEvolution(p)
         seq.done = true
         currentAbort = nil
         pcall(function() fx.cleanup(ctx) end)
-        if not swapDone then refundStone("evolution aborted") end
+        refundCost("evolution aborted")
         sequenceRunning = false
     end
     ctx.completeOk = finishOk
@@ -507,20 +443,19 @@ local function performEvolution(p)
         return
     end
 
-    -- Take the stone cost BEFORE the sequence (no TOCTOU: anything that fails
-    -- before the swap refunds the stone; after the swap it is earned)
-    if Config.requireStone then
-        local _, stoneId, stoneName = stoneCheck(pair)
-        if stoneId then
-            if not tryConsumeItems(stoneId, Config.stoneCount) then
-                Log(string.format("Evolution aborted: %dx %s not available/consumable",
-                    Config.stoneCount, stoneName))
-                finishAbort()
-                return
-            end
-            paidStoneId = stoneId
-            Log(string.format("%dx %s consumed", Config.stoneCount, stoneName))
+    -- Take the full cost BEFORE the sequence (no TOCTOU: anything that fails
+    -- before the swap refunds everything; after the swap it is earned)
+    local costList = Costs.resolve(pair, level, holder)
+    if #costList > 0 then
+        local failedItem
+        txn, failedItem = Costs.beginTransaction(costList)
+        if not txn then
+            Log(string.format("Evolution aborted: %dx %s not available/consumable",
+                failedItem and failedItem.count or 0, failedItem and failedItem.label or "?"))
+            finishAbort()
+            return
         end
+        Log("Cost taken: " .. Costs.describe(costList))
     end
 
     Log(string.format("Evolving %s (Lv %d)...", pair.from, level))
@@ -578,7 +513,7 @@ local function performEvolution(p)
                 pcall(function() actor:SetActorEnableCollision(true) end)
                 setFrozen(actor, false)
             end
-            refundStone("despawn failed")
+            refundCost("despawn failed")
             finishAbort()
             return
         end
@@ -605,7 +540,7 @@ local function performEvolution(p)
         -- Phase 3: swap in the despawned state (safest write moment) + verify
         if not param:IsValid() then
             Log("Aborted: parameter invalid after despawn")
-            refundStone("parameter invalid")
+            refundCost("parameter invalid")
             finishAbort()
             return
         end
@@ -618,11 +553,12 @@ local function performEvolution(p)
         if not okSwap or idNow ~= pair.to then
             Log(string.format("SWAP FAILED (err=%s, id=%s) - no respawn attempt",
                 tostring(errSwap), idNow))
-            refundStone("swap failed")
+            refundCost("swap failed")
             finishAbort()
             return
         end
         swapDone = true
+        if txn then txn.commit() end
         applyIvBonus(param)
         pcall(function() param:FullRecoveryHP() end)
 
@@ -922,7 +858,7 @@ local function performEvolution(p)
             end)
             if not ok then
                 Log("Teardown start FAIL: " .. tostring(err))
-                refundStone("sequence error")
+                refundCost("sequence error")
                 finishAbort()
             end
         end)
@@ -945,11 +881,12 @@ function Evolution.check()
         return
     end
 
-    -- Stone cost check (only active with requireStone=true)
-    local stoneOk, _, stoneName = stoneCheck(pair)
-    if not stoneOk then
-        Log(string.format("%s (Lv %d) could evolve into %s, but missing: %dx %s",
-            pair.from, level, pair.to, Config.stoneCount, stoneName))
+    -- Full cost check (stone + materials); lists every missing item
+    local costList = Costs.resolve(pair, level, holder)
+    local costOk, missing = Costs.check(costList)
+    if not costOk then
+        Log(string.format("%s (Lv %d) could evolve into %s, but missing: %s",
+            pair.from, level, pair.to, Costs.describeMissing(missing)))
         return
     end
 
@@ -968,8 +905,8 @@ function Evolution.check()
     pending = { armedAt = now, key = key, pair = pair }
     playFanfare(actor)
     local costHint = ""
-    if Config.requireStone and stoneName then
-        costHint = string.format(" [cost: %dx %s]", Config.stoneCount, stoneName)
+    if #costList > 0 then
+        costHint = string.format(" [cost: %s]", Costs.describe(costList))
     end
     Log(string.format("%s (Lv %d) can evolve into %s%s - press %s again to confirm (%ds)",
         pair.from, level, pair.to, costHint, Config.confirmKey, Config.confirmWindowSeconds))
@@ -1037,6 +974,25 @@ end
 
 function Evolution.init()
     loadSnapshots()
+
+    -- One-time runtime capability probes once a world is loaded: they pin the
+    -- baked-table fallbacks when the out-param marshaling of the database
+    -- accessors is unusable in this UE4SS build ([probe-dropdata] /
+    -- [probe-elementtype]).
+    local probed = false
+    LoopAsync(3000, function()
+        if probed then return true end
+        ExecuteInGameThread(function()
+            if probed then return end
+            local holder = findHolder(nil)
+            if holder then
+                probed = true
+                pcall(function() Elements.probeRuntime(holder) end)
+                pcall(function() Costs.probeRuntime(holder) end)
+            end
+        end)
+        return probed
+    end)
 
     local lastPress = 0
     RegisterKeyBind(Key[Config.confirmKey], function()

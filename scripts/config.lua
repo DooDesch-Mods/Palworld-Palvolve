@@ -40,15 +40,51 @@ local Config = {
     stoneCount = 1,
     stoneItemIds = {
         evolution = "Palvolve_EvolutionStone",
-        adaptation = "Palvolve_AdaptionStone"
+        -- per-element adaptation stones (crafted from Evolution Stone +
+        -- MeteorDrop + the matching element essence)
+        adaptation = {
+            Normal      = "Palvolve_AdaptationStone_Normal",
+            Fire        = "Palvolve_AdaptationStone_Fire",
+            Water       = "Palvolve_AdaptationStone_Water",
+            Leaf        = "Palvolve_AdaptationStone_Leaf",
+            Electricity = "Palvolve_AdaptationStone_Electricity",
+            Ice         = "Palvolve_AdaptationStone_Ice",
+            Earth       = "Palvolve_AdaptationStone_Earth",
+            Dark        = "Palvolve_AdaptationStone_Dark",
+            Dragon      = "Palvolve_AdaptationStone_Dragon",
+        },
+        -- legacy generic stone: no longer craftable, still accepted whenever
+        -- the target element cannot be resolved
+        adaptationFallback = "Palvolve_AdaptionStone",
     },
     stoneNames = {
         evolution = "Evolution Stone",
         adaptation = "Adaptation Stone"
     },
 
+    -- Material costs on top of the stone. Materials derive from drop tables
+    -- (evolutions price the BASE pal's drops, adaptations the TARGET form's);
+    -- a per-pair `materials = { { id = "...", count = n }, ... }` overrides.
+    costs = {
+        enabled = true,
+        slots = 2,        -- max distinct material types taken from a drop row
+        minRate = 50.0,   -- ignore drop slots rarer than this (percent)
+        countScale = 4.0, -- count = ceil(avg(min,max) * countScale), clamped
+        maxCount = 30,
+        fallbackMaterials = {
+            -- species without a drop table row
+            MonochromeMushroom = { { id = "Mushroom", count = 10 } },
+        },
+    },
+
+    -- Eggs only ever hatch base forms (evolved forms are normalized back to
+    -- their base species while hatching); funchain results stay allowed.
+    eggFilter = {
+        enabled = true,
+    },
+
     -- Map schema version (for future migrations)
-    schemaVersion = 2,
+    schemaVersion = 3,
     gameBuild = 24088745,
 
     map = { -- ==================== True evolutions (small -> big form) ====================
@@ -773,6 +809,33 @@ function Config.findPair(characterId)
         end
     end
     return nil
+end
+
+-- Reverse map for the egg filter: evolved/adapted form -> base form, walked
+-- transitively (Yeti -> SmallYeti). Funchain links are excluded so cross-
+-- family results (MopKing -> Yeti) do not normalize into the wrong family.
+-- Disabled pairs count too: an egg of a disabled target still normalizes.
+local baseFormCache = nil
+function Config.baseFormOf(characterId)
+    if baseFormCache == nil then
+        local parentOf = {}
+        for _, pair in ipairs(Config.map) do
+            if pair.category ~= "funchain" and not parentOf[pair.to] then
+                parentOf[pair.to] = pair.from
+            end
+        end
+        baseFormCache = {}
+        for child, _ in pairs(parentOf) do
+            local seen = { [child] = true }
+            local cur = child
+            while parentOf[cur] and not seen[parentOf[cur]] do
+                cur = parentOf[cur]
+                seen[cur] = true
+            end
+            baseFormCache[child] = cur
+        end
+    end
+    return baseFormCache[characterId]
 end
 
 return Config
