@@ -1,6 +1,6 @@
 -- Palvolve radial menu integration: adds a real "Evolve" entry to the hold-4
--- player action wheel (pure Lua widget injection, mapped from the in-world
--- dumps 2026-07-13).
+-- player action wheel and opens an option submenu in the same wheel, the way
+-- the vanilla emote submenu works (mapped from the in-world dumps 2026-07-13).
 --
 -- How the vanilla wheel works: WBP_PlayerRadialMenu builds the pal action
 -- menu in CreatePlayerActionMenu. The generic WBP_CommonRadialMenuBase
@@ -10,7 +10,9 @@
 -- WBP_RadialMenu_base, registered per segment index via "Set Additional
 -- Widget" (its Canvas is an OUT param, passed from Lua as an empty table).
 -- RecalcMenuNum clears all registered label widgets, which is why vanilla
--- always calls it before adding labels.
+-- always calls it before adding labels. Submenus reuse the SAME wheel: the
+-- emote flow swaps the content and rebinds the decide delegates
+-- (Bind/UnbindPlayerActionMenuEvent) instead of opening another widget.
 --
 -- UE4SS constraints (verified against the shipped v3.0.1 source): hooks on
 -- /Game/ BP functions are POST-hooks (body already ran, parameter writes
@@ -24,9 +26,11 @@
 -- unknown indices run the photo mode branch. The natives
 -- UpdateSelectedIndex_ForMouse/ForPad/ForceAxis recompute nowSelectedIndex
 -- from the cursor; a synchronous post-hook flips our index to -1 (vanilla
--- treats the release as "nothing selected") and remembers the hover, and
--- the wheel's Close/decide hooks then commit the evolution check
--- ourselves.
+-- treats the release as "nothing selected") and remembers the hover. The
+-- wheel close then reopens the menu with OUR options: vanilla's decide
+-- delegates are unbound for the submenu (its own pattern), so hover sound,
+-- highlight and hit testing stay fully native there; our hooks track the
+-- hovered option and commit the selected evolution on decide/close.
 
 local Config = require("config")
 
@@ -41,14 +45,25 @@ local WHEEL_WBP = "/Game/Pal/Blueprint/UI/CommonWidget/RadialMenu/WBP_CommonRadi
 local CONTENT_WBP = "/Game/Pal/Blueprint/UI/PlayerRadialMenu/WBP_PlayerRadialMenu_MenuContent.WBP_PlayerRadialMenu_MenuContent_C"
 local RADIAL_NATIVE = "/Script/Pal.PalUIRadialMenuWidgetBase"
 
--- state of the currently open wheel
+-- evolution API wired in init: check, listOptions, executeOption
+local api = nil
+
+-- state of the currently open wheel (main mode)
 local ourIndex = nil
 local ourWidget = nil
 -- true while the cursor rests on our segment (maintained by the native
 -- UpdateSelectedIndex post-hooks); consumed on wheel close/decide
 local ourHover = false
--- reports whether the evolution confirm window is armed (label text)
-local isArmedFn = nil
+-- the outer WBP_PlayerRadialMenu instance, captured on every build
+local menuRef = nil
+
+-- submenu state: the wheel shows OUR options instead of the pal actions
+local subMode = false
+local subModeSince = 0
+local subOptions = nil
+local subHoverIdx = nil
+local subWidgets = {}
+
 -- vanilla hover sound while it is muted on our segment: the per-frame
 -- index reset would retrigger it every recompute, so the first (real)
 -- tick plays and the flapping afterwards is silenced
@@ -105,9 +120,7 @@ local function isActionWheel(wheel)
     return ok and res == true
 end
 
-local function labelText()
-    -- vanilla labels are localized, so at least follow the game language
-    -- for our own entry (fallback: English)
+local function gameIsGerman()
     local de = false
     pcall(function()
         local intl = StaticFindObject("/Script/Engine.Default__KismetInternationalizationLibrary")
@@ -116,17 +129,14 @@ local function labelText()
         local s = type(lang) == "string" and lang or lang:ToString()
         de = s:sub(1, 2) == "de"
     end)
-    local armed = false
-    if isArmedFn then
-        pcall(function() armed = isArmedFn() == true end)
-    end
-    if armed then
-        return de and "Bestätigen?" or "Confirm?"
-    end
-    return de and "Entwickeln" or "Evolve"
+    return de
 end
 
-local function makeLabelWidget(owner)
+local function labelText()
+    return gameIsGerman() and "Entwickeln" or "Evolve"
+end
+
+local function makeLabelWidget(owner, text)
     local widget = nil
     pcall(function()
         local cls = StaticFindObject(CONTENT_WBP)
@@ -136,7 +146,7 @@ local function makeLabelWidget(owner)
         widget = lib:Create(owner, cls, pc)
     end)
     if widget and widget:IsValid() then
-        local okText = pcall(function() widget:SetText(FText(labelText())) end)
+        local okText = pcall(function() widget:SetText(FText(text)) end)
         if not okText and Config.devMode then
             Log("[radial] SetText failed - entry stays unlabeled")
         end
@@ -150,144 +160,245 @@ local function canvasSlot(widget)
     return lib:SlotAsCanvasSlot(widget)
 end
 
-local function injectEntry(menu)
-    local okAll, errAll = pcall(function()
-        local wheel = menu.WBP_CommonRadialMenuBase
-        if not (wheel and wheel:IsValid()) then
-            if Config.devMode then Log("[radial] wheel reference missing") end
-            return
-        end
-        -- the labels live on the menuCanvas of the nested WBP_RadialMenu_base
-        local canvas = nil
-        pcall(function()
-            local base = wheel.WBP_RadialMenu_base
-            if base and base:IsValid() then canvas = base.menuCanvas end
-        end)
-        if not (canvas and canvas:IsValid()) then
-            if Config.devMode then Log("[radial] menuCanvas missing") end
-            return
-        end
+local function wheelOf(menu)
+    local wheel = nil
+    pcall(function() wheel = menu.WBP_CommonRadialMenuBase end)
+    if not (wheel and wheel:IsValid()) then return nil end
+    return wheel
+end
 
-        ourIndex = nil
+-- the labels live on the menuCanvas of the nested WBP_RadialMenu_base
+local function labelCanvasOf(wheel)
+    local canvas = nil
+    pcall(function()
+        local base = wheel.WBP_RadialMenu_base
+        if base and base:IsValid() then canvas = base.menuCanvas end
+    end)
+    if not (canvas and canvas:IsValid()) then return nil end
+    return canvas
+end
 
-        -- census BEFORE growing: RecalcMenuNum clears the canvas, so the
-        -- label widgets (add order = segment index order) are captured now
-        local labels = {}
-        local geo = {}
-        local childCount = canvas:GetChildrenCount()
-        for i = 0, childCount - 1 do
-            local child = canvas:GetChildAt(i)
-            if child and child:IsValid() then
-                local cls = child:GetClass():GetFullName()
-                if string.find(cls, "WBP_PlayerRadialMenu_MenuContent_C", 1, true) then
-                    table.insert(labels, child)
-                    pcall(function()
-                        local p = canvasSlot(child):GetPosition()
-                        geo[#labels] = { x = p.X, y = p.Y }
-                    end)
-                end
+local function saw(wheel, idx, widget)
+    -- trailing table receives the Canvas OUT param
+    return pcall(function()
+        wheel["Set Additional Widget"](wheel, idx, widget, {})
+    end)
+end
+
+-- ---------------------------------------------------------------- main mode
+
+local function injectMainEntry(menu)
+    local wheel = wheelOf(menu)
+    if not wheel then
+        if Config.devMode then Log("[radial] wheel reference missing") end
+        return
+    end
+    local canvas = labelCanvasOf(wheel)
+    if not canvas then
+        if Config.devMode then Log("[radial] menuCanvas missing") end
+        return
+    end
+
+    ourIndex = nil
+
+    -- census BEFORE growing: RecalcMenuNum clears the canvas, so the
+    -- label widgets (add order = segment index order) are captured now
+    local labels = {}
+    local geo = {}
+    local childCount = canvas:GetChildrenCount()
+    for i = 0, childCount - 1 do
+        local child = canvas:GetChildAt(i)
+        if child and child:IsValid() then
+            local cls = child:GetClass():GetFullName()
+            if string.find(cls, "WBP_PlayerRadialMenu_MenuContent_C", 1, true) then
+                table.insert(labels, child)
+                pcall(function()
+                    local p = canvasSlot(child):GetPosition()
+                    geo[#labels] = { x = p.X, y = p.Y }
+                end)
             end
         end
+    end
+    if Config.devMode then
+        Log(string.format("[radial] canvas census: %d children, %d labels, menuNum=%d",
+            childCount, #labels, wheel.menuNum))
+    end
+    if #labels == 0 then return end
+
+    local vanillaCount = #labels
+    local newCount = vanillaCount + 1
+
+    -- grow the wheel: runs the vanilla redraw AND clears all label
+    -- widgets from the canvas - everything is re-added below
+    local okGrow, errGrow = pcall(function() wheel:RecalcMenuNum(newCount) end)
+    if not (okGrow and wheel.menuNum == newCount) then
         if Config.devMode then
-            Log(string.format("[radial] canvas census: %d children, %d labels, menuNum=%d",
-                childCount, #labels, wheel.menuNum))
+            Log(string.format("[radial] grow to %d failed (ok=%s menuNum=%d%s)",
+                newCount, tostring(okGrow), wheel.menuNum,
+                okGrow and "" or (" err=" .. tostring(errGrow))))
         end
-        if #labels == 0 then return end
+        return
+    end
 
-        local vanillaCount = #labels
-        local newCount = vanillaCount + 1
+    if not (ourWidget and ourWidget:IsValid()) then
+        ourWidget = makeLabelWidget(menu, labelText())
+    end
+    if not ourWidget then
+        if Config.devMode then Log("[radial] label widget creation failed") end
+        return
+    end
+    pcall(function() ourWidget:SetText(FText(labelText())) end)
 
-        -- grow the wheel: runs the vanilla redraw AND clears all label
-        -- widgets from the canvas - everything is re-added below
-        local okGrow, errGrow = pcall(function() wheel:RecalcMenuNum(newCount) end)
-        if not (okGrow and wheel.menuNum == newCount) then
-            if Config.devMode then
-                Log(string.format("[radial] grow to %d failed (ok=%s menuNum=%d%s)",
-                    newCount, tostring(okGrow), wheel.menuNum,
-                    okGrow and "" or (" err=" .. tostring(errGrow))))
-            end
-            return
+    -- preferred path: let the wheel register everything itself, which
+    -- keeps the AdditionalWidget map intact for hover highlights
+    local sawOk = true
+    for i, lbl in ipairs(labels) do
+        if lbl:IsValid() then
+            sawOk = saw(wheel, i - 1, lbl) and sawOk
         end
-
-        if not (ourWidget and ourWidget:IsValid()) then
-            ourWidget = makeLabelWidget(menu)
-        end
-        if not ourWidget then
-            if Config.devMode then Log("[radial] label widget creation failed") end
-            return
-        end
-        -- refresh per rebuild: the text flips to "confirm" while armed
-        pcall(function() ourWidget:SetText(FText(labelText())) end)
-
-        -- preferred path: let the wheel register everything itself, which
-        -- keeps the AdditionalWidget map intact for hover highlights
-        local sawErr = nil
-        local function saw(idx, w)
-            local okS, e = pcall(function()
-                -- trailing table receives the Canvas OUT param
-                wheel["Set Additional Widget"](wheel, idx, w, {})
-            end)
-            if not okS and not sawErr then sawErr = tostring(e) end
-            return okS
-        end
-        local sawOk = true
-        for i, lbl in ipairs(labels) do
-            if lbl:IsValid() then
-                sawOk = saw(i - 1, lbl) and sawOk
-            end
-        end
-        sawOk = saw(vanillaCount, ourWidget) and sawOk
-        if sawOk then
-            ourIndex = vanillaCount
-            if Config.devMode then
-                Log(string.format("[radial] Evolve entry injected at index %d via Set Additional Widget", ourIndex))
-            end
-            return
-        end
-        if Config.devMode then
-            Log("[radial] Set Additional Widget failed: " .. tostring(sawErr))
-        end
-
-        -- fallback: re-add and place everything ourselves. Preferred
-        -- position source is the wheel's own CalcAdditionalWidgetPosition;
-        -- if that call fails, derive the circle from the captured layout
-        -- (anchors/alignment 0.5 center the coordinates on the wheel
-        -- middle: pos = (r sin th, -r cos th), th clockwise from the top).
-        local radius, angle0 = 0, 0
-        if geo[1] then
-            radius = math.sqrt(geo[1].x * geo[1].x + geo[1].y * geo[1].y)
-            angle0 = math.atan(geo[1].x, -geo[1].y)
-        end
-        local function calcPos(idx)
-            local out = {}
-            local okC = pcall(function()
-                wheel:CalcAdditionalWidgetPosition(idx, out)
-            end)
-            if okC and type(out.X) == "number" and type(out.Y) == "number" then
-                return out.X, out.Y
-            end
-            if radius < 1 then return nil end
-            local th = angle0 + idx * (2 * math.pi / newCount)
-            return radius * math.sin(th), -radius * math.cos(th)
-        end
-        local function addAndPlace(widget, idx)
-            pcall(function()
-                canvas:AddChildToCanvas(widget)
-                local slot = canvasSlot(widget)
-                slot:SetAnchors({ Minimum = { X = 0.5, Y = 0.5 }, Maximum = { X = 0.5, Y = 0.5 } })
-                slot:SetAlignment({ X = 0.5, Y = 0.5 })
-                slot:SetAutoSize(true)
-                local px, py = calcPos(idx)
-                if px then slot:SetPosition({ X = px, Y = py }) end
-            end)
-        end
-        for i, lbl in ipairs(labels) do
-            if lbl:IsValid() then addAndPlace(lbl, i - 1) end
-        end
-        addAndPlace(ourWidget, vanillaCount)
+    end
+    sawOk = saw(wheel, vanillaCount, ourWidget) and sawOk
+    if sawOk then
         ourIndex = vanillaCount
         if Config.devMode then
-            Log(string.format("[radial] Evolve entry injected at index %d via slot fallback", ourIndex))
+            Log(string.format("[radial] Evolve entry injected at index %d via Set Additional Widget", ourIndex))
+        end
+        return
+    end
+
+    -- fallback: re-add and place everything ourselves. Preferred position
+    -- source is the wheel's own CalcAdditionalWidgetPosition; if that call
+    -- fails, derive the circle from the captured layout (anchors/alignment
+    -- 0.5 center the coordinates: pos = (r sin th, -r cos th), th clockwise
+    -- from the top).
+    local radius, angle0 = 0, 0
+    if geo[1] then
+        radius = math.sqrt(geo[1].x * geo[1].x + geo[1].y * geo[1].y)
+        angle0 = math.atan(geo[1].x, -geo[1].y)
+    end
+    local function calcPos(idx)
+        local out = {}
+        local okC = pcall(function()
+            wheel:CalcAdditionalWidgetPosition(idx, out)
+        end)
+        if okC and type(out.X) == "number" and type(out.Y) == "number" then
+            return out.X, out.Y
+        end
+        if radius < 1 then return nil end
+        local th = angle0 + idx * (2 * math.pi / newCount)
+        return radius * math.sin(th), -radius * math.cos(th)
+    end
+    local function addAndPlace(widget, idx)
+        pcall(function()
+            canvas:AddChildToCanvas(widget)
+            local slot = canvasSlot(widget)
+            slot:SetAnchors({ Minimum = { X = 0.5, Y = 0.5 }, Maximum = { X = 0.5, Y = 0.5 } })
+            slot:SetAlignment({ X = 0.5, Y = 0.5 })
+            slot:SetAutoSize(true)
+            local px, py = calcPos(idx)
+            if px then slot:SetPosition({ X = px, Y = py }) end
+        end)
+    end
+    for i, lbl in ipairs(labels) do
+        if lbl:IsValid() then addAndPlace(lbl, i - 1) end
+    end
+    addAndPlace(ourWidget, vanillaCount)
+    ourIndex = vanillaCount
+    if Config.devMode then
+        Log(string.format("[radial] Evolve entry injected at index %d via slot fallback", ourIndex))
+    end
+end
+
+-- ---------------------------------------------------------------- submenu
+
+local function optionLabel(opt)
+    return opt.pair and opt.pair.to or "?"
+end
+
+local function buildSubmenu(menu)
+    local wheel = wheelOf(menu)
+    if not wheel then subMode = false; return end
+    local options = subOptions
+    if not (options and #options > 0) then subMode = false; return end
+
+    -- a single option still needs two segments for a drawable wheel
+    local count = math.max(#options, 2)
+    local okGrow = pcall(function() wheel:RecalcMenuNum(count) end)
+    if not (okGrow and wheel.menuNum == count) then
+        if Config.devMode then Log("[radial] submenu recalc failed") end
+        subMode = false
+        return
+    end
+
+    for i, opt in ipairs(options) do
+        local w = subWidgets[i]
+        if not (w and w:IsValid()) then
+            w = makeLabelWidget(menu, optionLabel(opt))
+            subWidgets[i] = w
+        end
+        if w then
+            pcall(function() w:SetText(FText(optionLabel(opt))) end)
+            pcall(function()
+                if opt.blocked then
+                    w:SetTextColor({ R = 0.45, G = 0.45, B = 0.45, A = 1.0 })
+                else
+                    w:SetTextColor({ R = 1.0, G = 1.0, B = 1.0, A = 1.0 })
+                end
+            end)
+            saw(wheel, i - 1, w)
+        end
+    end
+
+    -- vanilla's decide handlers must never act on option indices; the
+    -- emote submenu unbinds them the same way. The next regular menu open
+    -- rebinds through the vanilla open flow.
+    pcall(function() menu:UnbindPlayerActionMenuEvent() end)
+
+    if Config.devMode then
+        Log(string.format("[radial] submenu built with %d options", #options))
+    end
+end
+
+-- consume the submenu state and run the hovered option (the submenu
+-- selection is the confirmation); triggered from decide/close hooks
+local function subCommit()
+    if not subMode then return end
+    local opt = nil
+    if subHoverIdx ~= nil and subOptions then
+        opt = subOptions[subHoverIdx + 1]
+    end
+    subMode = false
+    subOptions = nil
+    subHoverIdx = nil
+    if Config.devMode then
+        Log(string.format("[radial] submenu commit: %s",
+            opt and optionLabel(opt) or "no selection"))
+    end
+    if not opt then return end
+    ExecuteInGameThread(function()
+        pcall(function()
+            if menuRef and menuRef:IsValid() then
+                pcall(function() menuRef:CloseMenu() end)
+            end
+            api.executeOption(opt)
+        end)
+    end)
+end
+
+-- ---------------------------------------------------------------- injection
+
+local function injectEntry(menu)
+    local okAll, errAll = pcall(function()
+        if subMode and (os.clock() - subModeSince) > 15 then
+            -- stale submenu state (reopen never happened): fall back
+            subMode = false
+            subOptions = nil
+            subHoverIdx = nil
+        end
+        if subMode then
+            buildSubmenu(menu)
+        else
+            injectMainEntry(menu)
         end
     end)
     if not okAll and Config.devMode then
@@ -295,27 +406,57 @@ local function injectEntry(menu)
     end
 end
 
-function RadialMenu.init(evolutionCheck, isArmed)
+function RadialMenu.init(evolutionApi)
     if not (Config.radialMenu == nil or Config.radialMenu) then return end
-    isArmedFn = isArmed
+    api = evolutionApi
 
-    -- consume-once commit shared by the close/decide hooks
+    -- normal-mode commit on our segment: opens the option submenu in the
+    -- same wheel (reopened, since the release just closed it)
     local function commitOurs()
         if not ourHover then return end
         ourHover = false
         ExecuteInGameThread(function()
-            pcall(evolutionCheck)
+            pcall(function()
+                local opts, reason = api.listOptions()
+                if not (opts and #opts > 0) then
+                    Log(reason or "No evolution available")
+                    return
+                end
+                subOptions = opts
+                subHoverIdx = nil
+                subMode = true
+                subModeSince = os.clock()
+                local okOpen = false
+                if menuRef and menuRef:IsValid() then
+                    okOpen = pcall(function() menuRef:OpenPlayerActionMenu() end)
+                end
+                if Config.devMode then
+                    Log(string.format("[radial] submenu open: options=%d reopen=%s",
+                        #opts, tostring(okOpen)))
+                end
+                if not okOpen then
+                    subMode = false
+                    subOptions = nil
+                end
+            end)
         end)
     end
 
-    -- runs synchronously right after the native recomputed nowSelectedIndex:
-    -- claim our segment and hide it from the vanilla decide switch (unknown
-    -- indices would run the photo mode branch there)
+    -- runs synchronously right after the native recomputed nowSelectedIndex.
+    -- Main mode: claim our segment and hide it from the vanilla decide
+    -- switch (unknown indices would run the photo mode branch there).
+    -- Submenu mode: observe only - vanilla is unbound, everything is ours.
     local function suppressHandler(self)
         pcall(function()
             local wheel = self:get()
             if not (wheel and wheel:IsValid() and isActionWheel(wheel)) then return end
             local idx = wheel.nowSelectedIndex
+            if subMode then
+                if idx ~= nil and idx >= 0 and subOptions and idx < #subOptions then
+                    subHoverIdx = idx
+                end
+                return
+            end
             if ourIndex ~= nil and idx == ourIndex then
                 if not ourHover then
                     -- first frame on our segment: vanilla just played its
@@ -325,7 +466,15 @@ function RadialMenu.init(evolutionCheck, isArmed)
                 ourHover = true
                 wheel.nowSelectedIndex = -1
             elseif idx >= 0 then
-                restoreHoverSound(wheel)
+                if ourHover then
+                    local wasMuted = savedHoverSound ~= nil
+                    restoreHoverSound(wheel)
+                    if wasMuted then
+                        -- the native already tried to play this segment's
+                        -- tick while the sound was muted - replay it
+                        playHoverTick(wheel)
+                    end
+                end
                 ourHover = false
             end
             -- idx == -1 keeps the last state: the wheel itself is sticky
@@ -345,6 +494,7 @@ function RadialMenu.init(evolutionCheck, isArmed)
                 local menu = nil
                 pcall(function() menu = self:get() end)
                 if not menu then return end
+                menuRef = menu
                 ExecuteInGameThread(function()
                     pcall(function() injectEntry(menu) end)
                 end)
@@ -353,7 +503,19 @@ function RadialMenu.init(evolutionCheck, isArmed)
         {
             path = MENU_WBP .. ":OnDecidedPlayerActionMenu",
             fn = function(self, Index)
+                -- only bound in main mode; the submenu unbinds it
                 commitOurs()
+            end,
+        },
+        {
+            -- decide with vanilla unbound (submenu) or without a known
+            -- selection (main mode, suppressed index) ends up here
+            path = WHEEL_WBP .. ":OnDecided",
+            fn = function(self)
+                local wheel = nil
+                pcall(function() wheel = self:get() end)
+                if not (wheel and isActionWheel(wheel)) then return end
+                if subMode then subCommit() end
             end,
         },
         {
@@ -364,7 +526,11 @@ function RadialMenu.init(evolutionCheck, isArmed)
                 local wheel = nil
                 pcall(function() wheel = self:get() end)
                 if wheel and isActionWheel(wheel) then
-                    commitOurs()
+                    if subMode then
+                        subCommit()
+                    else
+                        commitOurs()
+                    end
                     restoreHoverSound(wheel)
                 end
                 ourHover = false

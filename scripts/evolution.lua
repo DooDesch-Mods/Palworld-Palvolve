@@ -926,6 +926,87 @@ function Evolution.isArmed()
     return pending ~= nil and (os.clock() - pending.armedAt) <= Config.confirmWindowSeconds
 end
 
+-- All evolution/adaptation options for the currently summoned pal with
+-- affordability info - feeds the radial submenu. Returns nil, reason when
+-- nothing is available.
+function Evolution.listOptions()
+    if lockBusy() then return nil, "An evolution is already running - please wait" end
+    local holder = findHolder(nil)
+    local actor = nil
+    if holder then pcall(function() actor = holder:TryGetSpawnedOtomo() end) end
+    if not (actor and actor:IsValid()) then return nil, "No own pal summoned" end
+    local param = paramOf(actor)
+    if not (param and isOwned(param)) then return nil, "No own pal summoned" end
+    local id = param:GetCharacterID():ToString()
+    local pairList = Config.findPairs(id)
+    if not pairList or #pairList == 0 then
+        return nil, string.format("%s has no evolution", id)
+    end
+    local level = 0
+    pcall(function() level = param:GetLevel() end)
+    local options = {}
+    for _, pair in ipairs(pairList) do
+        local opt = { pair = pair }
+        if level < pair.minLevel then
+            opt.blocked = string.format("%s needs level %d (currently %d)",
+                pair.to, pair.minLevel, level)
+        else
+            local costList = Costs.resolve(pair, level, holder)
+            local costOk, missing = Costs.check(costList)
+            if not costOk then
+                opt.blocked = string.format("%s missing: %s",
+                    pair.to, Costs.describeMissing(missing))
+            end
+        end
+        table.insert(options, opt)
+    end
+    return options
+end
+
+-- Executes one option from listOptions - the submenu selection IS the
+-- confirmation. Fetches fresh handles; the option only names the pair.
+function Evolution.executeOption(opt)
+    if not (opt and opt.pair) then return end
+    if lockBusy() then
+        Log("An evolution is already running - please wait")
+        return
+    end
+    if opt.blocked then
+        Log(opt.blocked)
+        return
+    end
+    local holder = findHolder(nil)
+    local actor = nil
+    if holder then pcall(function() actor = holder:TryGetSpawnedOtomo() end) end
+    if not (actor and actor:IsValid()) then Log("No own pal summoned") return end
+    local param = paramOf(actor)
+    if not (param and isOwned(param)) then Log("No own pal summoned") return end
+    local id = param:GetCharacterID():ToString()
+    if id ~= opt.pair.from then
+        Log(string.format("Selection outdated: summoned pal is %s, option was for %s",
+            id, opt.pair.from))
+        return
+    end
+    local level = 0
+    pcall(function() level = param:GetLevel() end)
+    if level < opt.pair.minLevel then
+        Log(string.format("%s needs level %d to evolve (currently %d)",
+            id, opt.pair.minLevel, level))
+        return
+    end
+    -- fresh cost pre-check for a readable message; the transaction inside
+    -- performEvolution is the authoritative consume
+    local costList = Costs.resolve(opt.pair, level, holder)
+    local costOk, missing = Costs.check(costList)
+    if not costOk then
+        Log(string.format("%s (Lv %d) could evolve into %s, but missing: %s",
+            id, level, opt.pair.to, Costs.describeMissing(missing)))
+        return
+    end
+    performEvolution({ actor = actor, param = param, pair = opt.pair,
+        holder = holder, key = individualKey(param) })
+end
+
 function Evolution.rollbackLast()
     if lockBusy() then
         Log("Rollback blocked: an evolution is currently running")
