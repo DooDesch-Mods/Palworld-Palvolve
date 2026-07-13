@@ -813,6 +813,18 @@ function Config.findPair(characterId)
     return nil
 end
 
+-- ALL enabled options for a species (evolution + adaptations) - the choice
+-- menu presents these filtered by affordability.
+function Config.findPairs(characterId)
+    local result = {}
+    for _, pair in ipairs(Config.map) do
+        if pair.enabled and pair.from == characterId then
+            table.insert(result, pair)
+        end
+    end
+    return result
+end
+
 -- Reverse map for the egg filter: evolved/adapted form -> base form, walked
 -- transitively (Yeti -> SmallYeti). Funchain links are excluded so cross-
 -- family results (MopKing -> Yeti) do not normalize into the wrong family.

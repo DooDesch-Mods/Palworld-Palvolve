@@ -379,13 +379,41 @@ end))
 -- these functions also fire during savegame load (otomo order restore, HUD
 -- init), and hooks living through the load path are a crash risk.
 -- Armed via F4 (the in-game console is not reliably available in 1.0).
+-- A SECOND F4 press takes a full in-world object dump (DumpAllObjects) for
+-- the widget analysis - do it right after the wheel was opened once so the
+-- radial WBP instance is loaded.
 local radialArmed = false
 function M.armRadialProbes()
     if radialArmed then
-        Log("[probe-radial] already armed")
+        Log("[probe-radial] taking in-world object dump (this stalls the game for a moment)...")
+        local ok, err = pcall(function() DumpAllObjects() end)
+        Log(string.format("[probe-radial] DumpAllObjects ok=%s%s (look for UE4SS_ObjectDump.txt next to Win64)",
+            tostring(ok), ok and "" or (" err=" .. tostring(err))))
         return
     end
     radialArmed = true
+
+    -- identify the concrete radial WBP class as soon as an instance exists
+    local found = false
+    LoopAsync(1000, function()
+        if found then return true end
+        ExecuteInGameThread(function()
+            if found then return end
+            pcall(function()
+                local widgets = FindAllOf("PalUIRadialMenuWidgetBase") or {}
+                for _, w in ipairs(widgets) do
+                    if w and w:IsValid() then
+                        found = true
+                        local cls, menuNum = "?", "?"
+                        pcall(function() cls = w:GetClass():GetFullName() end)
+                        pcall(function() menuNum = tostring(w.menuNum) end)
+                        Log(string.format("[probe-radial] widget instance: class=%s menuNum=%s", cls, menuNum))
+                    end
+                end
+            end)
+        end)
+        return found
+    end)
     local function idx(self)
         local i = "?"
         pcall(function() i = tostring(self:get().nowSelectedIndex) end)
