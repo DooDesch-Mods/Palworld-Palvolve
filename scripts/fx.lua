@@ -449,23 +449,48 @@ prototypes.digimon = {
             end
         end)
         local state = { stopped = false, offset = 0, lastTick = os.clock() }
-        pcall(function()
-            local mesh = newActor:GetMainMesh()
-            local r = mesh.RelativeRotation
-            state.mesh = mesh
-            state.baseRot = { Pitch = r.Pitch, Yaw = r.Yaw, Roll = r.Roll }
-        end)
-        ctx.fx.growState = state
-        local function setMeshOffset(offsetYaw)
-            local m, b = state.mesh, state.baseRot
-            if not (m and m:IsValid() and b) then return end
-            pcall(function()
-                m:K2_SetRelativeRotation(
-                    { Pitch = b.Pitch, Yaw = b.Yaw + offsetYaw, Roll = b.Roll },
-                    false, {}, false)
-            end)
+        pcall(function() state.mesh = newActor:GetMainMesh() end)
+        if not (state.mesh and state.mesh:IsValid()) then
+            pcall(function() state.mesh = newActor.Mesh end)
         end
-        state.setMeshOffset = setMeshOffset
+        -- Probe the mesh rotation once (zero delta): if the call signature is
+        -- rejected we fall back to actor rotation instead of silently doing
+        -- nothing, and the log tells us which path runs.
+        state.method = "actor"
+        if state.mesh and state.mesh:IsValid() then
+            local okAdd, errAdd = pcall(function()
+                state.mesh:K2_AddRelativeRotation({ Pitch = 0, Yaw = 0, Roll = 0 }, false, {}, false)
+            end)
+            if okAdd then
+                state.method = "meshAdd"
+            else
+                print(string.format("[Palvolve] [fx] mesh spin unavailable (%s) - actor fallback\n", tostring(errAdd)))
+            end
+        end
+        print(string.format("[Palvolve] [fx] reveal spin method=%s\n", state.method))
+        ctx.fx.growState = state
+        local function applySpin(deltaYaw)
+            if state.method == "meshAdd" then
+                pcall(function()
+                    state.mesh:K2_AddRelativeRotation({ Pitch = 0, Yaw = deltaYaw, Roll = 0 }, false, {}, false)
+                end)
+            else
+                setYaw(newActor, (faceYaw + state.offset) % 360)
+            end
+        end
+        -- rotate back into the base pose (shortest way) - for aborts too
+        local function restoreSpin()
+            if state.method == "meshAdd" then
+                local resid = state.offset % 360
+                if resid > 180 then resid = resid - 360 end
+                pcall(function()
+                    state.mesh:K2_AddRelativeRotation({ Pitch = 0, Yaw = -resid, Roll = 0 }, false, {}, false)
+                end)
+            else
+                setYaw(newActor, faceYaw)
+            end
+        end
+        state.restoreSpin = restoreSpin
         local startedAt = os.clock()
         local growS = c.growMs / 1000
         local holdS = c.finaleHoldMs / 1000
@@ -520,17 +545,18 @@ prototypes.digimon = {
                     local remaining = math.max(totalS - t, 0.05)
                     speed = math.min(math.max(deltaCW / remaining, 120), c.peakDegPerSec)
                 end
-                state.offset = state.offset + speed * dt
+                local delta = speed * dt
+                state.offset = state.offset + delta
                 if t >= totalS then
                     state.stopped = true
                     state.finished = true
-                    setMeshOffset(0)
+                    restoreSpin()
                     pcall(function() newActor:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
                     setYaw(newActor, faceYaw)
                     if ctx.unfreeze then pcall(ctx.unfreeze, newActor) end
                     if ctx.completeOk then pcall(ctx.completeOk) end
                 else
-                    setMeshOffset(state.offset)
+                    applySpin(delta)
                 end
             end)
             return state.stopped
@@ -553,7 +579,7 @@ prototypes.digimon = {
         local a = ctx.fx.revealActor
         if a and a:IsValid() and growUnfinished then
             pcall(function() a:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
-            if grow and grow.setMeshOffset then pcall(grow.setMeshOffset, 0) end
+            if grow and grow.restoreSpin then pcall(grow.restoreSpin) end
             if ctx.unfreeze then pcall(ctx.unfreeze, a) end
         end
         if ctx.actor and ctx.actor:IsValid() then
