@@ -377,9 +377,13 @@ local function performEvolution(p)
         unfreeze = function(a) setFrozen(a, false) end,
         freeze = function(a) setFrozen(a, true) end,
         -- element tints: dissolve/peak use the old form's color, the reveal
-        -- uses the target's (nil = uncolored, the plain white look)
+        -- uses the target's - for adaptations the ADAPTED element (Penking
+        -- Lux reveals electric-yellow, not its water primary). nil =
+        -- uncolored, the plain white look.
         colorFrom = Elements.colorFor(Elements.primary(pair.from, holder)),
-        colorTo = Elements.colorFor(Elements.primary(pair.to, holder)),
+        colorTo = Elements.colorFor(
+            pair.stone == "adaptation" and Elements.adaptationElement(pair, holder)
+            or Elements.primary(pair.to, holder)),
         fx = {},
     }
 
