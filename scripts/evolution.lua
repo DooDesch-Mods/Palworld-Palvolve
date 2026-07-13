@@ -142,6 +142,18 @@ local function setFrozen(palActor, frozen)
     end)
 end
 
+-- The pooled actor grabbed after a teardown is still in the INACTIVE pal
+-- state (bIsPalActiveActor=false): native code anchors inactive otomos to
+-- their holder, which yanked revealed pals to the player and kept them
+-- hovering there. Finish the activation the vanilla summon flow would have
+-- done; MOVE_Falling lets the pal land naturally once it is unfrozen.
+local function completeOtomoActivation(palActor)
+    pcall(function() palActor.ActionComponent:CancelAllAction() end)
+    pcall(function() palActor:SetActiveActor(true) end)
+    pcall(function() palActor:SetActiveCollisionMovement(true) end)
+    pcall(function() palActor.CharacterMovement:SetMovementMode(3, 0) end)
+end
+
 -- ---------------------------------------------------------------- item costs
 
 local function inventoryData()
@@ -285,8 +297,12 @@ local function startRevealDiagnostics(holderRef, label)
                     local p = FindFirstOf("PalPlayerCharacter")
                     if p and p:IsValid() then dz = loc.Z - p:K2_GetActorLocation().Z end
                 end)
-                Log(string.format("[diag %s t=%d] pos=(%.0f,%.0f,%.0f) dzPlayer=%.0f scale=%.2f moveMode=%s parent=%s",
-                    label, ticks, loc.X, loc.Y, loc.Z, dz, scaleX, mode, parentName))
+                local active = "?"
+                pcall(function() active = tostring(a.bIsPalActiveActor) end)
+                local action = "?"
+                pcall(function() action = tostring(a.ActionComponent:GetCurrentActionType()) end)
+                Log(string.format("[diag %s t=%d] pos=(%.0f,%.0f,%.0f) dzPlayer=%.0f scale=%.2f moveMode=%s parent=%s active=%s action=%s",
+                    label, ticks, loc.X, loc.Y, loc.Z, dz, scaleX, mode, parentName, active, action))
             end)
         end)
         return ticks > 12
@@ -346,6 +362,9 @@ local function performEvolution(p)
     end)
     pcall(function() oldYaw = actor:K2_GetActorRotation().Yaw end)
     pcall(function() oldHalf = actor:GetSimpleCollisionHalfHeight() end)
+    if not oldHalf or oldHalf <= 0 then
+        pcall(function() oldHalf = actor.CapsuleComponent:GetScaledCapsuleHalfHeight() end)
+    end
 
     -- The FX prototype is fixed for the whole sequence, even if switched mid-run
     local fx = FX.active()
@@ -560,20 +579,31 @@ local function performEvolution(p)
                 -- collision comes back at reveal time.
                 if oldX then
                     pcall(function()
-                        -- The spawn parks the otomo ATTACHED to the player until its
-                        -- landing sequence runs; our freeze interrupts that, so the
-                        -- pal would hover above and follow the player. Detach first
-                        -- (KeepWorld), then teleport.
                         pcall(function() newActor:K2_DetachFromActor(1, 1, 1) end)
-                        local cur = newActor:K2_GetActorLocation()
-                        local target = { X = oldX, Y = oldY, Z = cur.Z }
+                        -- The fresh pooled actor still sits at its parking spot far
+                        -- under the world here, so its current Z is useless. Anchor
+                        -- the new capsule so its feet end up where the old pal
+                        -- stood; with unknown capsule sizes lift a bit instead and
+                        -- let MOVE_Falling settle it after the unfreeze.
+                        local newHalf = 0
+                        pcall(function() newHalf = newActor:GetSimpleCollisionHalfHeight() end)
+                        if not newHalf or newHalf <= 0 then
+                            pcall(function() newHalf = newActor.CapsuleComponent:GetScaledCapsuleHalfHeight() end)
+                        end
+                        local targetZ = oldZ + 40
+                        if (oldHalf or 0) > 0 and newHalf > 0 then
+                            targetZ = oldZ - oldHalf + newHalf + 10
+                        end
+                        local target = { X = oldX, Y = oldY, Z = targetZ }
                         -- pin target for prototypes that keep re-anchoring the actor
                         -- against the games summon/landing logic (see fx digimon)
-                        ctx.fx.pin = { x = oldX, y = oldY, z = cur.Z }
+                        ctx.fx.pin = { x = oldX, y = oldY, z = targetZ }
                         local moved = newActor:K2_TeleportTo(target, { Pitch = 0, Yaw = oldYaw or 0, Roll = 0 })
                         local after = newActor:K2_GetActorLocation()
-                        Log(string.format("Reveal teleport moved=%s target=(%.0f,%.0f,%.0f) actual=(%.0f,%.0f,%.0f)",
-                            tostring(moved), oldX, oldY, cur.Z, after.X, after.Y, after.Z))
+                        local activeState = "?"
+                        pcall(function() activeState = tostring(newActor.bIsPalActiveActor) end)
+                        Log(string.format("Reveal teleport moved=%s target=(%.0f,%.0f,%.0f) actual=(%.0f,%.0f,%.0f) halves=%.0f/%.0f active=%s",
+                            tostring(moved), oldX, oldY, targetZ, after.X, after.Y, after.Z, oldHalf or 0, newHalf, activeState))
                     end)
                 end
                 pcall(function() fx.onPreReveal(ctx, newActor) end)
@@ -590,6 +620,11 @@ local function performEvolution(p)
                             return
                         end
                         revealActor(a)
+                        -- Complete the interrupted activation now (collision back,
+                        -- active state, falling): the freeze still holds the pal in
+                        -- place until the staging is done, but once unfrozen the
+                        -- game no longer treats it as a stuck inactive otomo.
+                        completeOtomoActivation(a)
                         local okReveal = pcall(function() fx.onReveal(ctx, a) end)
                         playFanfare(a)
                         Log(string.format("EVOLVED: %s -> %s (level %d)%s - respawn with new model OK",
@@ -613,6 +648,7 @@ local function performEvolution(p)
                 -- failure path: never leave anything invisible behind
                 if newActor and newActor:IsValid() then
                     revealActor(newActor)
+                    completeOtomoActivation(newActor)
                     setFrozen(newActor, false)
                 end
                 local cls = ""
