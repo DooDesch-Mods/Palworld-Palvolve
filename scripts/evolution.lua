@@ -1054,7 +1054,7 @@ function Evolution.init()
         end)
     end
 
-    -- Console: "palvolve check|rollback"
+    -- Console: "palvolve check|rollback|radial"
     pcall(function()
         RegisterConsoleCommandHandler("palvolve", function(fullCommand, parameters)
             local sub = parameters[1] or "check"
@@ -1062,6 +1062,8 @@ function Evolution.init()
                 local ok, err = pcall(function()
                     if sub == "rollback" then
                         Evolution.rollbackLast()
+                    elseif sub == "radial" and Config.devMode then
+                        require("probes").armRadialProbes()
                     else
                         Evolution.check()
                     end
