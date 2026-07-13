@@ -15,16 +15,16 @@
         "Recipe": {
             "Product_Count": 1,
             "WorkAmount": 300.0,
-            "Material1_Id": "Stone",
-            "Material1_Count": 50,
+            "Material1_Id": "Pal_crystal_S",
+            "Material1_Count": 20,
             "Material2_Id": "PalSphere",
             "Material2_Count": 5
         }
     },
     "Palvolve_AdaptionStone": {
         "Type": "Generic",
-        "Name": "Adaptation Stone",
-        "Description": "A shimmering stone attuned to elemental forces. Lets a bonded Pal adapt into one of its elemental forms once it has reached the required level.",
+        "Name": "Adaptation Stone (Legacy)",
+        "Description": "A shimmering stone attuned to elemental forces. No longer craftable - element-specific Adaptation Stones replace it, but existing stones still work as a wildcard.",
         "IconTexture": "$resource/Palvolve/adaptionstone",
         "TypeA": "Material",
         "TypeB": "MaterialProccessing",
@@ -33,14 +33,6 @@
         "Price": 3000,
         "MaxStackCount": 99,
         "SortID": 999002,
-        "Weight": 1.0,
-        "Recipe": {
-            "Product_Count": 1,
-            "WorkAmount": 200.0,
-            "Material1_Id": "Stone",
-            "Material1_Count": 30,
-            "Material2_Id": "PalSphere_Mega",
-            "Material2_Count": 2
-        }
+        "Weight": 1.0
     }
 }

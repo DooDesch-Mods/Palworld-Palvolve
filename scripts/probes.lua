@@ -373,7 +373,37 @@ RegisterKeyBind(Key.F10, Debounced("giveexp", function()
     end)
 end))
 
-Log(string.format("Probes active: F3 revert(own), F5 overlay, F6 VFX, F7 species swap, F8 fanfare, F9 freeze, F10 give EXP, test kit on %s",
+-- Radial menu dispatch probes ([probe-radial], wave E stage R1): log which
+-- native functions fire while the hold-4 wheel is used, to map entries to
+-- hook points. The comment in the log carries nowSelectedIndex when readable.
+pcall(function()
+    local function idx(self)
+        local i = "?"
+        pcall(function() i = tostring(self:get().nowSelectedIndex) end)
+        return i
+    end
+    RegisterHook("/Script/Pal.PalUIPlayerRadialMenuBase:OpenOtomoFeedInventory", function(self)
+        Log("[probe-radial] OpenOtomoFeedInventory fired")
+    end)
+    RegisterHook("/Script/Pal.PalUIPlayerRadialMenuBase:SelectedFeed", function(self, ItemSlotId, itemNum)
+        Log("[probe-radial] SelectedFeed fired")
+    end)
+    RegisterHook("/Script/Pal.PalUIPlayerRadialMenuBase:LaunchPhotoMode", function(self)
+        Log("[probe-radial] LaunchPhotoMode fired")
+    end)
+    RegisterHook("/Script/Pal.PalUIRadialMenuWidgetBase:SetSelectedIndexForce", function(self, Index)
+        Log(string.format("[probe-radial] SetSelectedIndexForce idx=%s now=%s",
+            tostring(Index:get()), idx(self)))
+    end)
+    RegisterHook("/Script/Pal.PalUIRadialMenuWidgetBase:ClearSelectedIndex", function(self)
+        Log(string.format("[probe-radial] ClearSelectedIndex now=%s", idx(self)))
+    end)
+    RegisterHook("/Script/Pal.PalOtomoHolderComponentBase:RequestSetOtomoOrder", function(self, OrderType)
+        Log(string.format("[probe-radial] RequestSetOtomoOrder order=%s", tostring(OrderType:get())))
+    end)
+end)
+
+Log(string.format("Probes active: F3 revert(own), F5 overlay, F6 VFX, F7 species swap, F8 fanfare, F9 freeze, F10 give EXP, radial probes, test kit on %s",
     Key.INS and "INSERT" or "F4"))
 
 return M

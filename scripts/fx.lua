@@ -45,14 +45,44 @@ local function glowMaterial()
     return nil
 end
 
--- Vanilla "return to sphere" light burst (verified loaded asset)
-local function spawnLight(worldCtx, x, y, z)
+-- Element-tinted glow: a dynamic instance of M_Glow with the color pushed
+-- into the common vector-parameter candidates. Falls back to the plain
+-- (white) material when the MID cannot be created or coloring is disabled.
+local function glowMaterialTinted(worldCtx, color)
+    local base = glowMaterial()
+    if not base then return nil end
+    if not (color and Config.digimon and Config.digimon.elementColors) then return base end
+    local mid = nil
+    pcall(function()
+        local lib = StaticFindObject("/Script/Engine.Default__KismetMaterialLibrary")
+        if lib and lib:IsValid() then
+            mid = lib:CreateDynamicMaterialInstance(worldCtx, base, FName("None"), 0)
+        end
+    end)
+    if not (mid and mid:IsValid()) then return base end
+    for _, name in ipairs({ "Color", "EmissiveColor", "GlowColor", "Tint", "BaseColor" }) do
+        pcall(function() mid:SetVectorParameterValue(FName(name), color) end)
+    end
+    return mid
+end
+
+-- Vanilla "return to sphere" light burst (verified loaded asset). The
+-- optional element color is applied through the common user-parameter
+-- candidates; systems without a matching parameter simply stay uncolored.
+local function spawnLight(worldCtx, x, y, z, color)
     pcall(function()
         local ns = StaticFindObject("/Game/Pal/Effect/Common/Return/NS_Return.NS_Return")
         local lib = StaticFindObject("/Script/Niagara.Default__NiagaraFunctionLibrary")
         if ns and ns:IsValid() and lib and lib:IsValid() then
-            lib:SpawnSystemAtLocation(worldCtx, ns, { X = x, Y = y, Z = z },
+            local comp = lib:SpawnSystemAtLocation(worldCtx, ns, { X = x, Y = y, Z = z },
                 { Pitch = 0, Yaw = 0, Roll = 0 }, { X = 1, Y = 1, Z = 1 }, true, true, 0, false)
+            if color and Config.digimon and Config.digimon.elementColors
+                and comp and comp:IsValid() then
+                for _, name in ipairs({ "Color", "User.Color", "ColorScale" }) do
+                    pcall(function() comp:SetVariableLinearColor(FName(name), color) end)
+                    pcall(function() comp:SetColorParameter(FName(name), color) end)
+                end
+            end
         end
     end)
 end
@@ -143,7 +173,7 @@ local M = {
                 -- glitch instead of part of the effect.
                 if not state.glowApplied and t > spinUpS then
                     state.glowApplied = true
-                    local glow = glowMaterial()
+                    local glow = glowMaterialTinted(ctx.worldCtx, ctx.colorFrom)
                     if glow then
                         pcall(function() a:GetMainMesh():SetOverlayMaterial(glow) end)
                     end
@@ -152,7 +182,7 @@ local M = {
                 local interval = 0.8 - 0.55 * progress
                 if (now - state.lastBurst) >= interval then
                     state.lastBurst = now
-                    spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ)
+                    spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ, ctx.colorFrom)
                 end
                 if t >= totalS then state.stopped = true end
             end)
@@ -172,7 +202,7 @@ local M = {
                 if stopped then return end
                 i = i + 1
                 local zOff = (i % 3) * 60
-                spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ + zOff)
+                spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ + zOff, ctx.colorFrom)
             end)
             return stopped
         end)
@@ -191,12 +221,13 @@ local M = {
     onReveal = function(ctx, newActor)
         if ctx.fx.stopPeak then ctx.fx.stopPeak() end
         ctx.fx.revealActor = newActor
-        -- explosion finale: simultaneous bursts around the spot
-        spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ)
-        spawnLight(ctx.worldCtx, ctx.oldX + 80, ctx.oldY, ctx.oldZ + 40)
-        spawnLight(ctx.worldCtx, ctx.oldX - 80, ctx.oldY, ctx.oldZ + 40)
-        spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY + 80, ctx.oldZ + 100)
-        spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY - 80, ctx.oldZ + 100)
+        -- explosion finale: simultaneous bursts around the spot, tinted with
+        -- the TARGET form's element
+        spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ, ctx.colorTo)
+        spawnLight(ctx.worldCtx, ctx.oldX + 80, ctx.oldY, ctx.oldZ + 40, ctx.colorTo)
+        spawnLight(ctx.worldCtx, ctx.oldX - 80, ctx.oldY, ctx.oldZ + 40, ctx.colorTo)
+        spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY + 80, ctx.oldZ + 100, ctx.colorTo)
+        spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY - 80, ctx.oldZ + 100, ctx.colorTo)
         playEffect(newActor, 2)
 
         -- One continuous driver from reveal to the end of the finale hold:

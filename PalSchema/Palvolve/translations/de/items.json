@@ -1,10 +1,46 @@
 {
     "DT_ItemNameText": {
         "ITEM_NAME_Palvolve_EvolutionStone": "Entwicklungsstein",
-        "ITEM_NAME_Palvolve_AdaptionStone": "Adaptionsstein"
+        "ITEM_NAME_Palvolve_AdaptionStone": "Adaptionsstein (Alt)",
+        "ITEM_NAME_Palvolve_Essence_Normal": "Neutralessenz",
+        "ITEM_NAME_Palvolve_AdaptationStone_Normal": "Adaptionsstein (Neutral)",
+        "ITEM_NAME_Palvolve_Essence_Fire": "Feueressenz",
+        "ITEM_NAME_Palvolve_AdaptationStone_Fire": "Adaptionsstein (Feuer)",
+        "ITEM_NAME_Palvolve_Essence_Water": "Wasseressenz",
+        "ITEM_NAME_Palvolve_AdaptationStone_Water": "Adaptionsstein (Wasser)",
+        "ITEM_NAME_Palvolve_Essence_Leaf": "Grasessenz",
+        "ITEM_NAME_Palvolve_AdaptationStone_Leaf": "Adaptionsstein (Gras)",
+        "ITEM_NAME_Palvolve_Essence_Electricity": "Elektroessenz",
+        "ITEM_NAME_Palvolve_AdaptationStone_Electricity": "Adaptionsstein (Elektro)",
+        "ITEM_NAME_Palvolve_Essence_Ice": "Eisessenz",
+        "ITEM_NAME_Palvolve_AdaptationStone_Ice": "Adaptionsstein (Eis)",
+        "ITEM_NAME_Palvolve_Essence_Earth": "Bodenessenz",
+        "ITEM_NAME_Palvolve_AdaptationStone_Earth": "Adaptionsstein (Boden)",
+        "ITEM_NAME_Palvolve_Essence_Dark": "Dunkelessenz",
+        "ITEM_NAME_Palvolve_AdaptationStone_Dark": "Adaptionsstein (Dunkel)",
+        "ITEM_NAME_Palvolve_Essence_Dragon": "Drachenessenz",
+        "ITEM_NAME_Palvolve_AdaptationStone_Dragon": "Adaptionsstein (Drachen)"
     },
     "DT_ItemDescriptionText": {
         "ITEM_DESC_Palvolve_EvolutionStone": "Ein geheimnisvoller Stein voller Lebensenergie. Erlaubt einem verbundenen Pal die Entwicklung in eine stärkere verwandte Form, sobald es das nötige Level erreicht hat.",
-        "ITEM_DESC_Palvolve_AdaptionStone": "Ein schimmernder Stein voller Elementarkraft. Erlaubt einem verbundenen Pal den Wechsel in eine seiner Elementarformen, sobald es das nötige Level erreicht hat."
+        "ITEM_DESC_Palvolve_AdaptionStone": "Ein schimmernder Stein voller Elementarkraft. Erlaubt einem verbundenen Pal den Wechsel in eine seiner Elementarformen, sobald es das nötige Level erreicht hat.",
+        "ITEM_DESC_Palvolve_Essence_Normal": "Konzentrierte Neutral-Energie, gewonnen aus Technikfrüchten oder elementaren Materialien. Wird für den passenden Adaptionsstein benötigt.",
+        "ITEM_DESC_Palvolve_AdaptationStone_Normal": "Ein schimmernder Stein voller Neutral-Energie. Erlaubt einem verbundenen Pal den Wechsel in seine Neutral-Form, sobald es das nötige Level erreicht hat.",
+        "ITEM_DESC_Palvolve_Essence_Fire": "Konzentrierte Feuer-Energie, gewonnen aus Technikfrüchten oder elementaren Materialien. Wird für den passenden Adaptionsstein benötigt.",
+        "ITEM_DESC_Palvolve_AdaptationStone_Fire": "Ein schimmernder Stein voller Feuer-Energie. Erlaubt einem verbundenen Pal den Wechsel in seine Feuer-Form, sobald es das nötige Level erreicht hat.",
+        "ITEM_DESC_Palvolve_Essence_Water": "Konzentrierte Wasser-Energie, gewonnen aus Technikfrüchten oder elementaren Materialien. Wird für den passenden Adaptionsstein benötigt.",
+        "ITEM_DESC_Palvolve_AdaptationStone_Water": "Ein schimmernder Stein voller Wasser-Energie. Erlaubt einem verbundenen Pal den Wechsel in seine Wasser-Form, sobald es das nötige Level erreicht hat.",
+        "ITEM_DESC_Palvolve_Essence_Leaf": "Konzentrierte Gras-Energie, gewonnen aus Technikfrüchten oder elementaren Materialien. Wird für den passenden Adaptionsstein benötigt.",
+        "ITEM_DESC_Palvolve_AdaptationStone_Leaf": "Ein schimmernder Stein voller Gras-Energie. Erlaubt einem verbundenen Pal den Wechsel in seine Gras-Form, sobald es das nötige Level erreicht hat.",
+        "ITEM_DESC_Palvolve_Essence_Electricity": "Konzentrierte Elektro-Energie, gewonnen aus Technikfrüchten oder elementaren Materialien. Wird für den passenden Adaptionsstein benötigt.",
+        "ITEM_DESC_Palvolve_AdaptationStone_Electricity": "Ein schimmernder Stein voller Elektro-Energie. Erlaubt einem verbundenen Pal den Wechsel in seine Elektro-Form, sobald es das nötige Level erreicht hat.",
+        "ITEM_DESC_Palvolve_Essence_Ice": "Konzentrierte Eis-Energie, gewonnen aus Technikfrüchten oder elementaren Materialien. Wird für den passenden Adaptionsstein benötigt.",
+        "ITEM_DESC_Palvolve_AdaptationStone_Ice": "Ein schimmernder Stein voller Eis-Energie. Erlaubt einem verbundenen Pal den Wechsel in seine Eis-Form, sobald es das nötige Level erreicht hat.",
+        "ITEM_DESC_Palvolve_Essence_Earth": "Konzentrierte Boden-Energie, gewonnen aus Technikfrüchten oder elementaren Materialien. Wird für den passenden Adaptionsstein benötigt.",
+        "ITEM_DESC_Palvolve_AdaptationStone_Earth": "Ein schimmernder Stein voller Boden-Energie. Erlaubt einem verbundenen Pal den Wechsel in seine Boden-Form, sobald es das nötige Level erreicht hat.",
+        "ITEM_DESC_Palvolve_Essence_Dark": "Konzentrierte Dunkel-Energie, gewonnen aus Technikfrüchten oder elementaren Materialien. Wird für den passenden Adaptionsstein benötigt.",
+        "ITEM_DESC_Palvolve_AdaptationStone_Dark": "Ein schimmernder Stein voller Dunkel-Energie. Erlaubt einem verbundenen Pal den Wechsel in seine Dunkel-Form, sobald es das nötige Level erreicht hat.",
+        "ITEM_DESC_Palvolve_Essence_Dragon": "Konzentrierte Drachen-Energie, gewonnen aus Technikfrüchten oder elementaren Materialien. Wird für den passenden Adaptionsstein benötigt.",
+        "ITEM_DESC_Palvolve_AdaptationStone_Dragon": "Ein schimmernder Stein voller Drachen-Energie. Erlaubt einem verbundenen Pal den Wechsel in seine Drachen-Form, sobald es das nötige Level erreicht hat."
     }
 }

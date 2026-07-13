@@ -17,6 +17,14 @@ if not okCore then
     Log("core failed to load: " .. tostring(errCore))
 end
 
+-- Egg filter (config-gated inside)
+local okEgg, errEgg = pcall(function()
+    require("eggfilter").init()
+end)
+if not okEgg then
+    Log("egg filter failed to load: " .. tostring(errEgg))
+end
+
 -- Dev probes (devMode only; set devMode=false before release and do not package probes.lua)
 local okCfg, cfg = pcall(require, "config")
 if okCfg and cfg.devMode then

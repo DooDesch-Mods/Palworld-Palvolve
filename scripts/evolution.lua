@@ -376,6 +376,10 @@ local function performEvolution(p)
         oldX = oldX, oldY = oldY, oldZ = oldZ, oldYaw = oldYaw, oldHalf = oldHalf,
         unfreeze = function(a) setFrozen(a, false) end,
         freeze = function(a) setFrozen(a, true) end,
+        -- element tints: dissolve/peak use the old form's color, the reveal
+        -- uses the target's (nil = uncolored, the plain white look)
+        colorFrom = Elements.colorFor(Elements.primary(pair.from, holder)),
+        colorTo = Elements.colorFor(Elements.primary(pair.to, holder)),
         fx = {},
     }
 

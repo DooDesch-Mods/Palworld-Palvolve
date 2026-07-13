@@ -21,9 +21,11 @@ local Config = {
         shrinkMs = 2500,       -- phase B: keeps spinning, scales down to nothing
         growMs = 3500,         -- reveal: grows back while the spin winds down
         peakDegPerSec = 1080,  -- top angular speed at the end of the shrink
-        finaleHoldMs = 3500    -- finale: keeps turning majestically while the
+        finaleHoldMs = 3500,   -- finale: keeps turning majestically while the
                                -- effects fade, steering into the face-player
                                -- yaw at the very end
+        elementColors = true   -- tint bursts/glow with the pals' elements
+                               -- (dissolve = old form, reveal = target form)
     },
 
     -- Two-stage confirm: first press checks and announces, second press confirms.
