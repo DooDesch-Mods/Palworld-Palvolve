@@ -8,13 +8,15 @@
 -- WBP_PlayerRadialMenu_MenuContent widgets registered per segment index via
 -- "Set Additional Widget" (Canvas is an OUT param there). Label positions
 -- are computed against menuNum AT REGISTRATION TIME, so growing the wheel
--- after the build misplaces every vanilla label. Instead we bump the
--- newMenuNum parameter inside RecalcMenuNum while CreatePlayerActionMenu is
--- on the stack: vanilla then positions all of its own labels for the extra
--- segment already and we only append our label to the reserved last index
--- afterwards. The committed segment lands in OnDecidedPlayerActionMenu(Index),
--- whose BP switch simply ignores indices it does not know - so the appended
--- entry is exclusively ours.
+-- after the build misplaces every vanilla label. The open flow calls
+-- RecalcMenuNum right before CreatePlayerActionMenu, so we bump its
+-- newMenuNum parameter whenever the receiving wheel belongs to
+-- WBP_PlayerRadialMenu (outer-chain check): vanilla then positions all of
+-- its own labels for the extra segment already and we only append our
+-- label to the reserved last index after the build. The committed segment
+-- lands in OnDecidedPlayerActionMenu(Index), whose BP switch simply
+-- ignores indices it does not know - so the appended entry is exclusively
+-- ours.
 
 local Config = require("config")
 
@@ -30,12 +32,28 @@ local CONTENT_WBP = "/Game/Pal/Blueprint/UI/PlayerRadialMenu/WBP_PlayerRadialMen
 
 -- state of the currently open wheel
 local ourIndex = nil
--- true while CreatePlayerActionMenu executes: the RecalcMenuNum pre-hook
--- bumps the segment count by one ONLY inside that window
-local buildingActionMenu = false
--- whether the bump actually happened during the current build; without it
--- the wheel has no free segment and injection must be skipped
-local menuNumBumped = false
+-- set when the action wheel's RecalcMenuNum was bumped; consumed by the
+-- deferred injection so a rebuild without a preceding bump never adds a
+-- label to a segment that does not exist
+local pendingBump = false
+
+-- The open flow calls RecalcMenuNum BEFORE CreatePlayerActionMenu (3 ms
+-- apart in the live log), so a build-window flag can never cover it.
+-- Identify the action wheel by its outer chain instead: the inner
+-- WBP_CommonRadialMenuBase lives in WBP_PlayerRadialMenu's widget tree.
+local function isActionWheel(wheel)
+    local ok, res = pcall(function()
+        local o = wheel:GetOuter()
+        for _ = 1, 3 do
+            if not (o and o:IsValid()) then return false end
+            local cls = o:GetClass():GetFullName()
+            if string.find(cls, "WBP_PlayerRadialMenu_C", 1, true) then return true end
+            o = o:GetOuter()
+        end
+        return false
+    end)
+    return ok and res == true
+end
 
 local function labelText()
     -- vanilla labels are localized, so at least follow the game language
@@ -70,18 +88,19 @@ local function makeLabelWidget(owner)
     return nil
 end
 
-local function injectEntry(menu, didBump)
+local function injectEntry(menu)
     pcall(function()
         local wheel = menu.WBP_CommonRadialMenuBase
         if not (wheel and wheel:IsValid()) then
             if Config.devMode then Log("[radial] wheel reference missing") end
             return
         end
-        if not didBump then
+        if not pendingBump then
             ourIndex = nil
-            if Config.devMode then Log("[radial] RecalcMenuNum not seen during build - entry skipped") end
+            if Config.devMode then Log("[radial] no bump before this build - entry skipped") end
             return
         end
+        pendingBump = false
         -- the RecalcMenuNum pre-hook already reserved the last segment
         ourIndex = wheel.menuNum - 1
         local widget = makeLabelWidget(menu)
@@ -105,36 +124,17 @@ end
 function RadialMenu.init(evolutionCheck)
     if not (Config.radialMenu == nil or Config.radialMenu) then return end
 
+    -- post callbacks on script hooks never fired in this UE4SS build (the
+    -- live log showed pre lines but no post lines), so everything runs in
+    -- pre callbacks; the injection defers one tick, which lands after the
+    -- BP body has completed
     local hooks = {
         {
-            path = MENU_WBP .. ":CreatePlayerActionMenu",
-            pre = function(self)
-                buildingActionMenu = true
-                menuNumBumped = false
-                -- breadcrumb so a native crash inside the build window is
-                -- attributable from the log tail
-                if Config.devMode then Log("[radial] action menu build begin") end
-            end,
-            post = function(self)
-                buildingActionMenu = false
-                if Config.devMode then
-                    Log(string.format("[radial] action menu build end (bumped=%s)", tostring(menuNumBumped)))
-                end
-                -- capture the UObject NOW: hook params are only valid during
-                -- the callback, the deferred injection then uses the object
-                local menu = nil
-                pcall(function() menu = self:get() end)
-                if not menu then return end
-                local didBump = menuNumBumped
-                ExecuteInGameThread(function()
-                    pcall(function() injectEntry(menu, didBump) end)
-                end)
-            end,
-        },
-        {
             path = WHEEL_WBP .. ":RecalcMenuNum",
-            pre = function(self, NewMenuNum)
-                if not buildingActionMenu then return end
+            fn = function(self, NewMenuNum)
+                local wheel = nil
+                pcall(function() wheel = self:get() end)
+                if not (wheel and isActionWheel(wheel)) then return end
                 pcall(function()
                     local n = NewMenuNum:get()
                     -- log BEFORE the write-back: if set() dies natively,
@@ -143,13 +143,27 @@ function RadialMenu.init(evolutionCheck)
                         Log(string.format("[radial] bumping menuNum %d -> %d", n, n + 1))
                     end
                     NewMenuNum:set(n + 1)
-                    menuNumBumped = true
+                    pendingBump = true
+                end)
+            end,
+        },
+        {
+            path = MENU_WBP .. ":CreatePlayerActionMenu",
+            fn = function(self)
+                if Config.devMode then Log("[radial] action menu build begin") end
+                -- capture the UObject NOW: hook params are only valid during
+                -- the callback, the deferred injection then uses the object
+                local menu = nil
+                pcall(function() menu = self:get() end)
+                if not menu then return end
+                ExecuteInGameThread(function()
+                    pcall(function() injectEntry(menu) end)
                 end)
             end,
         },
         {
             path = MENU_WBP .. ":OnDecidedPlayerActionMenu",
-            pre = function(self, Index)
+            fn = function(self, Index)
                 local idx = nil
                 pcall(function() idx = Index:get() end)
                 if idx ~= nil and ourIndex ~= nil and idx == ourIndex then
@@ -165,12 +179,7 @@ function RadialMenu.init(evolutionCheck)
         local allOk = true
         for _, h in ipairs(hooks) do
             if not registered[h.path] then
-                local ok
-                if h.post then
-                    ok = pcall(RegisterHook, h.path, h.pre, h.post)
-                else
-                    ok = pcall(RegisterHook, h.path, h.pre)
-                end
+                local ok = pcall(RegisterHook, h.path, h.fn)
                 registered[h.path] = ok
                 allOk = allOk and ok
             end
