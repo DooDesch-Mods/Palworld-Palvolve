@@ -448,47 +448,28 @@ prototypes.digimon = {
                 ctrl:SetControlRotation({ Pitch = 0, Yaw = faceYaw, Roll = 0 })
             end
         end)
+        -- Actor rotation with control-rotation sync: mesh-level rotation is
+        -- overwritten every frame by the pals own mesh rotator (calls
+        -- succeed, nothing moves), so the actor is the only usable handle.
+        -- Keeping the controllers control rotation in lockstep makes the
+        -- facing logic pull WITH the spin, and the steer-in at the end means
+        -- there is never a slow phase or a snap it could fight.
         local state = { stopped = false, offset = 0, lastTick = os.clock() }
-        pcall(function() state.mesh = newActor:GetMainMesh() end)
-        if not (state.mesh and state.mesh:IsValid()) then
-            pcall(function() state.mesh = newActor.Mesh end)
-        end
-        -- Probe the mesh rotation once (zero delta): if the call signature is
-        -- rejected we fall back to actor rotation instead of silently doing
-        -- nothing, and the log tells us which path runs.
-        state.method = "actor"
-        if state.mesh and state.mesh:IsValid() then
-            local okAdd, errAdd = pcall(function()
-                state.mesh:K2_AddRelativeRotation({ Pitch = 0, Yaw = 0, Roll = 0 }, false, {}, false)
-            end)
-            if okAdd then
-                state.method = "meshAdd"
-            else
-                print(string.format("[Palvolve] [fx] mesh spin unavailable (%s) - actor fallback\n", tostring(errAdd)))
-            end
-        end
-        print(string.format("[Palvolve] [fx] reveal spin method=%s\n", state.method))
         ctx.fx.growState = state
-        local function applySpin(deltaYaw)
-            if state.method == "meshAdd" then
-                pcall(function()
-                    state.mesh:K2_AddRelativeRotation({ Pitch = 0, Yaw = deltaYaw, Roll = 0 }, false, {}, false)
-                end)
-            else
-                setYaw(newActor, (faceYaw + state.offset) % 360)
-            end
+        local function applySpin()
+            local yawNow = (faceYaw + state.offset) % 360
+            setYaw(newActor, yawNow)
+            pcall(function()
+                local ctrl = newActor:GetController()
+                if ctrl and ctrl:IsValid() then
+                    ctrl:SetControlRotation({ Pitch = 0, Yaw = yawNow, Roll = 0 })
+                end
+            end)
         end
-        -- rotate back into the base pose (shortest way) - for aborts too
+        -- back to facing the player - for aborts too
         local function restoreSpin()
-            if state.method == "meshAdd" then
-                local resid = state.offset % 360
-                if resid > 180 then resid = resid - 360 end
-                pcall(function()
-                    state.mesh:K2_AddRelativeRotation({ Pitch = 0, Yaw = -resid, Roll = 0 }, false, {}, false)
-                end)
-            else
-                setYaw(newActor, faceYaw)
-            end
+            state.offset = 0
+            applySpin()
         end
         state.restoreSpin = restoreSpin
         local startedAt = os.clock()
@@ -531,32 +512,30 @@ prototypes.digimon = {
                     pcall(function() newActor:SetActorScale3D({ X = s, Y = s, Z = s }) end)
                 elseif t < totalS - alignS then
                     -- finale hold: keep turning majestically while the
-                    -- effects play out
+                    -- effects play out (never below the dominance floor)
                     if not state.scaleDone then
                         state.scaleDone = true
                         pcall(function() newActor:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
                     end
                     local h = (t - growS) / math.max(holdS, 0.05)
-                    speed = 360 * (1 - h) + 120 * h
+                    speed = 360 * (1 - h) + 240 * h
                 else
-                    -- steer the mesh back into its exact base rotation along
-                    -- the spin direction - lands, never snaps
+                    -- steer back into the face-player yaw along the spin
+                    -- direction - lands, never snaps
                     local deltaCW = (360 - (state.offset % 360)) % 360
                     local remaining = math.max(totalS - t, 0.05)
-                    speed = math.min(math.max(deltaCW / remaining, 120), c.peakDegPerSec)
+                    speed = math.min(math.max(deltaCW / remaining, 240), c.peakDegPerSec)
                 end
-                local delta = speed * dt
-                state.offset = state.offset + delta
+                state.offset = state.offset + speed * dt
                 if t >= totalS then
                     state.stopped = true
                     state.finished = true
                     restoreSpin()
                     pcall(function() newActor:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
-                    setYaw(newActor, faceYaw)
                     if ctx.unfreeze then pcall(ctx.unfreeze, newActor) end
                     if ctx.completeOk then pcall(ctx.completeOk) end
                 else
-                    applySpin(delta)
+                    applySpin()
                 end
             end)
             return state.stopped
