@@ -687,16 +687,18 @@ local function performEvolution(p)
                 if watchDone then return true end
                 ExecuteInGameThread(function()
                     if watchDone then return end
-                    local landed = false
+                    local landed, activeFlag = false, false
                     pcall(function()
                         local a = holder:TryGetSpawnedOtomo()
+                        activeFlag = (a.bIsPalActiveActor == true)
                         landed = (a.CharacterMovement.MovementMode == 1)
                     end)
                     local waited = os.clock() - watchStart
-                    if landed or waited > 6 then
+                    if (landed and activeFlag) or waited > 10 then
                         watchDone = true
-                        Log(string.format("Landing %s after %.1fs",
-                            landed and "confirmed" or "timeout - proceeding", waited))
+                        Log(string.format("Landing %s after %.1fs (landed=%s active=%s)",
+                            (landed and activeFlag) and "confirmed" or "timeout - proceeding",
+                            waited, tostring(landed), tostring(activeFlag)))
                         finishRespawn(true)
                     end
                 end)
@@ -704,14 +706,17 @@ local function performEvolution(p)
             end)
         end
 
-        -- Activation pump: after the teardown the engine normally respawns
-        -- the still-summoned otomo BY ITSELF after a settle time (~3s). A
-        -- nudge is only a fallback - nudging too early races a second spawn
-        -- against the engine one: TryGetSpawnedOtomo then flips between two
-        -- actors and the loser keeps hovering at the trainer anchor forever.
-        -- Verify every 100ms so the spawn is hidden immediately.
+        -- Activation pump: re-activate the SAME individual through the native
+        -- summon flow AT OUR TRANSFORM. SpawnOtomoByLoad places the pal at the
+        -- trainer anchor (player Z +3000, then adjust-to-floor) and keeps
+        -- re-anchoring it forever once that flow was disturbed - even after a
+        -- clean landing. Activating with an explicit location skips the anchor
+        -- entirely (vanilla ball throws spawn at the ball transform the same
+        -- way); SpawnOtomoByLoad stays as a late fallback. The engine needs a
+        -- settle time after the teardown, so attempts repeat until the actor
+        -- shows up. Verify every 100ms so the spawn is hidden immediately.
         local startedAt = os.clock()
-        local lastNudge = startedAt -- first nudge pause doubles as settle time
+        local lastNudge = startedAt - 2.2 -- first attempt after ~0.8s
         local nudgeCount = 0
         local pumpDone = false
         pcall(function() fx.onGap(ctx) end)
@@ -730,15 +735,26 @@ local function performEvolution(p)
                     finishRespawn(false)
                     return
                 end
-                if (now - lastNudge) >= 4.0 then
+                if (now - lastNudge) >= 3.0 then
                     lastNudge = now
                     nudgeCount = nudgeCount + 1
-                    local okNudge = pcall(function()
-                        local idx = holder:GetSlotIndexByIndividualHandle(handle)
-                        holder:SpawnOtomoByLoad(idx)
-                    end)
+                    local how = "ActivatePalByHandle"
+                    local okNudge
+                    if nudgeCount <= 2 and oldX then
+                        okNudge = pcall(function()
+                            holder:ActivatePalByHandle(handle,
+                                { X = oldX, Y = oldY, Z = (oldZ or 0) + 50 },
+                                { Pitch = 0, Yaw = oldYaw or 0, Roll = 0 }, true)
+                        end)
+                    else
+                        how = "SpawnOtomoByLoad"
+                        okNudge = pcall(function()
+                            local idx = holder:GetSlotIndexByIndividualHandle(handle)
+                            holder:SpawnOtomoByLoad(idx)
+                        end)
+                    end
                     pcall(function() fx.onGap(ctx) end)
-                    Log(string.format("Activation nudge #%d ok=%s", nudgeCount, tostring(okNudge)))
+                    Log(string.format("Activation attempt #%d (%s) ok=%s", nudgeCount, how, tostring(okNudge)))
                 end
             end)
             return pumpDone
