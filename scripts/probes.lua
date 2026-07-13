@@ -378,6 +378,7 @@ end))
 -- hook points. ARMED ON DEMAND via console `palvolve radial` - several of
 -- these functions also fire during savegame load (otomo order restore, HUD
 -- init), and hooks living through the load path are a crash risk.
+-- Armed via F4 (the in-game console is not reliably available in 1.0).
 local radialArmed = false
 function M.armRadialProbes()
     if radialArmed then
@@ -415,7 +416,13 @@ function M.armRadialProbes()
         ok and " - open the hold-4 wheel and select each entry" or (" err=" .. tostring(err))))
 end
 
-Log(string.format("Probes active: F3 revert(own), F5 overlay, F6 VFX, F7 species swap, F8 fanfare, F9 freeze, F10 give EXP, test kit on %s, radial probes via console 'palvolve radial'",
-    Key.INS and "INSERT" or "F4"))
+RegisterKeyBind(Key.F4, Debounced("radialarm", function()
+    ExecuteInGameThread(function()
+        M.armRadialProbes()
+    end)
+end))
+
+Log(string.format("Probes active: F3 revert(own), F4 arm radial probes, F5 overlay, F6 VFX, F7 species swap, F8 fanfare, F9 freeze, F10 give EXP, test kit on %s",
+    Key.INS and "INSERT" or "POS1"))
 
 return M
