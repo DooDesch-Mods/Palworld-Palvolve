@@ -73,6 +73,21 @@ local function restoreHoverSound(wheel)
     savedHoverSound = nil
 end
 
+-- the wheel plays its hover tick inside the native index update, which
+-- runs while the sound is still muted when the cursor leaves our segment
+-- for a vanilla one - post the swallowed tick manually (Wwise event, same
+-- route as the evolution fanfare)
+local function playHoverTick(wheel)
+    pcall(function()
+        local snd = wheel.HoveredSound
+        if not (snd and snd:IsValid()) then return end
+        local aks = StaticFindObject("/Script/AkAudio.Default__AkGameplayStatics")
+        if not (aks and aks:IsValid()) then return end
+        local pawn = FindFirstOf("PalPlayerCharacter")
+        aks:PostEvent(snd, pawn, 0, nil, false)
+    end)
+end
+
 -- Identify the action wheel by its outer chain: the inner
 -- WBP_CommonRadialMenuBase lives in WBP_PlayerRadialMenu's widget tree.
 -- Other wheels (build menu, worker menu) share the class but not the outer.
