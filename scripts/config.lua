@@ -15,7 +15,7 @@ local Config = {
 
     -- Visual staging for the transformation gap: "pillar" | "shrink" | "statue"
     -- | "cocoon" (see fx.lua). Switchable at runtime: `palvolve fx <name>`.
-    fxPrototype = "pillar",
+    fxPrototype = "cocoon",
 
     -- Two-stage confirm: first press checks and announces, second press confirms.
     confirmKey = "F2",
