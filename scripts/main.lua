@@ -10,11 +10,23 @@ end
 Log("loaded")
 
 -- Evolution core
+local Evolution = nil
 local okCore, errCore = pcall(function()
-    require("evolution").init()
+    Evolution = require("evolution")
+    Evolution.init()
 end)
 if not okCore then
     Log("core failed to load: " .. tostring(errCore))
+end
+
+-- Radial menu integration (Evolve entry in the hold-4 wheel)
+if Evolution then
+    local okRadial, errRadial = pcall(function()
+        require("radialmenu").init(Evolution.check)
+    end)
+    if not okRadial then
+        Log("radial menu integration failed to load: " .. tostring(errRadial))
+    end
 end
 
 -- Egg filter (config-gated inside)
