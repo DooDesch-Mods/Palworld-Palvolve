@@ -252,6 +252,47 @@ local function pollUntil(intervalMs, timeoutMs, checkFn, doneFn)
     end)
 end
 
+-- ---------------------------------------------------------------- diagnostics
+
+-- devMode telemetry: after a reveal, log for ~6s WHO moves the new actor where
+-- (position, attach parent, movement mode, scale, height above the player)
+local function startRevealDiagnostics(holderRef, label)
+    if not Config.devMode then return end
+    local ticks = 0
+    LoopAsync(500, function()
+        ticks = ticks + 1
+        if ticks > 12 then return true end
+        ExecuteInGameThread(function()
+            pcall(function()
+                local a = nil
+                pcall(function() a = holderRef:TryGetSpawnedOtomo() end)
+                if not (a and a:IsValid()) then
+                    Log(string.format("[diag %s t=%d] no spawned otomo", label, ticks))
+                    return
+                end
+                local loc = a:K2_GetActorLocation()
+                local parentName = "none"
+                pcall(function()
+                    local parent = a:GetAttachParentActor()
+                    if parent and parent:IsValid() then parentName = parent:GetFullName() end
+                end)
+                local mode = "?"
+                pcall(function() mode = tostring(a.CharacterMovement.MovementMode) end)
+                local scaleX = -1
+                pcall(function() scaleX = a:GetActorScale3D().X end)
+                local dz = 0
+                pcall(function()
+                    local p = FindFirstOf("PalPlayerCharacter")
+                    if p and p:IsValid() then dz = loc.Z - p:K2_GetActorLocation().Z end
+                end)
+                Log(string.format("[diag %s t=%d] pos=(%.0f,%.0f,%.0f) dzPlayer=%.0f scale=%.2f moveMode=%s parent=%s",
+                    label, ticks, loc.X, loc.Y, loc.Z, dz, scaleX, mode, parentName))
+            end)
+        end)
+        return ticks > 12
+    end)
+end
+
 -- ---------------------------------------------------------------- core sequence
 
 -- pending = { actor, param, pair, holder, armedAt, key }
@@ -542,6 +583,7 @@ local function performEvolution(p)
                         Log(string.format("EVOLVED: %s -> %s (level %d)%s - respawn with new model OK",
                             pair.from, pair.to, level,
                             nickname ~= "" and (" '" .. nickname .. "'") or ""))
+                        startRevealDiagnostics(holder, pair.to)
                         if fx.keepsFrozenUntilDone and okReveal then
                             -- the prototype ends the sequence via ctx.completeOk/Abort
                             return
