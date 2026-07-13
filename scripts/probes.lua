@@ -286,8 +286,11 @@ local function giveItemsV2(inv)
     local ok, err = pcall(function()
         local ret1 = inv:AddItem_ServerInternal(FName("PalSphere"), 20, false, 0.0, true)
         local ret2 = inv:AddItem_ServerInternal(FName("PalSphere_Mega"), 10, false, 0.0, true)
-        Log(string.format("[probe-testkit] AddItem_ServerInternal PalSphere=%s Mega=%s",
-            tostring(ret1), tostring(ret2)))
+        -- Palvolve-Steine (existieren nur, wenn PalSchema die Items geladen hat)
+        local ret3 = inv:AddItem_ServerInternal(FName("Palvolve_EvolutionStone"), 5, false, 0.0, true)
+        local ret4 = inv:AddItem_ServerInternal(FName("Palvolve_AdaptionStone"), 5, false, 0.0, true)
+        Log(string.format("[probe-testkit] AddItem PalSphere=%s Mega=%s EvoStone=%s AdaptStone=%s",
+            tostring(ret1), tostring(ret2), tostring(ret3), tostring(ret4)))
     end)
     if not ok then Log("[probe-testkit] AddItem_ServerInternal FAIL: " .. tostring(err)) end
 end

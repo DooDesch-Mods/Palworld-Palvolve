@@ -9,6 +9,10 @@
 -- BOSS_/GYM_/RAID_/_Oilrig/_Tower-IDs duerfen NIE Ziel sein (Boss-/Spawn-Logik).
 
 local Config = {
+    -- Dev-Modus: laedt die Probe-Suite (F3/F5-F10/EINFG-Cheats). VOR RELEASE auf false
+    -- setzen UND probes.lua nicht paketieren.
+    devMode = true,
+
     -- Zweistufiger Confirm: erster Druck prueft und meldet, zweiter Druck bestaetigt.
     confirmKey = "F2",
     confirmWindowSeconds = 10,
@@ -18,8 +22,8 @@ local Config = {
     ivBonusPerStage = 5,
     ivCap = 100,
 
-    -- Item-Kosten aktivieren, sobald die Steine existieren (M2)
-    requireStone = false,
+    -- Item-Kosten (Steine existieren via PalSchema; false = Gratis-Modus)
+    requireStone = true,
     stoneCount = 1,
     stoneItemIds = {
         evolution = "Palvolve_EvolutionStone",

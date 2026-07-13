@@ -17,8 +17,11 @@ if not okCore then
     Log("Kern nicht geladen: " .. tostring(errCore))
 end
 
--- Dev-Proben (temporaer, vor Release entfernen)
-local okProbes, errProbes = pcall(require, "probes")
-if not okProbes then
-    Log("Proben nicht geladen: " .. tostring(errProbes))
+-- Dev-Proben (nur im devMode; vor Release devMode=false + probes.lua nicht paketieren)
+local okCfg, cfg = pcall(require, "config")
+if okCfg and cfg.devMode then
+    local okProbes, errProbes = pcall(require, "probes")
+    if not okProbes then
+        Log("Proben nicht geladen: " .. tostring(errProbes))
+    end
 end

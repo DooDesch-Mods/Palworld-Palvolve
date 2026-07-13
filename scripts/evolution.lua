@@ -244,10 +244,12 @@ local function pollUntil(intervalMs, timeoutMs, checkFn, doneFn)
             local ok, res = pcall(checkFn)
             if ok and res then
                 finished = true
-                doneFn(true)
+                local okDone, errDone = pcall(doneFn, true)
+                if not okDone then Log("pollUntil doneFn FAIL: " .. tostring(errDone)) end
             elseif elapsed >= timeoutMs then
                 finished = true
-                doneFn(false)
+                local okDone, errDone = pcall(doneFn, false)
+                if not okDone then Log("pollUntil doneFn FAIL: " .. tostring(errDone)) end
             end
         end)
         return finished
@@ -258,8 +260,11 @@ end
 
 -- pending = { actor, param, pair, armedAt, key }
 local pending = nil
--- Globaler Sequenz-Lock: nie zwei Evolutionen parallel
+-- Globaler Sequenz-Lock: nie zwei Evolutionen parallel.
+-- Watchdog: falls ein Fehlerpfad den Lock haengen laesst, gibt check() ihn
+-- nach 30 s selbst wieder frei.
 local sequenceRunning = false
+local sequenceStartedAt = 0
 
 -- Der Spieler kann nur 1 eigenen Pal gleichzeitig beschwoeren -> die autoritative
 -- Quelle ist der Otomo-Holder, nicht ein FindAllOf-Scan (der auch Geister-Actor traefe).
@@ -289,6 +294,7 @@ local function performEvolution(p)
     local actor, param, pair, holder = p.actor, p.param, p.pair, p.holder
     pending = nil
     sequenceRunning = true
+    sequenceStartedAt = os.clock()
     local function finish()
         sequenceRunning = false
     end
@@ -310,6 +316,33 @@ local function performEvolution(p)
         Log("Entwicklung abgebrochen: Individual-Handle nicht ermittelbar")
         finish()
         return
+    end
+
+    -- Stein-Kosten VOR der Sequenz einziehen (kein TOCTOU: schlaegt spaeter etwas
+    -- vor dem Swap fehl, wird der Stein zurueckerstattet; nach dem Swap ist er verdient)
+    local paidStoneId = nil
+    if Config.requireStone then
+        local _, stoneId, stoneName = stoneCheck(pair)
+        if stoneId then
+            if not tryConsumeItems(stoneId, Config.stoneCount) then
+                Log(string.format("Entwicklung abgebrochen: %dx %s nicht verfuegbar/verbrauchbar",
+                    Config.stoneCount, stoneName))
+                finish()
+                return
+            end
+            paidStoneId = stoneId
+            Log(string.format("%dx %s eingesetzt", Config.stoneCount, stoneName))
+        end
+    end
+    local function refundStone(reason)
+        if not paidStoneId then return end
+        pcall(function()
+            local inv = inventoryData()
+            if inv then
+                inv:AddItem_ServerInternal(FName(paidStoneId), Config.stoneCount, false, 0.0, true)
+                Log("Stein zurueckerstattet (" .. reason .. ")")
+            end
+        end)
     end
 
     -- Ausgangszustand festhalten (Diagnose + Snapshot-Daten + Position fuer
@@ -365,6 +398,7 @@ local function performEvolution(p)
         if i > #recallStrategies then
             Log("Rueckruf nicht bestaetigt (alle Strategien erschoepft) - breche OHNE Swap ab")
             if actor:IsValid() then setFrozen(actor, false) end
+            refundStone("Rueckruf fehlgeschlagen")
             finish()
             return
         end
@@ -386,6 +420,7 @@ local function performEvolution(p)
         -- Phase 3: Swap im despawnten Zustand (sicherster Schreibmoment) + verifizieren
         if not param:IsValid() then
             Log("Abbruch: Parameter nach Despawn ungueltig")
+            refundStone("Parameter ungueltig")
             finish()
             return
         end
@@ -398,23 +433,12 @@ local function performEvolution(p)
         if not okSwap or idNow ~= pair.to then
             Log(string.format("SWAP FEHLGESCHLAGEN (err=%s, id=%s) - kein Respawn-Versuch",
                 tostring(errSwap), idNow))
+            refundStone("Swap fehlgeschlagen")
             finish()
             return
         end
         applyIvBonus(param)
         pcall(function() param:FullRecoveryHP() end)
-
-        -- Stein-Kosten einziehen (Bestand wurde beim Armieren und Bestaetigen geprueft)
-        if Config.requireStone then
-            local _, stoneId, stoneName = stoneCheck(pair)
-            if stoneId then
-                if tryConsumeItems(stoneId, Config.stoneCount) then
-                    Log(string.format("%dx %s verbraucht", Config.stoneCount, stoneName))
-                else
-                    Log(string.format("WARNUNG: %s konnte nicht verbraucht werden (Evolution bleibt bestehen)", stoneName))
-                end
-            end
-        end
 
         -- Snapshot erst NACH erfolgreichem Swap (kein Phantom-Rollback-Eintrag)
         table.insert(snapshots, {
@@ -520,8 +544,13 @@ end
 
 function Evolution.check()
     if sequenceRunning then
-        Log("Eine Entwicklung laeuft bereits - bitte warten")
-        return
+        if (os.clock() - sequenceStartedAt) > 30 then
+            Log("Sequenz-Lock haengt (>30s) - Watchdog gibt frei")
+            sequenceRunning = false
+        else
+            Log("Eine Entwicklung laeuft bereits - bitte warten")
+            return
+        end
     end
     local actor, param, pair, level, holder = findEligible()
     if not actor then
@@ -542,7 +571,9 @@ function Evolution.check()
     local key = individualKey(param)
     if pending and (now - pending.armedAt) <= Config.confirmWindowSeconds then
         if pending.key == key then
-            performEvolution(pending)
+            -- FRISCHE Handles nutzen (der Pal kann seit dem Armieren neu ausgesummont
+            -- worden sein - alte Actor-/Holder-Referenzen waeren dann stale)
+            performEvolution({ actor = actor, param = param, pair = pair, holder = holder, key = key })
             return
         else
             Log(string.format("Confirm-Ziel gewechselt (vorher %s, jetzt %s) - neu armiert", pending.key, key))
@@ -559,27 +590,32 @@ function Evolution.check()
 end
 
 function Evolution.rollbackLast()
-    local last = table.remove(snapshots)
+    if sequenceRunning then
+        Log("Rollback blockiert: eine Entwicklung laeuft gerade")
+        return
+    end
+    -- Snapshot erst NACH verifiziertem Restore entfernen (kein Datenverlust bei Fehlschlag)
+    local last = snapshots[#snapshots]
     if not last then
         Log("Rollback: kein Snapshot vorhanden")
         return
     end
     local reverted = false
     local all = FindAllOf("PalIndividualCharacterParameter") or {}
-    -- Erst gezielt ueber den Individual-Key, dann Fallback ueber Spezies
-    for pass = 1, 2 do
-        for _, p in ipairs(all) do
-            if p:IsValid() and isOwned(p) and p:GetCharacterID():ToString() == last.to then
-                local match = (pass == 2)
-                if pass == 1 and last.key and last.key ~= "" then
-                    match = (individualKey(p) == last.key)
-                end
-                if match then
-                    pcall(function()
-                        p.SaveParameter.CharacterID = FName(last.from)
-                        p.SaveParameterMirror.CharacterID = FName(last.from)
-                    end)
-                    -- IVs auf den Stand vor der Evolution zuruecksetzen
+    local hasKey = last.key and last.key ~= ""
+    for _, p in ipairs(all) do
+        if p:IsValid() and isOwned(p) and p:GetCharacterID():ToString() == last.to then
+            -- Mit Key NUR exakter Match (Spezies-Fallback traefe sonst z.B. den
+            -- falschen Yeti bei SmallYeti->Yeti vs. MopKing->Yeti)
+            local match = hasKey and (individualKey(p) == last.key) or (not hasKey)
+            if match then
+                pcall(function()
+                    p.SaveParameter.CharacterID = FName(last.from)
+                    p.SaveParameterMirror.CharacterID = FName(last.from)
+                end)
+                local idNow = ""
+                pcall(function() idNow = p:GetCharacterID():ToString() end)
+                if idNow == last.from then
                     local restore = {
                         Talent_HP = last.ivHP, Talent_Melee = last.ivMelee,
                         Talent_Shot = last.ivShot, Talent_Defense = last.ivDefense,
@@ -593,15 +629,20 @@ function Evolution.rollbackLast()
                         end
                     end
                     reverted = true
-                    break
                 end
+                break
             end
         end
-        if reverted then break end
     end
-    saveSnapshots()
-    Log(string.format("Rollback %s -> %s: %s (neu aussummonen)",
-        last.to, last.from, reverted and "zurueckgesetzt inkl. IVs" or "kein passender Pal gefunden"))
+    if reverted then
+        table.remove(snapshots)
+        saveSnapshots()
+        Log(string.format("Rollback %s -> %s: zurueckgesetzt inkl. IVs (neu aussummonen)",
+            last.to, last.from))
+    else
+        Log(string.format("Rollback %s -> %s: kein passender Pal gefunden (Snapshot bleibt erhalten; Pal in die Naehe holen und erneut versuchen)",
+            last.to, last.from))
+    end
 end
 
 function Evolution.init()
@@ -636,7 +677,9 @@ function Evolution.init()
                     -- nowLevel ist das Level VOR der Addition (live belegt)
                     local newLevel = nowLevel:get() + addLevel:get()
                     if newLevel >= pair.minLevel then
-                        local key = individualKey(param)
+                        -- Key inkl. Ziel: nach einer Evolution meldet sich die
+                        -- naechste Kettenstufe (z.B. MopKing->Yeti) wieder neu
+                        local key = individualKey(param) .. ">" .. pair.to
                         if notified[key] then return end
                         notified[key] = true
                         playFanfare(actor)
@@ -661,11 +704,14 @@ function Evolution.init()
         RegisterConsoleCommandHandler("palvolve", function(fullCommand, parameters)
             local sub = parameters[1] or "check"
             ExecuteInGameThread(function()
-                if sub == "rollback" then
-                    Evolution.rollbackLast()
-                else
-                    Evolution.check()
-                end
+                local ok, err = pcall(function()
+                    if sub == "rollback" then
+                        Evolution.rollbackLast()
+                    else
+                        Evolution.check()
+                    end
+                end)
+                if not ok then Log("Konsole FAIL: " .. tostring(err)) end
             end)
             return true
         end)
