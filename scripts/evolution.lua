@@ -353,10 +353,13 @@ local function performEvolution(p)
     local key = individualKey(param)
     local talentsBefore = readTalents(param)
     local oldLoc, oldRot = nil, nil
+    local oldX, oldY, oldZ, oldHalf = nil, nil, nil, 0
     pcall(function()
         oldLoc = actor:K2_GetActorLocation()
         oldRot = actor:K2_GetActorRotation()
+        oldX, oldY, oldZ = oldLoc.X, oldLoc.Y, oldLoc.Z
     end)
+    pcall(function() oldHalf = actor:GetSimpleCollisionHalfHeight() end)
     Log(string.format("Sequenz-Start: %s Lv%d key=%s", pair.from, level, key))
 
     -- Phase 1: Einfrieren + Evolutions-Optik. CaptureEmissive (ID 1) laesst den Pal
@@ -504,10 +507,16 @@ local function performEvolution(p)
             local newActor = nil
             pcall(function() newActor = holder:TryGetSpawnedOtomo() end)
             if success and newActor and newActor:IsValid() then
-                -- Inszeniertes Enthuellen: versteckt an die alte Position, dann
-                -- im naechsten Moment mit FadeIn + Glow + Fanfare erscheinen
-                if oldLoc then
-                    pcall(function() newActor:K2_TeleportTo(oldLoc, oldRot) end)
+                -- Inszeniertes Enthuellen an der alten Stelle. WICHTIG: Die neue Form
+                -- ist groesser - Ziel-Z aus Bodenhoehe + neuer Kapsel-Haelfte rechnen,
+                -- sonst steckt der Pal im Boden und faellt durch die Welt.
+                if oldX then
+                    pcall(function()
+                        local newHalf = 0
+                        pcall(function() newHalf = newActor:GetSimpleCollisionHalfHeight() end)
+                        local target = { X = oldX, Y = oldY, Z = oldZ - oldHalf + newHalf + 15 }
+                        newActor:K2_TeleportTo(target, oldRot)
+                    end)
                 end
                 spawnGapLight()
                 ExecuteWithDelay(200, function()
