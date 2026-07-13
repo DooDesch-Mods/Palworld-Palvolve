@@ -198,9 +198,11 @@ end))
 -- F3: revert for testing - takes ALL candidates and logs the raw owner guid.
 -- Finding: the local host player's uid lives in the D component (...-0001).
 local REVERT_PAIRS = {
-    { from = "CaptainPenguin", to = "Penguin" },  -- Penking -> Pengullet
-    { from = "MopKing", to = "MopBaby" },         -- Sweepa -> Swee
-    { from = "Yeti", to = "MopKing" },            -- Wumpo -> Sweepa
+    { from = "CaptainPenguin_Black", to = "Penguin" },  -- black Penking -> Pengullet
+    { from = "CaptainPenguin", to = "Penguin" },        -- Penking -> Pengullet
+    { from = "MopKing", to = "MopBaby" },               -- Sweepa -> Swee
+    { from = "Yeti_Grass", to = "Yeti" },               -- Wumpo Botan -> Wumpo
+    { from = "Yeti", to = "MopKing" },                  -- Wumpo -> Sweepa
 }
 local function ownerGuidString(p)
     local s = "unreadable"
