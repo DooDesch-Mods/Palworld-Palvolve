@@ -466,26 +466,35 @@ prototypes.digimon = {
                 state.lastTick = now
                 local t = math.min((now - startedAt) / growS, 1.0)
                 local inv = 1.0 - t
-                -- Linear wind-down, never below a floor: with the quadratic
-                -- curve the spin got so slow in the second half that the
-                -- characters own facing logic visibly fought it. Stay clearly
-                -- dominant until the end and snap to the face-player yaw on
-                -- the final tick.
-                local speed = math.max(c.peakDegPerSec * inv, 240)
+                -- Linear wind-down with a floor (a slow spin loses against
+                -- the characters own facing logic); in the last stretch steer
+                -- INTO the face-player yaw along the spin direction so the
+                -- rotation lands on it instead of snapping.
+                local targetYaw = yawTowardsPlayer(ctx.oldX, ctx.oldY)
+                local speed
+                if targetYaw and t >= 0.85 then
+                    local deltaCW = (targetYaw - state.yaw) % 360
+                    local remaining = math.max(inv * growS, 0.05)
+                    speed = math.min(math.max(deltaCW / remaining, 240), c.peakDegPerSec)
+                else
+                    speed = math.max(c.peakDegPerSec * inv, 240)
+                end
                 state.yaw = (state.yaw + speed * dt) % 360
                 local s = 0.02 + 0.98 * (1.0 - inv * inv) -- ease-out growth
                 pcall(function() newActor:SetActorScale3D({ X = s, Y = s, Z = s }) end)
-                -- Rotation only, exactly like the dissolve spin: the per-tick
-                -- position pin (detach + teleport) from the anchor-loop era
-                -- made CharacterMovement pull the rotation back every tick -
-                -- the pal visibly fought the spin. The clean two-phase
-                -- activation holds position on its own now.
                 local finalTick = (t >= 1.0)
                 local yawNow = state.yaw
-                if finalTick then
-                    yawNow = yawTowardsPlayer(ctx.oldX, ctx.oldY) or state.yaw
-                end
+                if finalTick and targetYaw then yawNow = targetYaw end
                 setYaw(newActor, yawNow)
+                -- Sync the control rotation too: whatever facing logic still
+                -- runs on the possessed character then pulls TOWARDS our spin
+                -- instead of against it.
+                pcall(function()
+                    local ctrl = newActor:GetController()
+                    if ctrl and ctrl:IsValid() then
+                        ctrl:SetControlRotation({ Pitch = 0, Yaw = yawNow, Roll = 0 })
+                    end
+                end)
                 if finalTick then
                     state.stopped = true
                     pcall(function() newActor:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
