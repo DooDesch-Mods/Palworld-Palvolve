@@ -359,9 +359,12 @@ local function performEvolution(p)
     end)
     Log(string.format("Sequenz-Start: %s Lv%d key=%s", pair.from, level, key))
 
-    -- Phase 1: Einfrieren + Rueckruf-Optik
+    -- Phase 1: Einfrieren + Evolutions-Optik. CaptureEmissive (ID 1) laesst den Pal
+    -- AN ORT UND STELLE weiss aufgluehen und verschwinden - kein sichtbares
+    -- Ball-Einsaugen. Der eigentliche Rueckruf laeuft erst danach am bereits
+    -- unsichtbaren Pal (Delay unten in tryRecall-Start).
     setFrozen(actor, true)
-    playEffect(actor, 3)  -- ReturnToBallEmissive: die echte Einzieh-Optik
+    playEffect(actor, 1)  -- CaptureEmissive: Weissglow + Aufloesung vor Ort
     playFanfare(actor)
 
     -- Phase 2: Rueckruf mit Eskalationskette, jede Stufe mit Despawn-Verifikation.
@@ -477,6 +480,12 @@ local function performEvolution(p)
             local newActor = nil
             pcall(function() newActor = holder:TryGetSpawnedOtomo() end)
             if newActor and newActor:IsValid() then
+                if success and oldLoc then
+                    -- Evolution passiert VOR ORT: neuen Pal an die alte Position
+                    -- versetzen und aus weissem Glow materialisieren lassen
+                    pcall(function() newActor:K2_TeleportTo(oldLoc, oldRot) end)
+                    playEffect(newActor, 2)  -- SpawnFromBallEmissive: Erscheinen aus Weissglow
+                end
                 setFrozen(newActor, false)
             end
             if success then
@@ -537,7 +546,18 @@ local function performEvolution(p)
         end)
     end
 
-    tryRecall(1)
+    -- Rueckruf erst NACH dem Weissglow-Verschwinden (ca. 1,3 s) - der Pal ist dann
+    -- bereits unsichtbar und das Ball-Einsaugen ist nicht mehr zu sehen
+    ExecuteWithDelay(1300, function()
+        ExecuteInGameThread(function()
+            local ok, err = pcall(function() tryRecall(1) end)
+            if not ok then
+                Log("Rueckruf-Start FAIL: " .. tostring(err))
+                refundStone("Sequenzfehler")
+                finish()
+            end
+        end)
+    end)
 end
 
 -- ---------------------------------------------------------------- Public API
