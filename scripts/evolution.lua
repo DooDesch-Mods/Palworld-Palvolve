@@ -310,31 +310,37 @@ local function performEvolution(p)
     local ctx = {
         actor = actor, worldCtx = holder,
         oldX = oldX, oldY = oldY, oldZ = oldZ, oldYaw = oldYaw, oldHalf = oldHalf,
+        unfreeze = function(a) setFrozen(a, false) end,
         fx = {},
     }
 
-    local function finish()
+    -- Success: reveal animations finish on their own (prototypes clean up their
+    -- placeholders in onReveal). Abort: cleanup must tear the staging down.
+    local function finishOk()
+        sequenceRunning = false
+    end
+    local function finishAbort()
         pcall(function() fx.cleanup(ctx) end)
         sequenceRunning = false
     end
 
     if not (actor:IsValid() and param:IsValid() and holder and holder:IsValid()) then
         Log("Evolution aborted: pal/holder no longer valid")
-        finish()
+        finishAbort()
         return
     end
 
     local mgr = findManager(actor)
     if not mgr then
         Log("Evolution aborted: PalCharacterManager not found")
-        finish()
+        finishAbort()
         return
     end
     local handle = nil
     pcall(function() handle = mgr:GetIndividualHandleFromCharacterParameter(param) end)
     if not (handle and handle:IsValid()) then
         Log("Evolution aborted: individual handle unavailable")
-        finish()
+        finishAbort()
         return
     end
 
@@ -347,7 +353,7 @@ local function performEvolution(p)
             if not tryConsumeItems(stoneId, Config.stoneCount) then
                 Log(string.format("Evolution aborted: %dx %s not available/consumable",
                     Config.stoneCount, stoneName))
-                finish()
+                finishAbort()
                 return
             end
             paidStoneId = stoneId
@@ -409,7 +415,7 @@ local function performEvolution(p)
                 setFrozen(actor, false)
             end
             refundStone("despawn failed")
-            finish()
+            finishAbort()
             return
         end
         local strat = recallStrategies[i]
@@ -431,7 +437,7 @@ local function performEvolution(p)
         if not param:IsValid() then
             Log("Aborted: parameter invalid after despawn")
             refundStone("parameter invalid")
-            finish()
+            finishAbort()
             return
         end
         local okSwap, errSwap = pcall(function()
@@ -444,7 +450,7 @@ local function performEvolution(p)
             Log(string.format("SWAP FAILED (err=%s, id=%s) - no respawn attempt",
                 tostring(errSwap), idNow))
             refundStone("swap failed")
-            finish()
+            finishAbort()
             return
         end
         applyIvBonus(param)
@@ -507,13 +513,15 @@ local function performEvolution(p)
                         if a and a:IsValid() then
                             revealActor(a)
                             pcall(function() fx.onReveal(ctx, a) end)
-                            setFrozen(a, false)
+                            if not fx.keepsFrozenUntilDone then
+                                setFrozen(a, false)
+                            end
                             playFanfare(a)
                         end
                         Log(string.format("EVOLVED: %s -> %s (level %d)%s - respawn with new model OK",
                             pair.from, pair.to, level,
                             nickname ~= "" and (" '" .. nickname .. "'") or ""))
-                        finish()
+                        finishOk()
                     end)
                 end)
             else
@@ -528,7 +536,7 @@ local function performEvolution(p)
                 end)
                 Log(string.format("EVOLVED (data only): %s -> %s (level %d) - respawn not confirmed (class '%s' instead of %s); please resummon manually",
                     pair.from, pair.to, level, cls, expectedClass))
-                finish()
+                finishAbort()
             end
         end
 
@@ -575,9 +583,13 @@ local function performEvolution(p)
         end)
     end
 
-    -- Start the teardown only AFTER the dissolve staging (~1.2s); the actor is
+    -- Start the teardown only AFTER the dissolve staging; the actor is
     -- hard-hidden right before it so no despawn visuals are ever seen
-    ExecuteWithDelay(1200, function()
+    local dissolveMs = 1200
+    pcall(function()
+        if fx.dissolveDurationMs then dissolveMs = fx.dissolveDurationMs() end
+    end)
+    ExecuteWithDelay(dissolveMs, function()
         ExecuteInGameThread(function()
             local ok, err = pcall(function()
                 if actor:IsValid() then
@@ -590,7 +602,7 @@ local function performEvolution(p)
             if not ok then
                 Log("Teardown start FAIL: " .. tostring(err))
                 refundStone("sequence error")
-                finish()
+                finishAbort()
             end
         end)
     end)

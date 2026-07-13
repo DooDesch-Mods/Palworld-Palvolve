@@ -13,9 +13,17 @@ local Config = {
     -- BEFORE release AND do not package probes.lua.
     devMode = true,
 
-    -- Visual staging for the transformation gap: "pillar" | "shrink" | "statue"
-    -- | "cocoon" (see fx.lua). Switchable at runtime: `palvolve fx <name>`.
-    fxPrototype = "cocoon",
+    -- Visual staging for the transformation gap: "digimon" | "pillar" | "shrink"
+    -- | "statue" | "cocoon" (see fx.lua). Switchable at runtime: `palvolve fx <name>`.
+    fxPrototype = "digimon",
+
+    -- Timings for the "digimon" staging (spin-up -> shrink -> peak hold -> grow)
+    digimon = {
+        spinUpMs = 1200,       -- phase A: accelerating spin, effects ramp up
+        shrinkMs = 1200,       -- phase B: keeps spinning, scales down to nothing
+        growMs = 1600,         -- reveal: grows back while the spin winds down
+        peakDegPerSec = 1080   -- top angular speed at the end of the shrink
+    },
 
     -- Two-stage confirm: first press checks and announces, second press confirms.
     confirmKey = "F2",
