@@ -16,9 +16,14 @@ local Config = {
 
     -- Item-Kosten aktivieren, sobald die Steine existieren (M2)
     requireStone = false,
+    stoneCount = 1,
     stoneItemIds = {
         evolution = "Palvolve_EvolutionStone",
         adaptation = "Palvolve_AdaptionStone",
+    },
+    stoneNames = {
+        evolution = "Entwicklungsstein",
+        adaptation = "Adaptionsstein",
     },
 
     -- Schema-Version der Map (fuer spaetere Migrationen)

@@ -146,6 +146,58 @@ local function setFrozen(palActor, frozen)
     end)
 end
 
+-- ---------------------------------------------------------------- Item-Kosten
+
+local function inventoryData()
+    local inv = nil
+    pcall(function()
+        local pc = FindFirstOf("PalPlayerController")
+        if pc and pc:IsValid() then
+            inv = pc:GetPalPlayerState():GetInventoryData()
+        end
+    end)
+    if inv and inv:IsValid() then return inv end
+    return nil
+end
+
+local function countItem(staticItemId)
+    local n = 0
+    pcall(function()
+        local inv = inventoryData()
+        if inv then n = inv:CountItemNum(FName(staticItemId)) end
+    end)
+    return n
+end
+
+-- Verbraucht need Stueck; Erfolg wird ueber die Count-Differenz verifiziert
+-- (RequestConsumeInventoryItem ist der einzige BP-exponierte Konsum-Pfad).
+local function tryConsumeItems(staticItemId, need)
+    local ok = false
+    pcall(function()
+        local inv = inventoryData()
+        if not inv then return end
+        local id = FName(staticItemId)
+        local before = inv:CountItemNum(id)
+        if before < need then return end
+        local cdo = StaticFindObject("/Script/Pal.Default__PalIncidentBase")
+        if cdo and cdo:IsValid() then
+            cdo:RequestConsumeInventoryItem(inv, id, need)
+        end
+        local after = inv:CountItemNum(id)
+        ok = (before - after) == need
+    end)
+    return ok
+end
+
+-- Prueft die Stein-Kosten fuer ein Paar; liefert ok, stoneId, anzeigename
+local function stoneCheck(pair)
+    if not Config.requireStone then return true, nil, nil end
+    local stoneId = Config.stoneItemIds[pair.stone]
+    local stoneName = Config.stoneNames[pair.stone] or pair.stone
+    if not stoneId then return true, nil, nil end
+    return countItem(stoneId) >= Config.stoneCount, stoneId, stoneName
+end
+
 -- ---------------------------------------------------------------- IV-Bonus
 
 local TALENT_FIELDS = { "Talent_HP", "Talent_Melee", "Talent_Shot", "Talent_Defense" }
@@ -352,6 +404,18 @@ local function performEvolution(p)
         applyIvBonus(param)
         pcall(function() param:FullRecoveryHP() end)
 
+        -- Stein-Kosten einziehen (Bestand wurde beim Armieren und Bestaetigen geprueft)
+        if Config.requireStone then
+            local _, stoneId, stoneName = stoneCheck(pair)
+            if stoneId then
+                if tryConsumeItems(stoneId, Config.stoneCount) then
+                    Log(string.format("%dx %s verbraucht", Config.stoneCount, stoneName))
+                else
+                    Log(string.format("WARNUNG: %s konnte nicht verbraucht werden (Evolution bleibt bestehen)", stoneName))
+                end
+            end
+        end
+
         -- Snapshot erst NACH erfolgreichem Swap (kein Phantom-Rollback-Eintrag)
         table.insert(snapshots, {
             key = key, from = pair.from, to = pair.to, level = level, nickname = nickname,
@@ -466,6 +530,14 @@ function Evolution.check()
         end
         return
     end
+    -- Stein-Kosten pruefen (greift erst mit requireStone=true, sobald die Steine existieren)
+    local stoneOk, _, stoneName = stoneCheck(pair)
+    if not stoneOk then
+        Log(string.format("%s (Lv %d) koennte sich zu %s entwickeln, aber es fehlt: %dx %s",
+            pair.from, level, pair.to, Config.stoneCount, stoneName))
+        return
+    end
+
     local now = os.clock()
     local key = individualKey(param)
     if pending and (now - pending.armedAt) <= Config.confirmWindowSeconds then
@@ -478,8 +550,12 @@ function Evolution.check()
     end
     pending = { actor = actor, param = param, pair = pair, holder = holder, armedAt = now, key = key }
     playFanfare(actor)
-    Log(string.format("%s (Lv %d) kann sich zu %s entwickeln - %s erneut druecken zum Bestaetigen (%ds)",
-        pair.from, level, pair.to, Config.confirmKey, Config.confirmWindowSeconds))
+    local costHint = ""
+    if Config.requireStone and stoneName then
+        costHint = string.format(" [Kosten: %dx %s]", Config.stoneCount, stoneName)
+    end
+    Log(string.format("%s (Lv %d) kann sich zu %s entwickeln%s - %s erneut druecken zum Bestaetigen (%ds)",
+        pair.from, level, pair.to, costHint, Config.confirmKey, Config.confirmWindowSeconds))
 end
 
 function Evolution.rollbackLast()
