@@ -81,9 +81,15 @@ local function injectEntry(menu)
             if Config.devMode then Log("[radial] wheel reference missing") end
             return
         end
-        local canvas = wheel.CanvasPanel_Inner
+        -- the labels live on the menuCanvas of the nested WBP_RadialMenu_base,
+        -- not on the wheel's own CanvasPanel_Inner (in-world dump 2026-07-13)
+        local canvas = nil
+        pcall(function()
+            local base = wheel.WBP_RadialMenu_base
+            if base and base:IsValid() then canvas = base.menuCanvas end
+        end)
         if not (canvas and canvas:IsValid()) then
-            if Config.devMode then Log("[radial] canvas missing") end
+            if Config.devMode then Log("[radial] menuCanvas missing") end
             return
         end
 
