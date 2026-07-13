@@ -571,7 +571,15 @@ local function performEvolution(p)
         -- recall+resummon heals). With the actor already gone this recall is
         -- pure bookkeeping and shows no ball visuals.
         local okInact = pcall(function() holder:InactivateCurrentOtomo() end)
-        Log(string.format("Holder state cleanup (InactivateCurrentOtomo) ok=%s", tostring(okInact)))
+        -- Re-select the slot right away: the inactivation also clears the
+        -- current-otomo selection, and ActivateCurrentOtomo silently no-ops
+        -- without one (community recipe: SetOtomoSlot + TrySwitchOtomo).
+        local okSel = pcall(function()
+            local idx = holder:GetSlotIndexByIndividualHandle(handle)
+            local pc = FindFirstOf("PalPlayerController")
+            pc:SetOtomoSlot(idx)
+        end)
+        Log(string.format("Holder state cleanup ok=%s reselect ok=%s", tostring(okInact), tostring(okSel)))
 
         -- Phase 4+5: activation pump with staged reveal
         local expectedClass = "BP_" .. pair.to .. "_C"
@@ -679,8 +687,17 @@ local function performEvolution(p)
                 pcall(function()
                     if newActor and newActor:IsValid() then cls = newActor:GetClass():GetFullName() end
                 end)
-                Log(string.format("EVOLVED (data only): %s -> %s (level %d) - respawn not confirmed (class '%s' instead of %s); please resummon manually",
-                    pair.from, pair.to, level, cls, expectedClass))
+                -- Summon rescue: the holder cleanup cleared the otomo
+                -- selection, so without this the summon key stays dead for
+                -- the player until a world reload.
+                local okRescue = pcall(function()
+                    local idx = holder:GetSlotIndexByIndividualHandle(handle)
+                    local pc = FindFirstOf("PalPlayerController")
+                    pc:SetOtomoSlot(idx)
+                    pc:TrySwitchOtomo()
+                end)
+                Log(string.format("EVOLVED (data only): %s -> %s (level %d) - respawn not confirmed (class '%s' instead of %s); summon rescue ok=%s",
+                    pair.from, pair.to, level, cls, expectedClass, tostring(okRescue)))
                 finishAbort()
             end
         end
@@ -753,19 +770,30 @@ local function performEvolution(p)
                     -- teardown + holder cleanup: the pal appears at the given
                     -- position, already landed and active - no trainer-anchor
                     -- placement at all. The engine rejects it silently until
-                    -- some internal settle completes (observed ~3-13s), so
-                    -- just keep retrying this one call. The other activation
-                    -- APIs either no-op (ActivatePalByHandle, Current* before
-                    -- settle) or spawn through the broken anchor placement
-                    -- (SpawnOtomoByLoad without the holder cleanup).
-                    local how = "ActivateCurrentOtomo"
-                    local okNudge = pcall(function()
-                        holder:ActivateCurrentOtomo({
-                            Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
-                            Translation = { X = oldX or 0, Y = oldY or 0, Z = (oldZ or 0) + 50 },
-                            Scale3D = { X = 1, Y = 1, Z = 1 },
-                        })
-                    end)
+                    -- some internal settle completes, so keep retrying. The
+                    -- other activation APIs either no-op (ActivatePalByHandle,
+                    -- Current* before settle) or spawn through the broken
+                    -- anchor placement (SpawnOtomoByLoad without cleanup).
+                    -- One-shot fallback at attempt 6: the vanilla summon
+                    -- toggle (spawns near the player through the full clean
+                    -- flow; the landing watch + teleport still stage it).
+                    local how, okNudge
+                    if nudgeCount == 6 then
+                        how = "PC:TrySwitchOtomo"
+                        okNudge = pcall(function()
+                            local pc = FindFirstOf("PalPlayerController")
+                            pc:TrySwitchOtomo()
+                        end)
+                    else
+                        how = "ActivateCurrentOtomo"
+                        okNudge = pcall(function()
+                            holder:ActivateCurrentOtomo({
+                                Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
+                                Translation = { X = oldX or 0, Y = oldY or 0, Z = (oldZ or 0) + 50 },
+                                Scale3D = { X = 1, Y = 1, Z = 1 },
+                            })
+                        end)
+                    end
                     pcall(function() fx.onGap(ctx) end)
                     Log(string.format("Activation attempt #%d (%s) ok=%s", nudgeCount, how, tostring(okNudge)))
                 end
