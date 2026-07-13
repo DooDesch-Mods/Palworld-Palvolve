@@ -214,7 +214,9 @@ local function readGrey(menu)
 end
 
 local function applyGrey(widget, flat)
-    if not flat then return false end
+    -- fallback when the property read yields nothing: a grey close to the
+    -- vanilla no-otomo look
+    flat = flat or { R = 0.35, G = 0.35, B = 0.35, A = 1.0 }
     local ok = pcall(function() widget:SetTextColor(flat) end)
     if not ok then
         -- the parameter may be an FSlateColor instead of an FLinearColor
@@ -513,7 +515,15 @@ function RadialMenu.init(evolutionApi)
                 -- hover ourselves; dead filler segments select "nothing"
                 if idx ~= nil and idx >= 0 then
                     local newHover = nil
-                    if subOptions and idx < #subOptions then newHover = idx end
+                    if subOptions then
+                        if #subOptions == 1 then
+                            -- a single option shares the wheel with a dead
+                            -- filler segment - any position selects it
+                            newHover = 0
+                        elseif idx < #subOptions then
+                            newHover = idx
+                        end
+                    end
                     if newHover ~= subHoverIdx then
                         local wasMuted = savedHoverSound ~= nil
                         subHoverIdx = newHover
@@ -627,12 +637,21 @@ function RadialMenu.init(evolutionApi)
             post = suppressHandler,
         },
         {
-            -- the free-cursor wheel (submenu after reopen) drives its
-            -- selection through OnMouseMove -> SetSelectedIndexForce, not
-            -- through the Update natives of the held wheel
             path = RADIAL_NATIVE .. ":SetSelectedIndexForce",
             fn = noopPre,
             post = suppressHandler,
+        },
+        {
+            -- the free-cursor wheel (toggle mode / reopened submenu) writes
+            -- nowSelectedIndex directly from BP - no native carries it. The
+            -- BP post-hooks run synchronously after each update and before
+            -- the click decide processes, so the reset stays race-free.
+            path = WHEEL_WBP .. ":OnMouseMove",
+            fn = suppressHandler,
+        },
+        {
+            path = WHEEL_WBP .. ":Tick",
+            fn = suppressHandler,
         },
         {
             path = RADIAL_NATIVE .. ":UpdateSelectedIndex_ForPad",
