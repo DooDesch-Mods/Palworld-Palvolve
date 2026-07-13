@@ -295,10 +295,10 @@ prototypes.cocoon = {
 local function digimonCfg()
     local c = Config.digimon or {}
     return {
-        spinUpMs = c.spinUpMs or 1200,
-        shrinkMs = c.shrinkMs or 1200,
-        growMs = c.growMs or 1600,
-        peakDegPerSec = c.peakDegPerSec or 1080,
+        spinUpMs = math.max(c.spinUpMs or 1200, 1),
+        shrinkMs = math.max(c.shrinkMs or 1200, 1),
+        growMs = math.max(c.growMs or 1600, 1),
+        peakDegPerSec = math.max(c.peakDegPerSec or 1080, 0),
     }
 end
 
@@ -441,7 +441,18 @@ prototypes.digimon = {
             ExecuteInGameThread(function()
                 if state.stopped then return end
                 if not (newActor and newActor:IsValid()) then
+                    -- actor died mid-grow: normalize whatever the holder has now,
+                    -- then end the sequence as an abort (we own the lock here)
                     state.stopped = true
+                    pcall(function()
+                        local h = ctx.worldCtx
+                        local re = (h and h:IsValid()) and h:TryGetSpawnedOtomo() or nil
+                        if re and re:IsValid() then
+                            pcall(function() re:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
+                            if ctx.unfreeze then pcall(ctx.unfreeze, re) end
+                        end
+                    end)
+                    if ctx.completeAbort then pcall(ctx.completeAbort) end
                     return
                 end
                 local now = os.clock()
@@ -455,9 +466,11 @@ prototypes.digimon = {
                 pcall(function() newActor:SetActorScale3D({ X = s, Y = s, Z = s }) end)
                 if t >= 1.0 then
                     state.stopped = true
+                    state.finished = true
                     pcall(function() newActor:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
                     setYaw(newActor, yawTowardsPlayer(ctx.oldX, ctx.oldY) or state.yaw)
                     if ctx.unfreeze then pcall(ctx.unfreeze, newActor) end
+                    if ctx.completeOk then pcall(ctx.completeOk) end
                 else
                     setYaw(newActor, state.yaw)
                 end

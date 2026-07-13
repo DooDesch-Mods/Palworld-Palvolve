@@ -257,9 +257,10 @@ end
 -- pending = { actor, param, pair, holder, armedAt, key }
 local pending = nil
 -- Global sequence lock: never two evolutions in parallel. A watchdog in check()
--- frees the lock after 30s in case an error path ever leaks it.
+-- aborts a stuck sequence after 30s in case an error path ever leaks the lock.
 local sequenceRunning = false
 local sequenceStartedAt = 0
+local currentAbort = nil
 
 -- Only one own pal can be summoned at a time, so the otomo holder is the
 -- authoritative source (a FindAllOf scan would also hit ghost actors).
@@ -316,13 +317,20 @@ local function performEvolution(p)
 
     -- Success: reveal animations finish on their own (prototypes clean up their
     -- placeholders in onReveal). Abort: cleanup must tear the staging down.
+    -- Prototypes with keepsFrozenUntilDone end the sequence themselves through
+    -- ctx.completeOk/completeAbort once their reveal animation is done.
     local function finishOk()
+        currentAbort = nil
         sequenceRunning = false
     end
     local function finishAbort()
+        currentAbort = nil
         pcall(function() fx.cleanup(ctx) end)
         sequenceRunning = false
     end
+    ctx.completeOk = finishOk
+    ctx.completeAbort = finishAbort
+    currentAbort = finishAbort
 
     if not (actor:IsValid() and param:IsValid() and holder and holder:IsValid()) then
         Log("Evolution aborted: pal/holder no longer valid")
@@ -510,18 +518,29 @@ local function performEvolution(p)
                         local a = nil
                         pcall(function() a = holder:TryGetSpawnedOtomo() end)
                         if not (a and a:IsValid()) then a = newActor end
-                        if a and a:IsValid() then
-                            revealActor(a)
-                            pcall(function() fx.onReveal(ctx, a) end)
-                            if not fx.keepsFrozenUntilDone then
-                                setFrozen(a, false)
-                            end
-                            playFanfare(a)
+                        if not (a and a:IsValid()) then
+                            Log(string.format("EVOLVED (data only): %s -> %s (level %d) - actor missing at reveal; please resummon manually",
+                                pair.from, pair.to, level))
+                            finishAbort()
+                            return
                         end
+                        revealActor(a)
+                        local okReveal = pcall(function() fx.onReveal(ctx, a) end)
+                        playFanfare(a)
                         Log(string.format("EVOLVED: %s -> %s (level %d)%s - respawn with new model OK",
                             pair.from, pair.to, level,
                             nickname ~= "" and (" '" .. nickname .. "'") or ""))
-                        finishOk()
+                        if fx.keepsFrozenUntilDone and okReveal then
+                            -- the prototype ends the sequence via ctx.completeOk/Abort
+                            return
+                        end
+                        setFrozen(a, false)
+                        if okReveal then
+                            finishOk()
+                        else
+                            Log("Reveal staging failed - cleaning up")
+                            finishAbort()
+                        end
                     end)
                 end)
             else
@@ -613,8 +632,12 @@ end
 function Evolution.check()
     if sequenceRunning then
         if (os.clock() - sequenceStartedAt) > 30 then
-            Log("Sequence lock stuck (>30s) - watchdog releasing it")
-            sequenceRunning = false
+            Log("Sequence lock stuck (>30s) - watchdog aborting the sequence")
+            if currentAbort then
+                pcall(currentAbort)
+            else
+                sequenceRunning = false
+            end
         else
             Log("An evolution is already running - please wait")
             return
