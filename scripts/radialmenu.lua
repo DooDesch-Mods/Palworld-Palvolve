@@ -627,6 +627,14 @@ function RadialMenu.init(evolutionApi)
             post = suppressHandler,
         },
         {
+            -- the free-cursor wheel (submenu after reopen) drives its
+            -- selection through OnMouseMove -> SetSelectedIndexForce, not
+            -- through the Update natives of the held wheel
+            path = RADIAL_NATIVE .. ":SetSelectedIndexForce",
+            fn = noopPre,
+            post = suppressHandler,
+        },
+        {
             path = RADIAL_NATIVE .. ":UpdateSelectedIndex_ForPad",
             fn = noopPre,
             post = suppressHandler,
