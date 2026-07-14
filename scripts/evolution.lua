@@ -378,15 +378,20 @@ local function performEvolution(p)
         freeze = function(a) setFrozen(a, true) end,
         fx = {},
     }
-    -- element staging: dissolve/peak use the old form's element, the reveal
-    -- uses the target's - for adaptations the ADAPTED element (Penking Lux
-    -- reveals electric, not its water primary). The fx layer spawns the
-    -- matching vanilla element effects; nil = plain look.
-    ctx.elemFrom = Elements.primary(pair.from, holder)
-    ctx.elemTo = pair.stone == "adaptation" and Elements.adaptationElement(pair, holder)
-        or Elements.primary(pair.to, holder)
-    ctx.colorFrom = Elements.colorFor(ctx.elemFrom)
-    ctx.colorTo = Elements.colorFor(ctx.elemTo)
+    -- element staging: dissolve/peak cycle through ALL of the old form's
+    -- elements, the reveal uses the target's - for adaptations only the
+    -- ADAPTED element (Penking Lux reveals electric, not its water
+    -- primary). The fx layer spawns the matching vanilla element effects;
+    -- empty lists = plain look.
+    ctx.elemsFrom = Elements.of(pair.from, holder) or {}
+    if pair.stone == "adaptation" then
+        local adapted = Elements.adaptationElement(pair, holder)
+        ctx.elemsTo = adapted and { adapted } or (Elements.of(pair.to, holder) or {})
+    else
+        ctx.elemsTo = Elements.of(pair.to, holder) or {}
+    end
+    ctx.colorFrom = Elements.colorFor(ctx.elemsFrom[1])
+    ctx.colorTo = Elements.colorFor(ctx.elemsTo[1])
 
     -- Watchdog budget for this run: dissolve + teardown strategies + pump
     -- timeout + landing cap + reveal, plus the fx-driven post-reveal phase

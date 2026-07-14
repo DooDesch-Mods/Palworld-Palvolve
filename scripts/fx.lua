@@ -77,17 +77,26 @@ local ELEMENT_BURSTS = {
 
 -- Hit effects stream in with combat and are usually NOT resident during a
 -- calm evolution - load them once at sequence start so the bursts never
--- hitch mid-animation.
+-- hitch mid-animation. Takes element-name lists.
 local function preloadBursts(...)
-    for _, elem in ipairs({ ... }) do
-        local path = elem and ELEMENT_BURSTS[elem]
-        if path then
-            pcall(function()
-                local ns = StaticFindObject(path)
-                if not (ns and ns:IsValid()) then LoadAsset(path) end
-            end)
+    for _, group in ipairs({ ... }) do
+        for _, elem in ipairs(group or {}) do
+            local path = ELEMENT_BURSTS[elem]
+            if path then
+                pcall(function()
+                    local ns = StaticFindObject(path)
+                    if not (ns and ns:IsValid()) then LoadAsset(path) end
+                end)
+            end
         end
     end
+end
+
+-- Cycles through a form's elements so dual-element pals burst in BOTH of
+-- their elements alternately.
+local function elemAt(elems, i)
+    if not (elems and #elems > 0) then return nil end
+    return elems[((i - 1) % #elems) + 1]
 end
 
 local function spawnBurst(worldCtx, x, y, z, elem)
@@ -149,7 +158,7 @@ local M = {
 
     onDissolve = function(ctx)
         local c = digimonCfg()
-        preloadBursts(ctx.elemFrom, ctx.elemTo)
+        preloadBursts(ctx.elemsFrom, ctx.elemsTo)
         local faceYaw = yawTowardsPlayer(ctx.oldX, ctx.oldY) or ctx.oldYaw or 0
         ctx.fx.faceYaw = faceYaw
         setYaw(ctx.actor, faceYaw)
@@ -204,8 +213,10 @@ local M = {
                 local interval = 0.8 - 0.55 * progress
                 if (now - state.lastBurst) >= interval then
                     state.lastBurst = now
+                    state.burstNo = (state.burstNo or 0) + 1
                     spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ)
-                    spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ, ctx.elemFrom)
+                    spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ,
+                        elemAt(ctx.elemsFrom, state.burstNo))
                 end
                 if t >= totalS then state.stopped = true end
             end)
@@ -226,7 +237,8 @@ local M = {
                 i = i + 1
                 local zOff = (i % 3) * 60
                 spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ + zOff)
-                spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ + zOff, ctx.elemFrom)
+                spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ + zOff,
+                    elemAt(ctx.elemsFrom, i))
             end)
             return stopped
         end)
@@ -245,14 +257,14 @@ local M = {
     onReveal = function(ctx, newActor)
         if ctx.fx.stopPeak then ctx.fx.stopPeak() end
         ctx.fx.revealActor = newActor
-        -- explosion finale: simultaneous bursts around the spot, in the
-        -- TARGET form's element
+        -- explosion finale: simultaneous bursts around the spot in the
+        -- TARGET form's element(s) - dual-element targets alternate
         spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ)
-        spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ, ctx.elemTo)
-        spawnBurst(ctx.worldCtx, ctx.oldX + 80, ctx.oldY, ctx.oldZ + 40, ctx.elemTo)
-        spawnBurst(ctx.worldCtx, ctx.oldX - 80, ctx.oldY, ctx.oldZ + 40, ctx.elemTo)
-        spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY + 80, ctx.oldZ + 100, ctx.elemTo)
-        spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY - 80, ctx.oldZ + 100, ctx.elemTo)
+        spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ, elemAt(ctx.elemsTo, 1))
+        spawnBurst(ctx.worldCtx, ctx.oldX + 80, ctx.oldY, ctx.oldZ + 40, elemAt(ctx.elemsTo, 2))
+        spawnBurst(ctx.worldCtx, ctx.oldX - 80, ctx.oldY, ctx.oldZ + 40, elemAt(ctx.elemsTo, 3))
+        spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY + 80, ctx.oldZ + 100, elemAt(ctx.elemsTo, 4))
+        spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY - 80, ctx.oldZ + 100, elemAt(ctx.elemsTo, 5))
         playEffect(newActor, 2)
 
         -- One continuous driver from reveal to the end of the finale hold:
