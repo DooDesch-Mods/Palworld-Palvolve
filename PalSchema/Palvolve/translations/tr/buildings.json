@@ -1,0 +1,14 @@
+{
+    "DT_MapObjectNameText": {
+        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "Element Çıkarıcı"
+    },
+    "DT_BuildObjectDescText": {
+        "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "Beceri Meyvelerini ve element malzemelerini saf özlere ayırır, Evrim ve Adaptasyon Taşları döver."
+    },
+    "DT_TechnologyNameText": {
+        "NAME_RECIPE_Palvolve_ElementExtractor": "Element Çıkarıcı"
+    },
+    "DT_TechnologyDescText": {
+        "DESC_RECIPE_Palvolve_ElementExtractor": "Element Çıkarıcı'nın kilidini açar: öz çıkarımı, Evrim Taşları ve Adaptasyon Taşları için merkez."
+    }
+}

@@ -850,4 +850,40 @@ function Config.baseFormOf(characterId)
     return baseFormCache[characterId]
 end
 
+-- Optional user overlay: the configurator at palvolve.doodesch.de generates
+-- a config_user.lua next to this file. It replaces the pair map wholesale
+-- and merges a whitelist of globals. Mod updates overwrite config.lua but
+-- never the user file.
+local okUser, user = pcall(require, "config_user")
+if okUser and type(user) == "table" then
+    if type(user.map) == "table" then
+        local cleaned = {}
+        for _, p in ipairs(user.map) do
+            if type(p) == "table" and type(p.from) == "string" and type(p.to) == "string" then
+                p.category = p.category or "evolution"
+                p.minLevel = tonumber(p.minLevel) or 1
+                p.stone = p.stone or (p.category == "adaptation" and "adaptation" or "evolution")
+                if p.enabled == nil then p.enabled = true end
+                table.insert(cleaned, p)
+            end
+        end
+        if #cleaned > 0 then
+            Config.map = cleaned
+            baseFormCache = nil
+        end
+    end
+    if type(user.eggFilter) == "table" and user.eggFilter.enabled ~= nil then
+        Config.eggFilter.enabled = user.eggFilter.enabled == true
+    end
+    if user.requireStone ~= nil then
+        Config.requireStone = user.requireStone == true
+    end
+    if type(user.costs) == "table" then
+        for _, k in ipairs({ "enabled", "slots", "minRate", "countScale", "maxCount" }) do
+            if user.costs[k] ~= nil then Config.costs[k] = user.costs[k] end
+        end
+    end
+    print(string.format("[Palvolve] user config loaded (%d pairs)\n", #Config.map))
+end
+
 return Config

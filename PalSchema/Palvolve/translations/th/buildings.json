@@ -1,0 +1,14 @@
+{
+    "DT_MapObjectNameText": {
+        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "เครื่องสกัดธาตุ"
+    },
+    "DT_BuildObjectDescText": {
+        "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "ย่อยผลไม้สกิลและวัตถุดิบธาตุให้เป็นแก่นแท้บริสุทธิ์ แล้วหลอมหินวิวัฒนาการและหินปรับตัว"
+    },
+    "DT_TechnologyNameText": {
+        "NAME_RECIPE_Palvolve_ElementExtractor": "เครื่องสกัดธาตุ"
+    },
+    "DT_TechnologyDescText": {
+        "DESC_RECIPE_Palvolve_ElementExtractor": "ปลดล็อกเครื่องสกัดธาตุ ศูนย์กลางของการสกัดแก่นแท้ หินวิวัฒนาการ และหินปรับตัว"
+    }
+}

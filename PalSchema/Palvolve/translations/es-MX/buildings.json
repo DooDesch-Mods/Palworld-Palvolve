@@ -1,0 +1,14 @@
+{
+    "DT_MapObjectNameText": {
+        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "Extractor elemental"
+    },
+    "DT_BuildObjectDescText": {
+        "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "Descompone frutas técnicas y materiales elementales en esencias puras, y forja piedras evolutivas y piedras de adaptación."
+    },
+    "DT_TechnologyNameText": {
+        "NAME_RECIPE_Palvolve_ElementExtractor": "Extractor elemental"
+    },
+    "DT_TechnologyDescText": {
+        "DESC_RECIPE_Palvolve_ElementExtractor": "Desbloquea el extractor elemental: el centro de extracción de esencias, piedras evolutivas y piedras de adaptación."
+    }
+}

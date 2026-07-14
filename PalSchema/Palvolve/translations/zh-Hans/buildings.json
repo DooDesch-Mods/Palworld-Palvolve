@@ -1,0 +1,14 @@
+{
+    "DT_MapObjectNameText": {
+        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "元素提取器"
+    },
+    "DT_BuildObjectDescText": {
+        "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "将技能果实和属性素材分解为纯净精华，并锻造进化石与适应石。"
+    },
+    "DT_TechnologyNameText": {
+        "NAME_RECIPE_Palvolve_ElementExtractor": "元素提取器"
+    },
+    "DT_TechnologyDescText": {
+        "DESC_RECIPE_Palvolve_ElementExtractor": "解锁元素提取器——用于精华提取、进化石与适应石制作的核心设备。"
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "DT_MapObjectNameText": {
+        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "Máy Chiết Nguyên tố"
+    },
+    "DT_BuildObjectDescText": {
+        "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "Phân tách Trái Kỹ năng và nguyên liệu nguyên tố thành tinh chất tinh khiết, rồi rèn Đá Tiến hóa và Đá Thích nghi."
+    },
+    "DT_TechnologyNameText": {
+        "NAME_RECIPE_Palvolve_ElementExtractor": "Máy Chiết Nguyên tố"
+    },
+    "DT_TechnologyDescText": {
+        "DESC_RECIPE_Palvolve_ElementExtractor": "Mở khóa Máy Chiết Nguyên tố, nơi chiết tinh chất, Đá Tiến hóa và Đá Thích nghi."
+    }
+}

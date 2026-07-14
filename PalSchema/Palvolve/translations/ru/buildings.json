@@ -1,0 +1,14 @@
+{
+    "DT_MapObjectNameText": {
+        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "Стихийный экстрактор"
+    },
+    "DT_BuildObjectDescText": {
+        "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "Расщепляет плоды мастерства и стихийные материалы на чистые эссенции и куёт Камни эволюции и Камни адаптации."
+    },
+    "DT_TechnologyNameText": {
+        "NAME_RECIPE_Palvolve_ElementExtractor": "Стихийный экстрактор"
+    },
+    "DT_TechnologyDescText": {
+        "DESC_RECIPE_Palvolve_ElementExtractor": "Открывает Стихийный экстрактор — источник добычи эссенций, Камней эволюции и Камней адаптации."
+    }
+}
