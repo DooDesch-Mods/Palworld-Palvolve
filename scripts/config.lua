@@ -3,16 +3,14 @@
 -- "adaptation" (element variant). stone: "evolution" | "adaptation" - item costs
 -- only apply while requireStone is true.
 --
--- Map basis: DT_PalMonsterParameter (buildid 24088745), verified row names -
--- see Workspace/docs/Palvolve/RESEARCH.md. findPair returns the FIRST enabled
--- match: evolutions are therefore listed BEFORE adaptations of the same base
--- (e.g. Penguin). BOSS_/GYM_/RAID_/_Oilrig/_Tower ids must NEVER be targets
--- (boss/spawn logic is attached to them).
+-- Map basis: DT_PalMonsterParameter row names (buildid 24088745). findPair
+-- returns the FIRST enabled match: evolutions are therefore listed BEFORE
+-- adaptations of the same base (e.g. Penguin). BOSS_/GYM_/RAID_/_Oilrig/
+-- _Tower ids must NEVER be targets (boss/spawn logic is attached to them).
 local Config = {
-    -- Dev mode: loads the probe suite (F3/F5-F10/INSERT cheats) and enables
-    -- the [diag] sequence telemetry in the log. Set to false BEFORE release
-    -- AND do not package probes.lua.
-    devMode = true,
+    -- Dev mode: loads the probe suite (F3/F5-F10/INSERT cheats, requires
+    -- probes.lua) and enables the [diag] sequence telemetry in the log.
+    devMode = false,
 
     -- Timings for the evolution staging
     -- (spin-up -> shrink -> peak hold -> grow -> finale hold)
@@ -187,7 +185,7 @@ local Config = {
         stone = "evolution",
         enabled = false
     }, -- ==================== Element adaptations (base -> variant) ====================
-    -- Default threshold 30; every pair mechanically verified (both rows exist).
+    -- Default threshold 30; both DataTable rows exist for every pair.
     {
         from = "AmaterasuWolf",
         to = "AmaterasuWolf_Dark",

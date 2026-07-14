@@ -1,10 +1,9 @@
 -- Palvolve core: eligibility, two-stage confirm, transactional species swap,
 -- snapshots/rollback, IV bonus and the staged evolution sequence.
--- API facts: Workspace/docs/Palvolve/RESEARCH.md. Sequence design: direct manager
--- teardown first (the holder recall animates a mesh clone that ignores a hidden
--- actor and is therefore only a fallback), species swap while despawned,
--- two-phase activation pump with class-verified respawn, staged reveal driven
--- by the FX staging (fx.lua).
+-- Sequence design: direct manager teardown first (the holder recall animates
+-- a mesh clone that ignores a hidden actor and is therefore only a fallback),
+-- species swap while despawned, two-phase activation pump with class-verified
+-- respawn, staged reveal driven by the FX staging (fx.lua).
 
 local Config = require("config")
 local FX = require("fx")
@@ -486,16 +485,16 @@ local function performEvolution(p)
             key, tostring(oldX), tostring(oldY), tostring(oldZ), oldYaw or 0, oldHalf or 0, pz))
     end
 
-    -- Phase 1: freeze + dissolve staging (white glow in place; the actor is
+    -- Freeze + dissolve staging (white glow in place; the actor is
     -- hard-hidden right before the teardown so no recall visuals ever show)
     setFrozen(actor, true)
     pcall(function() actor:SetActorEnableCollision(false) end)
     pcall(function() fx.onDissolve(ctx) end)
     playFanfare(actor)
 
-    -- Phase 2: teardown with per-strategy despawn verification. The direct
-    -- manager teardown destroys the actor without the holder recall action
-    -- (whose ball visuals run on a mesh clone that ignores a hidden actor).
+    -- Teardown with per-strategy despawn verification. The direct manager
+    -- teardown destroys the actor without the holder recall action (whose
+    -- ball visuals run on a mesh clone that ignores a hidden actor).
     local recallStrategies = {
         { name = "DirectTeardown", fn = function()
             mgr:DespawnCharacterByHandle(handle, nil)
@@ -551,7 +550,7 @@ local function performEvolution(p)
     end
 
     proceedAfterDespawn = function()
-        -- Phase 3: swap in the despawned state (safest write moment) + verify
+        -- Swap in the despawned state (safest write moment) + verify
         if not param:IsValid() then
             Log("Aborted: parameter invalid after despawn")
             refundCost("parameter invalid")
@@ -611,7 +610,7 @@ local function performEvolution(p)
             Log(string.format("Holder state cleanup ok=%s reselect ok=%s", tostring(okInact), tostring(okSel)))
         end
 
-        -- Phase 4+5: activation pump with staged reveal
+        -- Activation pump with staged reveal
         local expectedClass = "BP_" .. pair.to .. "_C"
         local function isRespawned()
             local a = nil
@@ -805,7 +804,7 @@ local function performEvolution(p)
                 if (now - lastNudge) >= 1.5 then
                     lastNudge = now
                     nudgeCount = nudgeCount + 1
-                    -- Two-phase respawn (proven via return-value telemetry):
+                    -- Two-phase respawn:
                     -- 1. SpawnOtomoByLoad CREATES the fresh actor - it sits in
                     --    the holders ReservePalLocationList, invisible to
                     --    TryGetSpawnedOtomo, so no spawn is "seen" yet.

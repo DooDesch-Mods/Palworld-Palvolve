@@ -1,6 +1,6 @@
 -- Palvolve radial menu integration: adds a real "Evolve" entry to the hold-4
 -- player action wheel and opens an option submenu in the same wheel, the way
--- the vanilla emote submenu works (mapped from the in-world dumps 2026-07-13).
+-- the vanilla emote submenu works.
 --
 -- How the vanilla wheel works: WBP_PlayerRadialMenu builds the pal action
 -- menu in CreatePlayerActionMenu. The generic WBP_CommonRadialMenuBase
@@ -14,10 +14,9 @@
 -- emote flow swaps the content and rebinds the decide delegates
 -- (Bind/UnbindPlayerActionMenuEvent) instead of opening another widget.
 --
--- UE4SS constraints (verified against the shipped v3.0.1 source): hooks on
--- /Game/ BP functions are POST-hooks (body already ran, parameter writes
--- are dead), so the wheel cannot be grown before vanilla lays out its
--- labels. The injection therefore runs after the build: capture the label
+-- UE4SS constraints (v3.0.1): hooks on /Game/ BP functions are POST-hooks
+-- (body already ran, parameter writes are dead), so the wheel cannot be
+-- grown before vanilla lays out its labels. The injection therefore runs after the build: capture the label
 -- widgets, grow via a direct wheel:RecalcMenuNum(vanilla + 1) call (which
 -- clears the canvas), then re-register every vanilla label plus our entry
 -- at the last index.

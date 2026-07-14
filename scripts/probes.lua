@@ -1,5 +1,4 @@
--- Palvolve dev probes (devMode only, never packaged for release).
--- Live-verifies the open items from Workspace/docs/Palvolve/RESEARCH.md.
+-- Palvolve dev probes (devMode only, not part of the shipped packages).
 -- Markers: [probe-speciesswap] [probe-vfx] [probe-overlay] [probe-ake]
 --          [probe-freeze] [probe-giveexp] [probe-testkit] [probe-revert]
 --
@@ -17,7 +16,7 @@ local function Log(msg)
     print(string.format("[Palvolve] %s\n", msg))
 end
 
--- UE4SS keybinds fire twice (~35ms apart, observed live) -> debounce.
+-- UE4SS keybinds fire twice (~35ms apart) -> debounce.
 local lastFire = {}
 local function Debounced(name, fn)
     return function()
@@ -28,11 +27,10 @@ local function Debounced(name, fn)
     end
 end
 
--- The former load-time research hooks (level-up delegate, PalExpDatabase)
--- are gone: their questions are answered in RESEARCH.md, and the retry
--- loop could register the level-up script hook twice when UE4SS had
--- already queued a deferred registration internally - two script hooks
--- on one BP function are a crash risk when the function fires.
+-- No load-time hooks live here: a registration retry loop can register a
+-- script hook twice when UE4SS has already queued a deferred registration
+-- internally, and stacked script hooks on one BP function are a crash
+-- risk when the function fires.
 
 -- ---------------------------------------------------------------- helpers
 
@@ -82,8 +80,8 @@ RegisterKeyBind(Key.F5, Debounced("overlay", function()
 end))
 
 -- F6: cycle through the game's own visual effects - each press plays the next.
--- Finding: 1=CaptureEmissive glows white and makes the pal VANISH (capture look)
--- = perfect phase 1 of the evolution; 2=SpawnFromBallEmissive is the appear side.
+-- 1=CaptureEmissive glows white and makes the pal VANISH (the dissolve side);
+-- 2=SpawnFromBallEmissive is the appear side.
 local VFX_IDS = {
     { id = 1,  name = "CaptureEmissive (glow + vanish)" },
     { id = 2,  name = "SpawnFromBallEmissive (appear with glow)" },
@@ -111,7 +109,7 @@ end))
 -- F7: morph the summoned own pal through FX test bases (test world ONLY!)
 -- Each press moves to the next species; resummon afterwards so the model
 -- rebuilds. The list covers diverse element transitions for the staged
--- FX colors (phase 1 = old element, phase 2 = target element).
+-- FX colors (dissolve = old element, reveal = target element).
 local MORPH_CYCLE = {
     { id = "Penguin",        note = "Water/Ice evolution -> Penking" },
     { id = "AmaterasuWolf",  note = "Fire -> Dark adaptation" },
@@ -336,9 +334,9 @@ RegisterKeyBind(Key.F10, Debounced("giveexp", function()
             local player = FindFirstOf("PalPlayerCharacter")
             if not player or not player:IsValid() then Log("[probe-giveexp] no player") return end
             local util = StaticFindObject("/Script/Pal.Default__PalUtility")
-            -- GiveExpToAroundPlayerCharacter only hits PLAYERS (verified live) ->
+            -- GiveExpToAroundPlayerCharacter only hits PLAYERS ->
             -- GiveExpToAroundCharacter with CharacterClass=PalCharacter for pals
-            -- (dump :64555: WorldContext, Center, Radius, Exp, CharacterClass, bCallDelegate)
+            -- (WorldContext, Center, Radius, Exp, CharacterClass, bCallDelegate)
             local center = player:K2_GetActorLocation()
             local palClass = StaticFindObject("/Script/Pal.PalCharacter")
             util:GiveExpToAroundCharacter(player, center, 3000.0, 50000.0, palClass, true)

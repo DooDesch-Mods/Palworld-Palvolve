@@ -46,10 +46,10 @@ local function glowMaterial()
 end
 
 -- Vanilla "return to sphere" light burst (always resident, the game uses
--- it for every recall). NS_Return exposes NO color parameter (verified via
--- its FName table: only User.Rate/User.Scale) and M_Glow has no vector
--- parameter either - tinting is impossible, so element looks come from
--- the dedicated vanilla element effects below instead.
+-- it for every recall). NS_Return exposes no color parameter (only
+-- User.Rate/User.Scale) and M_Glow has no vector parameter either -
+-- tinting is impossible, so element looks come from the dedicated vanilla
+-- element effects below instead.
 local function spawnLight(worldCtx, x, y, z)
     pcall(function()
         local ns = StaticFindObject("/Game/Pal/Effect/Common/Return/NS_Return.NS_Return")
