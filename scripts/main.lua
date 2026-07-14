@@ -42,6 +42,14 @@ if not okEgg then
     Log("egg filter failed to load: " .. tostring(errEgg))
 end
 
+-- Element Extractor visual (teal tint on the reused medicine bench)
+local okBench, errBench = pcall(function()
+    require("benchvisual").init()
+end)
+if not okBench then
+    Log("bench visual failed to load: " .. tostring(errBench))
+end
+
 -- Dev probes (devMode only; set devMode=false before release and do not package probes.lua)
 local okCfg, cfg = pcall(require, "config")
 if okCfg and cfg.devMode then

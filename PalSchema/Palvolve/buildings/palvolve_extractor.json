@@ -2,9 +2,9 @@
     "Palvolve_ElementExtractor": {
         "Name": "Element Extractor",
         "Description": "Breaks skill fruits and elemental materials down into pure essences and forges Evolution and Adaptation Stones.",
-        "BlueprintClassName": "BP_BuildObject_WorkBench_SkillCard",
-        "BlueprintClassSoft": "/Game/Pal/Blueprint/MapObject/BuildObject/BP_BuildObject_WorkBench_SkillCard.BP_BuildObject_WorkBench_SkillCard_C",
-        "IconTexture": "/Game/Pal/Texture/BuildObject/PNG/T_icon_buildObject_WorkBench.T_icon_buildObject_WorkBench",
+        "BlueprintClassName": "BP_BuildObject_MedicineFacility_01",
+        "BlueprintClassSoft": "/Game/Pal/Blueprint/MapObject/BuildObject/BP_BuildObject_MedicineFacility_01.BP_BuildObject_MedicineFacility_01_C",
+        "IconTexture": "$resource/Palvolve/extractor_bench",
         "Hp": 1000,
         "Defense": 2,
         "MaterialType": "Wood",
