@@ -692,6 +692,27 @@
             "WorkAmount": 200,
             "Material1_Id": "Bone",
             "Material1_Count": 10
+        },
+        "Palvolve_Extract_Normal": {
+            "Product_Id": "Palvolve_Essence_Normal",
+            "Product_Count": 1,
+            "WorkAmount": 200,
+            "Material1_Id": "Wool",
+            "Material1_Count": 10
+        },
+        "Palvolve_Extract_Leaf": {
+            "Product_Id": "Palvolve_Essence_Leaf",
+            "Product_Count": 1,
+            "WorkAmount": 200,
+            "Material1_Id": "Berries",
+            "Material1_Count": 10
+        },
+        "Palvolve_Extract_Dragon": {
+            "Product_Id": "Palvolve_Essence_Dragon",
+            "Product_Count": 1,
+            "WorkAmount": 200,
+            "Material1_Id": "Horn",
+            "Material1_Count": 10
         }
     }
 }

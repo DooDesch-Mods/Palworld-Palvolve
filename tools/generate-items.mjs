@@ -32,10 +32,12 @@ const DE_ESSENCE = {
     Earth: "Bodenessenz", Dark: "Dunkelessenz", Dragon: "Drachenessenz",
 };
 
-// 10x organ/gland -> 1 essence where a matching vanilla drop exists
+// 10x organ/gland -> 1 essence; elements without a gland use the closest
+// fitting vanilla drop (Wool/Berries/Horn)
 const ORGANS = {
     Fire: "FireOrgan", Electricity: "ElectricOrgan", Ice: "IceOrgan",
     Water: "PalFluid", Dark: "Venom", Earth: "Bone",
+    Normal: "Wool", Leaf: "Berries", Dragon: "Horn",
 };
 
 const essenceId = (el) => `Palvolve_Essence_${el}`;
@@ -81,10 +83,8 @@ const stoneId = (el) => `Palvolve_AdaptationStone_${el}`;
                 WorkAmount: 300.0,
                 Material1_Id: "Palvolve_EvolutionStone",
                 Material1_Count: 1,
-                Material2_Id: "MeteorDrop",
-                Material2_Count: 3,
-                Material3_Id: essenceId(el),
-                Material3_Count: 1,
+                Material2_Id: essenceId(el),
+                Material2_Count: 1,
             },
         };
     });
@@ -106,7 +106,7 @@ const stoneId = (el) => `Palvolve_AdaptationStone_${el}`;
             Material1_Count: 1,
         };
     }
-    // organ extraction where a matching vanilla drop exists
+    // material extraction: 10x vanilla drop per element
     for (const [el, organ] of Object.entries(ORGANS)) {
         rows[`Palvolve_Extract_${el}`] = {
             Product_Id: essenceId(el),

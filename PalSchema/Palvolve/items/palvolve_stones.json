@@ -17,8 +17,10 @@
             "WorkAmount": 300.0,
             "Material1_Id": "Pal_crystal_S",
             "Material1_Count": 20,
-            "Material2_Id": "PalSphere",
-            "Material2_Count": 5
+            "Material2_Id": "MeteorDrop",
+            "Material2_Count": 3,
+            "Material3_Id": "PalFluid",
+            "Material3_Count": 5
         }
     },
     "Palvolve_AdaptionStone": {

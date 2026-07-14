@@ -17,10 +17,8 @@
             "WorkAmount": 300,
             "Material1_Id": "Palvolve_EvolutionStone",
             "Material1_Count": 1,
-            "Material2_Id": "MeteorDrop",
-            "Material2_Count": 3,
-            "Material3_Id": "Palvolve_Essence_Normal",
-            "Material3_Count": 1
+            "Material2_Id": "Palvolve_Essence_Normal",
+            "Material2_Count": 1
         }
     },
     "Palvolve_AdaptationStone_Fire": {
@@ -41,10 +39,8 @@
             "WorkAmount": 300,
             "Material1_Id": "Palvolve_EvolutionStone",
             "Material1_Count": 1,
-            "Material2_Id": "MeteorDrop",
-            "Material2_Count": 3,
-            "Material3_Id": "Palvolve_Essence_Fire",
-            "Material3_Count": 1
+            "Material2_Id": "Palvolve_Essence_Fire",
+            "Material2_Count": 1
         }
     },
     "Palvolve_AdaptationStone_Water": {
@@ -65,10 +61,8 @@
             "WorkAmount": 300,
             "Material1_Id": "Palvolve_EvolutionStone",
             "Material1_Count": 1,
-            "Material2_Id": "MeteorDrop",
-            "Material2_Count": 3,
-            "Material3_Id": "Palvolve_Essence_Water",
-            "Material3_Count": 1
+            "Material2_Id": "Palvolve_Essence_Water",
+            "Material2_Count": 1
         }
     },
     "Palvolve_AdaptationStone_Leaf": {
@@ -89,10 +83,8 @@
             "WorkAmount": 300,
             "Material1_Id": "Palvolve_EvolutionStone",
             "Material1_Count": 1,
-            "Material2_Id": "MeteorDrop",
-            "Material2_Count": 3,
-            "Material3_Id": "Palvolve_Essence_Leaf",
-            "Material3_Count": 1
+            "Material2_Id": "Palvolve_Essence_Leaf",
+            "Material2_Count": 1
         }
     },
     "Palvolve_AdaptationStone_Electricity": {
@@ -113,10 +105,8 @@
             "WorkAmount": 300,
             "Material1_Id": "Palvolve_EvolutionStone",
             "Material1_Count": 1,
-            "Material2_Id": "MeteorDrop",
-            "Material2_Count": 3,
-            "Material3_Id": "Palvolve_Essence_Electricity",
-            "Material3_Count": 1
+            "Material2_Id": "Palvolve_Essence_Electricity",
+            "Material2_Count": 1
         }
     },
     "Palvolve_AdaptationStone_Ice": {
@@ -137,10 +127,8 @@
             "WorkAmount": 300,
             "Material1_Id": "Palvolve_EvolutionStone",
             "Material1_Count": 1,
-            "Material2_Id": "MeteorDrop",
-            "Material2_Count": 3,
-            "Material3_Id": "Palvolve_Essence_Ice",
-            "Material3_Count": 1
+            "Material2_Id": "Palvolve_Essence_Ice",
+            "Material2_Count": 1
         }
     },
     "Palvolve_AdaptationStone_Earth": {
@@ -161,10 +149,8 @@
             "WorkAmount": 300,
             "Material1_Id": "Palvolve_EvolutionStone",
             "Material1_Count": 1,
-            "Material2_Id": "MeteorDrop",
-            "Material2_Count": 3,
-            "Material3_Id": "Palvolve_Essence_Earth",
-            "Material3_Count": 1
+            "Material2_Id": "Palvolve_Essence_Earth",
+            "Material2_Count": 1
         }
     },
     "Palvolve_AdaptationStone_Dark": {
@@ -185,10 +171,8 @@
             "WorkAmount": 300,
             "Material1_Id": "Palvolve_EvolutionStone",
             "Material1_Count": 1,
-            "Material2_Id": "MeteorDrop",
-            "Material2_Count": 3,
-            "Material3_Id": "Palvolve_Essence_Dark",
-            "Material3_Count": 1
+            "Material2_Id": "Palvolve_Essence_Dark",
+            "Material2_Count": 1
         }
     },
     "Palvolve_AdaptationStone_Dragon": {
@@ -209,10 +193,8 @@
             "WorkAmount": 300,
             "Material1_Id": "Palvolve_EvolutionStone",
             "Material1_Count": 1,
-            "Material2_Id": "MeteorDrop",
-            "Material2_Count": 3,
-            "Material3_Id": "Palvolve_Essence_Dragon",
-            "Material3_Count": 1
+            "Material2_Id": "Palvolve_Essence_Dragon",
+            "Material2_Count": 1
         }
     }
 }
