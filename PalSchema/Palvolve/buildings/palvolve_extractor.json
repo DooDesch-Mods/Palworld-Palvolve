@@ -12,8 +12,8 @@
         "bBelongToBaseCamp": true,
         "DeteriorationDamage": 0.08,
         "BuildingData": {
-            "TypeA": "Product",
-            "TypeB": "Prod_Craft",
+            "TypeA": "EPalBuildObjectTypeA::Product",
+            "TypeB": "EPalBuildObjectTypeB::Prod_Craft",
             "Rank": 1,
             "RequiredBuildWorkAmount": 800.0,
             "Material1_Id": "Wood",

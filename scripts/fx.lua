@@ -45,44 +45,65 @@ local function glowMaterial()
     return nil
 end
 
--- Element-tinted glow: a dynamic instance of M_Glow with the color pushed
--- into the common vector-parameter candidates. Falls back to the plain
--- (white) material when the MID cannot be created or coloring is disabled.
-local function glowMaterialTinted(worldCtx, color)
-    local base = glowMaterial()
-    if not base then return nil end
-    if not (color and Config.digimon and Config.digimon.elementColors) then return base end
-    local mid = nil
-    pcall(function()
-        local lib = StaticFindObject("/Script/Engine.Default__KismetMaterialLibrary")
-        if lib and lib:IsValid() then
-            mid = lib:CreateDynamicMaterialInstance(worldCtx, base, FName("None"), 0)
-        end
-    end)
-    if not (mid and mid:IsValid()) then return base end
-    for _, name in ipairs({ "Color", "EmissiveColor", "GlowColor", "Tint", "BaseColor" }) do
-        pcall(function() mid:SetVectorParameterValue(FName(name), color) end)
-    end
-    return mid
-end
-
--- Vanilla "return to sphere" light burst (verified loaded asset). The
--- optional element color is applied through the common user-parameter
--- candidates; systems without a matching parameter simply stay uncolored.
-local function spawnLight(worldCtx, x, y, z, color)
+-- Vanilla "return to sphere" light burst (always resident, the game uses
+-- it for every recall). NS_Return exposes NO color parameter (verified via
+-- its FName table: only User.Rate/User.Scale) and M_Glow has no vector
+-- parameter either - tinting is impossible, so element looks come from
+-- the dedicated vanilla element effects below instead.
+local function spawnLight(worldCtx, x, y, z)
     pcall(function()
         local ns = StaticFindObject("/Game/Pal/Effect/Common/Return/NS_Return.NS_Return")
         local lib = StaticFindObject("/Script/Niagara.Default__NiagaraFunctionLibrary")
         if ns and ns:IsValid() and lib and lib:IsValid() then
-            local comp = lib:SpawnSystemAtLocation(worldCtx, ns, { X = x, Y = y, Z = z },
+            lib:SpawnSystemAtLocation(worldCtx, ns, { X = x, Y = y, Z = z },
                 { Pitch = 0, Yaw = 0, Roll = 0 }, { X = 1, Y = 1, Z = 1 }, true, true, 0, false)
-            if color and Config.digimon and Config.digimon.elementColors
-                and comp and comp:IsValid() then
-                for _, name in ipairs({ "Color", "User.Color", "ColorScale" }) do
-                    pcall(function() comp:SetVariableLinearColor(FName(name), color) end)
-                    pcall(function() comp:SetColorParameter(FName(name), color) end)
-                end
-            end
+        end
+    end)
+end
+
+-- Vanilla element hit effects used as element-colored bursts during the
+-- staging; keys match the element names from elements.lua.
+local ELEMENT_BURSTS = {
+    Normal      = "/Game/Pal/Effect/Common/Hit/Hit01/NS_Hit01Max.NS_Hit01Max",
+    Fire        = "/Game/Pal/Effect/Common/Hit/Hit01Fire/NS_Hit01Fire.NS_Hit01Fire",
+    Water       = "/Game/Pal/Effect/Common/Hit/Hit01Water/NS_Hit01Water.NS_Hit01Water",
+    Leaf        = "/Game/Pal/Effect/Common/Hit/Hit01_grass/NS_Hit01_grass.NS_Hit01_grass",
+    Electricity = "/Game/Pal/Effect/Common/Hit/Hit01Thunder/NS_Hit01Thunder_M.NS_Hit01Thunder_M",
+    Ice         = "/Game/Pal/Effect/Common/Hit/Hit01Ice/NS_Hit01Ice.NS_Hit01Ice",
+    Earth       = "/Game/Pal/Effect/Common/Hit/Hit01_earth/NS_Hit01earth.NS_Hit01earth",
+    Dark        = "/Game/Pal/Effect/Common/Hit/Hit01_dark/NS_Hit01dark.NS_Hit01dark",
+    Dragon      = "/Game/Pal/Effect/Common/Hit/Hit01_dragon/NS_Hit01_dragon.NS_Hit01_dragon",
+}
+
+-- Hit effects stream in with combat and are usually NOT resident during a
+-- calm evolution - load them once at sequence start so the bursts never
+-- hitch mid-animation.
+local function preloadBursts(...)
+    for _, elem in ipairs({ ... }) do
+        local path = elem and ELEMENT_BURSTS[elem]
+        if path then
+            pcall(function()
+                local ns = StaticFindObject(path)
+                if not (ns and ns:IsValid()) then LoadAsset(path) end
+            end)
+        end
+    end
+end
+
+local function spawnBurst(worldCtx, x, y, z, elem)
+    if not (Config.digimon and Config.digimon.elementColors) then return end
+    local path = elem and ELEMENT_BURSTS[elem]
+    if not path then return end
+    pcall(function()
+        local ns = StaticFindObject(path)
+        if not (ns and ns:IsValid()) then
+            LoadAsset(path)
+            ns = StaticFindObject(path)
+        end
+        local lib = StaticFindObject("/Script/Niagara.Default__NiagaraFunctionLibrary")
+        if ns and ns:IsValid() and lib and lib:IsValid() then
+            lib:SpawnSystemAtLocation(worldCtx, ns, { X = x, Y = y, Z = z },
+                { Pitch = 0, Yaw = 0, Roll = 0 }, { X = 1, Y = 1, Z = 1 }, true, true, 0, false)
         end
     end)
 end
@@ -128,6 +149,7 @@ local M = {
 
     onDissolve = function(ctx)
         local c = digimonCfg()
+        preloadBursts(ctx.elemFrom, ctx.elemTo)
         local faceYaw = yawTowardsPlayer(ctx.oldX, ctx.oldY) or ctx.oldYaw or 0
         ctx.fx.faceYaw = faceYaw
         setYaw(ctx.actor, faceYaw)
@@ -173,7 +195,7 @@ local M = {
                 -- glitch instead of part of the effect.
                 if not state.glowApplied and t > spinUpS then
                     state.glowApplied = true
-                    local glow = glowMaterialTinted(ctx.worldCtx, ctx.colorFrom)
+                    local glow = glowMaterial()
                     if glow then
                         pcall(function() a:GetMainMesh():SetOverlayMaterial(glow) end)
                     end
@@ -182,7 +204,8 @@ local M = {
                 local interval = 0.8 - 0.55 * progress
                 if (now - state.lastBurst) >= interval then
                     state.lastBurst = now
-                    spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ, ctx.colorFrom)
+                    spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ)
+                    spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ, ctx.elemFrom)
                 end
                 if t >= totalS then state.stopped = true end
             end)
@@ -202,7 +225,8 @@ local M = {
                 if stopped then return end
                 i = i + 1
                 local zOff = (i % 3) * 60
-                spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ + zOff, ctx.colorFrom)
+                spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ + zOff)
+                spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ + zOff, ctx.elemFrom)
             end)
             return stopped
         end)
@@ -221,13 +245,14 @@ local M = {
     onReveal = function(ctx, newActor)
         if ctx.fx.stopPeak then ctx.fx.stopPeak() end
         ctx.fx.revealActor = newActor
-        -- explosion finale: simultaneous bursts around the spot, tinted with
-        -- the TARGET form's element
-        spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ, ctx.colorTo)
-        spawnLight(ctx.worldCtx, ctx.oldX + 80, ctx.oldY, ctx.oldZ + 40, ctx.colorTo)
-        spawnLight(ctx.worldCtx, ctx.oldX - 80, ctx.oldY, ctx.oldZ + 40, ctx.colorTo)
-        spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY + 80, ctx.oldZ + 100, ctx.colorTo)
-        spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY - 80, ctx.oldZ + 100, ctx.colorTo)
+        -- explosion finale: simultaneous bursts around the spot, in the
+        -- TARGET form's element
+        spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ)
+        spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ, ctx.elemTo)
+        spawnBurst(ctx.worldCtx, ctx.oldX + 80, ctx.oldY, ctx.oldZ + 40, ctx.elemTo)
+        spawnBurst(ctx.worldCtx, ctx.oldX - 80, ctx.oldY, ctx.oldZ + 40, ctx.elemTo)
+        spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY + 80, ctx.oldZ + 100, ctx.elemTo)
+        spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY - 80, ctx.oldZ + 100, ctx.elemTo)
         playEffect(newActor, 2)
 
         -- One continuous driver from reveal to the end of the finale hold:

@@ -376,16 +376,17 @@ local function performEvolution(p)
         oldX = oldX, oldY = oldY, oldZ = oldZ, oldYaw = oldYaw, oldHalf = oldHalf,
         unfreeze = function(a) setFrozen(a, false) end,
         freeze = function(a) setFrozen(a, true) end,
-        -- element tints: dissolve/peak use the old form's color, the reveal
-        -- uses the target's - for adaptations the ADAPTED element (Penking
-        -- Lux reveals electric-yellow, not its water primary). nil =
-        -- uncolored, the plain white look.
-        colorFrom = Elements.colorFor(Elements.primary(pair.from, holder)),
-        colorTo = Elements.colorFor(
-            pair.stone == "adaptation" and Elements.adaptationElement(pair, holder)
-            or Elements.primary(pair.to, holder)),
         fx = {},
     }
+    -- element staging: dissolve/peak use the old form's element, the reveal
+    -- uses the target's - for adaptations the ADAPTED element (Penking Lux
+    -- reveals electric, not its water primary). The fx layer spawns the
+    -- matching vanilla element effects; nil = plain look.
+    ctx.elemFrom = Elements.primary(pair.from, holder)
+    ctx.elemTo = pair.stone == "adaptation" and Elements.adaptationElement(pair, holder)
+        or Elements.primary(pair.to, holder)
+    ctx.colorFrom = Elements.colorFor(ctx.elemFrom)
+    ctx.colorTo = Elements.colorFor(ctx.elemTo)
 
     -- Watchdog budget for this run: dissolve + teardown strategies + pump
     -- timeout + landing cap + reveal, plus the fx-driven post-reveal phase
