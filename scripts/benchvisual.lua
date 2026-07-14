@@ -9,6 +9,9 @@ local Config = require("config")
 local BenchVisual = {}
 
 local ROW_ID = "Palvolve_ElementExtractor"
+-- material probe: logs mesh/material names of our bench so the tint can
+-- target real parameter names; flip to false once the tint is verified
+local PROBE = true
 -- teal accent, matches the mod's stone/branding palette
 local TINT = { R = 0.12, G = 0.55, B = 0.60, A = 1.0 }
 -- common tint parameter names across Palworld building materials; setting a
@@ -47,12 +50,16 @@ local function tintActor(actor)
         for i = 1, #meshes do
             local mesh = meshes[i]
             if mesh and mesh:IsValid() then
-                if Config.devMode then
+                if PROBE or Config.devMode then
                     pcall(function()
                         local mats = mesh:GetMaterials()
                         for m = 1, #mats do
-                            Log(string.format("[probe-bench] mesh=%s material[%d]=%s",
-                                mesh:GetFName():ToString(), m, mats[m]:GetFName():ToString()))
+                            local mat = mats[m]
+                            local name = mat and mat:IsValid() and mat:GetFName():ToString() or "nil"
+                            local full = ""
+                            pcall(function() full = mat:GetFullName() end)
+                            Log(string.format("[probe-bench] mesh=%s material[%d]=%s (%s)",
+                                mesh:GetFName():ToString(), m, name, full))
                         end
                     end)
                 end
@@ -73,7 +80,7 @@ local function onBuildObject(actor)
         ExecuteInGameThread(function()
             if isOurBench(actor) then
                 tintActor(actor)
-                if Config.devMode then Log("[probe-bench] tinted Element Extractor instance") end
+                if PROBE or Config.devMode then Log("[probe-bench] tint attempt on Element Extractor instance") end
             end
         end)
     end)

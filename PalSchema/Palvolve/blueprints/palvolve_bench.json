@@ -1,9 +1,18 @@
 {
-    "BP_BuildObject_WorkBench_SkillCard_C": {
+    "BP_BuildObject_MedicineFacility_01_C": {
         "ItemConverterParameter": {
-            "TargetTypesA": ["EPalItemTypeA::Material"],
-            "TargetTypesB": ["EPalItemTypeB::Palvolve_Craft"],
-            "TargetRankMax": 2
+            "TargetTypesA": [
+                "EPalItemTypeA::Food",
+                "EPalItemTypeA::Consume",
+                "EPalItemTypeA::Material"
+            ],
+            "TargetTypesB": [
+                "EPalItemTypeB::Medicine",
+                "EPalItemTypeB::Drug",
+                "EPalItemTypeB::ConsumeGainStatusPoints",
+                "EPalItemTypeB::Palvolve_Craft"
+            ],
+            "TargetRankMax": 3
         }
     }
 }
