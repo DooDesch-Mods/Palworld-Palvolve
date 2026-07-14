@@ -14,6 +14,7 @@
         "BuildingData": {
             "TypeA": "Product",
             "TypeB": "Prod_Craft",
+            "TypeUIDisplay": "Product_Repair",
             "Rank": 1,
             "RequiredBuildWorkAmount": 800.0,
             "Material1_Id": "Wood",
