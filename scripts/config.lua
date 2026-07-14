@@ -72,8 +72,7 @@ local Config = {
         countScale = 4.0, -- count = ceil(avg(min,max) * countScale), clamped
         maxCount = 30,
         fallbackMaterials = {
-            -- species without a drop table row
-            MonochromeMushroom = { { id = "Mushroom", count = 10 } },
+            -- species without a drop table row (none right now)
         },
     },
 
@@ -119,24 +118,10 @@ local Config = {
         stone = "evolution",
         enabled = true
     }, {
-        from = "SnakeGirl",
-        to = "SnakeQueen",
-        category = "evolution",
-        minLevel = 40,
-        stone = "evolution",
-        enabled = true
-    }, {
         from = "MoonChild",
         to = "MoonQueen",
         category = "evolution",
         minLevel = 40,
-        stone = "evolution",
-        enabled = true
-    }, {
-        from = "MonochromeMushroom",
-        to = "MonochromeQueen",
-        category = "evolution",
-        minLevel = 35,
         stone = "evolution",
         enabled = true
     }, {
@@ -149,12 +134,12 @@ local Config = {
     }, -- ==================== Fun chains (across family lines) ====================
     {
         from = "MopKing",
-        to = "Yeti",
+        to = "SmallYeti",
         category = "funchain",
         minLevel = 45,
         stone = "evolution",
         enabled = true
-    }, -- Sweepa -> Wumpo
+    }, -- Sweepa -> Snugloo
     -- Thematic candidates (curation decisions, disabled by default):
     {
         from = "Bastet",
@@ -176,7 +161,7 @@ local Config = {
         category = "funchain",
         minLevel = 30,
         stone = "evolution",
-        enabled = false
+        enabled = true
     }, {
         from = "LeafPrincess",
         to = "LilyQueen",
@@ -297,8 +282,8 @@ local Config = {
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
-        enabled = false
-    }, -- alternative to _Fire
+        enabled = true
+    }, -- Snock Lux, alongside _Fire
     {
         from = "FairyDragon",
         to = "FairyDragon_Water",
@@ -550,8 +535,8 @@ local Config = {
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
-        enabled = false
-    }, -- alternative to _Fire
+        enabled = true
+    }, -- Tanzee Cryst, alongside _Fire
     {
         from = "MushroomDragon",
         to = "MushroomDragon_Dark",
@@ -593,8 +578,16 @@ local Config = {
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
-        enabled = false
-    }, -- shadowed by the evolution (findPair priority)
+        enabled = true
+    }, -- Pengullet Lux, alongside the Penking evolution
+    {
+        from = "Penguin_Electric",
+        to = "CaptainPenguin_Black",
+        category = "evolution",
+        minLevel = 30,
+        stone = "evolution",
+        enabled = true
+    }, -- Pengullet Lux -> Penking Lux
     {
         from = "PinkRabbit",
         to = "PinkRabbit_Grass",
