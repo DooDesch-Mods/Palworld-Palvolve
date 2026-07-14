@@ -13,7 +13,11 @@
 import { pathToFileURL } from "node:url";
 import sharp from "sharp";
 
-/** unmixes a white background out of the image; optional element tint */
+/**
+ * Unmixes the background out of the image; optional element tint. The
+ * background color is sampled from the corners: near-white uses white
+ * unmixing, a green screen uses green-dominance keying with despill.
+ */
 export async function unmixWhite(input, tint = null) {
     const { data, info } = await sharp(input)
         .ensureAlpha()
@@ -21,11 +25,35 @@ export async function unmixWhite(input, tint = null) {
         .toBuffer({ resolveWithObject: true });
     const { width, height } = info;
 
-// flood fill the near-white background from the image borders; everything
+// sample the background color from the four corner patches
+let bgR = 0;
+let bgG = 0;
+let bgB = 0;
+let samples = 0;
+for (const [cx, cy] of [[0, 0], [width - 5, 0], [0, height - 5], [width - 5, height - 5]]) {
+    for (let dy = 0; dy < 5; dy++) {
+        for (let dx = 0; dx < 5; dx++) {
+            const o = ((cy + dy) * width + (cx + dx)) * 4;
+            bgR += data[o];
+            bgG += data[o + 1];
+            bgB += data[o + 2];
+            samples++;
+        }
+    }
+}
+bgR /= samples;
+bgG /= samples;
+bgB /= samples;
+const bgGreenness = bgG - Math.max(bgR, bgB);
+const greenKey = bgGreenness > 60;
+
+// flood fill the near-background region from the image borders; everything
 // not reached is "inside" the artwork body
 const NEARLY_WHITE = 242;
-const isNearWhite = (i) =>
-    data[i * 4] >= NEARLY_WHITE && data[i * 4 + 1] >= NEARLY_WHITE && data[i * 4 + 2] >= NEARLY_WHITE;
+const isNearWhite = greenKey
+    ? (i) => data[i * 4 + 1] - Math.max(data[i * 4], data[i * 4 + 2]) > bgGreenness * 0.55
+    : (i) =>
+          data[i * 4] >= NEARLY_WHITE && data[i * 4 + 1] >= NEARLY_WHITE && data[i * 4 + 2] >= NEARLY_WHITE;
 
 const outside = new Uint8Array(width * height);
 const stack = [];
@@ -70,18 +98,36 @@ for (let i = 0; i < width * height; i++) {
     let g = data[o + 1];
     let b = data[o + 2];
 
-    if (dilated[i]) {
-        // background / glow zone: unmix against white
-        const alpha = 255 - Math.min(r, g, b);
-        if (alpha === 0) {
-            data[o + 3] = 0;
-            continue;
+    // a neutral-gray artwork never shows green dominance, so green keying is
+    // safe on EVERY pixel - only the white path needs the body flood fill
+    if (dilated[i] || greenKey) {
+        if (greenKey) {
+            // green-dominance keying: unmix against the sampled background
+            const greenness = Math.min(bgGreenness, Math.max(0, g - Math.max(r, b)));
+            const a = 1 - greenness / bgGreenness;
+            if (a <= 0.004) {
+                data[o + 3] = 0;
+                continue;
+            }
+            r = Math.min(255, Math.max(0, Math.round((r - bgR * (1 - a)) / a)));
+            g = Math.min(255, Math.max(0, Math.round((g - bgG * (1 - a)) / a)));
+            b = Math.min(255, Math.max(0, Math.round((b - bgB * (1 - a)) / a)));
+            // despill: neutral artwork never exceeds its other channels in green
+            g = Math.min(g, Math.max(r, b) + 8);
+            data[o + 3] = Math.round(a * 255);
+        } else {
+            // white background: unmix against white
+            const alpha = 255 - Math.min(r, g, b);
+            if (alpha === 0) {
+                data[o + 3] = 0;
+                continue;
+            }
+            const a = alpha / 255;
+            r = Math.min(255, Math.round((r - 255 * (1 - a)) / a));
+            g = Math.min(255, Math.round((g - 255 * (1 - a)) / a));
+            b = Math.min(255, Math.round((b - 255 * (1 - a)) / a));
+            data[o + 3] = alpha;
         }
-        const a = alpha / 255;
-        r = Math.min(255, Math.round((r - 255 * (1 - a)) / a));
-        g = Math.min(255, Math.round((g - 255 * (1 - a)) / a));
-        b = Math.min(255, Math.round((b - 255 * (1 - a)) / a));
-        data[o + 3] = alpha;
     } else {
         data[o + 3] = 255;
     }
