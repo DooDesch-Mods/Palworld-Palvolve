@@ -1,0 +1,14 @@
+{
+    "DT_MapObjectNameText": {
+        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "Element-Extraktor"
+    },
+    "DT_BuildObjectDescText": {
+        "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "Zerlegt Technikfrüchte und elementare Materialien in reine Essenzen und schmiedet Entwicklungs- und Adaptionssteine."
+    },
+    "DT_TechnologyNameText": {
+        "NAME_RECIPE_Palvolve_ElementExtractor": "Element-Extraktor"
+    },
+    "DT_TechnologyDescText": {
+        "DESC_RECIPE_Palvolve_ElementExtractor": "Schaltet den Element-Extraktor frei - das Zuhause der Essenz-Gewinnung, Entwicklungs- und Adaptionssteine."
+    }
+}

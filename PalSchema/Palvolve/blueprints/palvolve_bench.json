@@ -1,0 +1,9 @@
+{
+    "BP_BuildObject_WorkBench_SkillCard_C": {
+        "ItemConverterParameter": {
+            "TargetTypesA": ["EPalItemTypeA::Material"],
+            "TargetTypesB": ["EPalItemTypeB::Palvolve_Craft"],
+            "TargetRankMax": 2
+        }
+    }
+}

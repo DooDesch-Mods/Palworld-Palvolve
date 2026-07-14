@@ -1,0 +1,50 @@
+{
+    "Palvolve_ElementExtractor": {
+        "Name": "Element Extractor",
+        "Description": "Breaks skill fruits and elemental materials down into pure essences and forges Evolution and Adaptation Stones.",
+        "BlueprintClassName": "BP_BuildObject_WorkBench_SkillCard",
+        "BlueprintClassSoft": "/Game/Pal/Blueprint/MapObject/BuildObject/BP_BuildObject_WorkBench_SkillCard.BP_BuildObject_WorkBench_SkillCard_C",
+        "IconTexture": "/Game/Pal/Texture/BuildObject/PNG/T_icon_buildObject_WorkBench.T_icon_buildObject_WorkBench",
+        "Hp": 1000,
+        "Defense": 2,
+        "MaterialType": "Wood",
+        "MaterialSubType": "Wood",
+        "bBelongToBaseCamp": true,
+        "DeteriorationDamage": 0.08,
+        "BuildingData": {
+            "TypeA": "Product",
+            "TypeB": "Prod_Craft",
+            "Rank": 1,
+            "RequiredBuildWorkAmount": 800.0,
+            "Material1_Id": "Wood",
+            "Material1_Count": 30,
+            "Material2_Id": "Stone",
+            "Material2_Count": 20,
+            "Material3_Id": "Pal_crystal_S",
+            "Material3_Count": 10
+        },
+        "Assignments": [
+            {
+                "WorkSuitability": "Handcraft",
+                "WorkSuitabilityRank": 1,
+                "bPlayerWorkable": true,
+                "bBaseCampWorkerWorkable": true,
+                "WorkType": "CommonTemp",
+                "WorkActionType": "CommonWork",
+                "WorkerMaxNum": 0,
+                "AffectSanityValue": -0.15,
+                "AffectFullStomachValue": 1.0
+            }
+        ],
+        "Technology": {
+            "UnlockBuildObjects": ["Palvolve_ElementExtractor"],
+            "IconName": "Palvolve_ElementExtractor",
+            "IsBossTechnology": false,
+            "Name": "Element Extractor",
+            "Description": "Unlocks the Element Extractor - the home of essence extraction, Evolution Stones and Adaptation Stones.",
+            "LevelCap": 10,
+            "Tier": 1,
+            "Cost": 2
+        }
+    }
+}

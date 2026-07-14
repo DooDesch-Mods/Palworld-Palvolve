@@ -5,7 +5,7 @@
         "Description": "A mysterious stone humming with life energy. Lets a bonded Pal evolve into a stronger related form once it has reached the required level.",
         "IconTexture": "$resource/Palvolve/evolutionstone",
         "TypeA": "Material",
-        "TypeB": "MaterialProccessing",
+        "TypeB": "Palvolve_Craft",
         "Rank": 1,
         "Rarity": 3,
         "Price": 5000,

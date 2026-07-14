@@ -52,10 +52,10 @@ const stoneId = (el) => `Palvolve_AdaptationStone_${el}`;
             Description: `Concentrated ${EN[el].toLowerCase()} energy, extracted from skill fruits or elemental materials. Used to craft the matching Adaptation Stone.`,
             IconTexture: "$resource/Palvolve/adaptionstone",
             TypeA: "Material",
-            TypeB: "MaterialProccessing",
-            // rank 2 pushes the recipes off the primitive workbench to a
-            // higher-tier station (the dedicated Element Extractor building
-            // arrives with the PMK wave)
+            // custom TypeB (PalSchema enum extension) binds the recipes
+            // exclusively to the Element Extractor bench - no vanilla
+            // converter lists this type
+            TypeB: "Palvolve_Craft",
             Rank: 2,
             Rarity: 2,
             Price: 1500,
@@ -69,7 +69,7 @@ const stoneId = (el) => `Palvolve_AdaptationStone_${el}`;
             Description: `A shimmering stone attuned to ${EN[el].toLowerCase()} energy. Lets a bonded Pal adapt into its ${EN[el].toLowerCase()} form once it has reached the required level.`,
             IconTexture: "$resource/Palvolve/adaptionstone",
             TypeA: "Material",
-            TypeB: "MaterialProccessing",
+            TypeB: "Palvolve_Craft",
             Rank: 2,
             Rarity: 3,
             Price: 5000,
