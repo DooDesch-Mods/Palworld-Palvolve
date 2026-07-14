@@ -12,6 +12,7 @@ Evolve your captured Pals into stronger related forms and adapt them into their 
 - **A real economy:** evolutions cost an Evolution Stone plus materials based on the Pal's drops; adaptations cost the matching element's Adaptation Stone plus the target form's materials.
 - **The Element Extractor:** an own buildable bench (technology level 10) that breaks skill fruits down 1:1 into element essences (or 10x elemental parts like Flame Organs), and forges Evolution and Adaptation Stones from Paldium and Meteor Fragments.
 - **Egg filter:** eggs only hatch base forms, so evolved forms stay something you earn (on by default, configurable).
+- **Web configurator:** explore every transformation as an interactive graph at [palvolve.doodesch.de](https://palvolve.doodesch.de), toggle categories or build your own tree, and download a ready-to-use config.
 - **Identity preserved, and then some:** everything individual carries over, including moves the target species could never learn - builds vanilla cannot have. +5 to all IV talents per stage (capped at 100).
 - **Transactional and safe:** every evolution snapshots the Pal first and refunds all costs if anything aborts before the transformation. `palvolve rollback` in the UE4SS console restores the last snapshot.
 - Keyboard fallback: F2 checks and confirms the summoned Pal's next evolution without the radial menu.
@@ -41,7 +42,9 @@ Subscribe, then enable the mod in-game under Options > Mod Management. UE4SS is 
 
 ## Configuration
 
-Everything lives in `scripts\config.lua`: enable or disable individual pairs, tune level thresholds, cost scaling, the egg filter and the transformation timings.
+The easy way: open the **[Palvolve Configurator](https://palvolve.doodesch.de)**, explore every transformation in an interactive graph, toggle whole categories or build your own tree, then drop the downloaded `config_user.lua` next to `scripts\config.lua` - the mod picks it up automatically and it survives mod updates.
+
+For hand-tuning, everything lives in `scripts\config.lua`: individual pairs, level thresholds, cost scaling, the egg filter and the transformation timings.
 
 ## License
 
