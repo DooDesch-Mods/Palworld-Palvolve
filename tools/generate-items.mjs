@@ -8,7 +8,7 @@
 //   PalSchema/Palvolve/raw/DT_ItemRecipeDataTable.json     fruit + organ recipes
 //   PalSchema/Palvolve/translations/{en,de}/items.json     merged name/desc keys
 
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -43,6 +43,13 @@ const ORGANS = {
 const essenceId = (el) => `Palvolve_Essence_${el}`;
 const stoneId = (el) => `Palvolve_AdaptationStone_${el}`;
 
+// element icon variants exist once build-icons.mjs has processed the
+// corresponding master; fall back to the neutral icon until then
+const resourceIcon = (name, fallback) =>
+    existsSync(join(SCHEMA, "resources", "images", `${name}.png`))
+        ? `$resource/Palvolve/${name}`
+        : fallback;
+
 // ---------------------------------------------------------------- items
 {
     const essences = {};
@@ -52,7 +59,7 @@ const stoneId = (el) => `Palvolve_AdaptationStone_${el}`;
             Type: "Generic",
             Name: `${EN[el]} Essence`,
             Description: `Concentrated ${EN[el].toLowerCase()} energy, extracted from skill fruits or elemental materials. Used to craft the matching Adaptation Stone.`,
-            IconTexture: "$resource/Palvolve/adaptionstone",
+            IconTexture: resourceIcon(`essence_${el.toLowerCase()}`, "$resource/Palvolve/adaptionstone"),
             TypeA: "Material",
             // custom TypeB (PalSchema enum extension) binds the recipes
             // exclusively to the Element Extractor bench - no vanilla
@@ -69,7 +76,7 @@ const stoneId = (el) => `Palvolve_AdaptationStone_${el}`;
             Type: "Generic",
             Name: `Adaptation Stone (${EN[el]})`,
             Description: `A shimmering stone attuned to ${EN[el].toLowerCase()} energy. Lets a bonded Pal adapt into its ${EN[el].toLowerCase()} form once it has reached the required level.`,
-            IconTexture: "$resource/Palvolve/adaptionstone",
+            IconTexture: resourceIcon(`adaptionstone_${el.toLowerCase()}`, "$resource/Palvolve/adaptionstone"),
             TypeA: "Material",
             TypeB: "Palvolve_Craft",
             Rank: 2,
