@@ -5,10 +5,11 @@
 --
 -- Keybinds (test world "ModDev", own pal summoned):
 --   F5 = overlay glow on/off (M_Glow)     F6 = cycle visual effects
---   F7 = species swap probe (test world ONLY!)
+--   F7 = morph summoned pal through FX test bases (test world ONLY!)
 --   F8 = fanfare (AKE_CampLevelUp)        F9 = freeze/unfreeze nearest pal
 --   F10 = EXP to pals around (level-up smoke test)
 --   F3 = revert own evolved pals          INSERT (fallback F4) = test kit
+--   END = free-evolution toggle (no stone/material costs)
 --
 local M = {}
 
@@ -107,45 +108,65 @@ RegisterKeyBind(Key.F6, Debounced("vfx", function()
     end)
 end))
 
--- F7: raw species swap probe across several pairs (test world ONLY!)
--- The model does NOT rebuild immediately - only the next summon/box roundtrip
--- spawns the actor as the new species (verified live).
-local SWAP_PAIRS = {
-    { from = "Penguin", to = "CaptainPenguin" },  -- Pengullet -> Penking
-    { from = "MopBaby", to = "MopKing" },         -- Swee -> Sweepa
-    { from = "MopKing", to = "Yeti" },            -- Sweepa -> Wumpo (fun chain)
+-- F7: morph the summoned own pal through FX test bases (test world ONLY!)
+-- Each press moves to the next species; resummon afterwards so the model
+-- rebuilds. The list covers diverse element transitions for the staged
+-- FX colors (phase 1 = old element, phase 2 = target element).
+local MORPH_CYCLE = {
+    { id = "Penguin",        note = "Water/Ice evolution -> Penking" },
+    { id = "AmaterasuWolf",  note = "Fire -> Dark adaptation" },
+    { id = "CatMage",        note = "Dark -> Fire adaptation" },
+    { id = "FairyDragon",    note = "Dragon -> Water adaptation" },
+    { id = "GrassMammoth",   note = "Leaf -> Ice adaptation" },
+    { id = "FlowerDinosaur", note = "Leaf -> Electric adaptation" },
+    { id = "Gorilla",        note = "-> Earth adaptation" },
+    { id = "CaptainPenguin", note = "-> Electric adaptation (Black)" },
 }
+local morphIndex = 0
 RegisterKeyBind(Key.F7, Debounced("speciesswap", function()
     ExecuteInGameThread(function()
         local suc, e = pcall(function()
-            local all = FindAllOf("PalIndividualCharacterParameter") or {}
-            for _, pair in ipairs(SWAP_PAIRS) do
-                for _, p in ipairs(all) do
-                    if p:IsValid() and p:GetCharacterID():ToString() == pair.from then
-                        local hpBefore = p:GetMaxHP()
-                        p.SaveParameter.CharacterID = FName(pair.to)
-                        p.SaveParameterMirror.CharacterID = FName(pair.to)
-                        Log(string.format("[probe-speciesswap] %s -> %s, MaxHP %s -> %s (box roundtrip/resummon for the model)",
-                            pair.from, p:GetCharacterID():ToString(), tostring(hpBefore), tostring(p:GetMaxHP())))
-                        return
-                    end
-                end
+            local pal = firstOwnedMonster()
+            if not (pal and pal:IsValid()) then
+                Log("[probe-speciesswap] no own pal summoned")
+                return
             end
-            -- diagnostics: which species are in memory at all?
-            local seen, list = {}, {}
-            for _, p in ipairs(all) do
-                if p:IsValid() then
-                    local id = p:GetCharacterID():ToString()
-                    if id ~= "" and id ~= "None" and not seen[id] then
-                        seen[id] = true
-                        table.insert(list, id)
-                        if #list >= 15 then break end
-                    end
-                end
-            end
-            Log("[probe-speciesswap] no swap candidate; species in memory: " .. table.concat(list, ", "))
+            local p = pal.CharacterParameterComponent:GetIndividualParameter()
+            morphIndex = (morphIndex % #MORPH_CYCLE) + 1
+            local target = MORPH_CYCLE[morphIndex]
+            local before = p:GetCharacterID():ToString()
+            p.SaveParameter.CharacterID = FName(target.id)
+            p.SaveParameterMirror.CharacterID = FName(target.id)
+            Log(string.format("[probe-speciesswap] %s -> %s (%s) - resummon for the model",
+                before, target.id, target.note))
         end)
         if not suc then Log("[probe-speciesswap] FAIL: " .. tostring(e)) end
+    end)
+end))
+
+-- END: free-evolution toggle for FX test sessions - disables stone AND
+-- material costs at runtime (the resolve cache is dropped so armed pairs
+-- reprice immediately)
+local savedCosts = nil
+RegisterKeyBind(Key.END, Debounced("costtoggle", function()
+    ExecuteInGameThread(function()
+        local suc, e = pcall(function()
+            local cfg = require("config")
+            local Costs = require("costs")
+            if savedCosts == nil then
+                savedCosts = { stone = cfg.requireStone, costs = cfg.costs.enabled }
+                cfg.requireStone = false
+                cfg.costs.enabled = false
+                Log("[probe-costs] FREE MODE ON - evolutions cost nothing (END toggles back)")
+            else
+                cfg.requireStone = savedCosts.stone
+                cfg.costs.enabled = savedCosts.costs
+                savedCosts = nil
+                Log("[probe-costs] free mode off - normal costs apply again")
+            end
+            Costs.clearCache()
+        end)
+        if not suc then Log("[probe-costs] FAIL: " .. tostring(e)) end
     end)
 end))
 
@@ -404,7 +425,7 @@ RegisterKeyBind(Key.F4, Debounced("radialarm", function()
     end)
 end))
 
-Log(string.format("Probes active: F3 revert(own), F4 arm radial probes, F5 overlay, F6 VFX, F7 species swap, F8 fanfare, F9 freeze, F10 give EXP, test kit on %s",
+Log(string.format("Probes active: F3 revert(own), F4 arm radial probes, F5 overlay, F6 VFX, F7 morph FX bases, F8 fanfare, F9 freeze, F10 give EXP, END free mode, test kit on %s",
     Key.INS and "INSERT" or "POS1"))
 
 return M

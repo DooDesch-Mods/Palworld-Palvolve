@@ -172,6 +172,12 @@ local function materialsFor(charId, level, worldCtx)
     return mats
 end
 
+-- Drops all cached price lists - needed when the cost configuration is
+-- toggled at runtime (devMode free-evolution switch).
+function Costs.clearCache()
+    resolveCache = {}
+end
+
 -- Full price of a pair at a level. Returns costList, err.
 -- costList entries: { id, count, label }
 function Costs.resolve(pair, level, worldCtx)
