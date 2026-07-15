@@ -10,7 +10,7 @@
         "Rarity": 2,
         "Price": 1500,
         "MaxStackCount": 99,
-        "SortID": 999010,
+        "SortId": 999030,
         "Weight": 0.5
     },
     "Palvolve_Essence_Fire": {
@@ -24,7 +24,7 @@
         "Rarity": 2,
         "Price": 1500,
         "MaxStackCount": 99,
-        "SortID": 999011,
+        "SortId": 999031,
         "Weight": 0.5
     },
     "Palvolve_Essence_Water": {
@@ -38,7 +38,7 @@
         "Rarity": 2,
         "Price": 1500,
         "MaxStackCount": 99,
-        "SortID": 999012,
+        "SortId": 999032,
         "Weight": 0.5
     },
     "Palvolve_Essence_Leaf": {
@@ -52,7 +52,7 @@
         "Rarity": 2,
         "Price": 1500,
         "MaxStackCount": 99,
-        "SortID": 999013,
+        "SortId": 999033,
         "Weight": 0.5
     },
     "Palvolve_Essence_Electricity": {
@@ -66,7 +66,7 @@
         "Rarity": 2,
         "Price": 1500,
         "MaxStackCount": 99,
-        "SortID": 999014,
+        "SortId": 999034,
         "Weight": 0.5
     },
     "Palvolve_Essence_Ice": {
@@ -80,7 +80,7 @@
         "Rarity": 2,
         "Price": 1500,
         "MaxStackCount": 99,
-        "SortID": 999015,
+        "SortId": 999035,
         "Weight": 0.5
     },
     "Palvolve_Essence_Earth": {
@@ -94,7 +94,7 @@
         "Rarity": 2,
         "Price": 1500,
         "MaxStackCount": 99,
-        "SortID": 999016,
+        "SortId": 999036,
         "Weight": 0.5
     },
     "Palvolve_Essence_Dark": {
@@ -108,7 +108,7 @@
         "Rarity": 2,
         "Price": 1500,
         "MaxStackCount": 99,
-        "SortID": 999017,
+        "SortId": 999037,
         "Weight": 0.5
     },
     "Palvolve_Essence_Dragon": {
@@ -122,7 +122,7 @@
         "Rarity": 2,
         "Price": 1500,
         "MaxStackCount": 99,
-        "SortID": 999018,
+        "SortId": 999038,
         "Weight": 0.5
     }
 }

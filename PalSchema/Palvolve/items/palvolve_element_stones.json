@@ -10,16 +10,8 @@
         "Rarity": 3,
         "Price": 5000,
         "MaxStackCount": 99,
-        "SortID": 999030,
-        "Weight": 1,
-        "Recipe": {
-            "Product_Count": 1,
-            "WorkAmount": 300,
-            "Material1_Id": "Palvolve_EvolutionStone",
-            "Material1_Count": 1,
-            "Material2_Id": "Palvolve_Essence_Normal",
-            "Material2_Count": 1
-        }
+        "SortId": 999010,
+        "Weight": 1
     },
     "Palvolve_AdaptationStone_Fire": {
         "Type": "Generic",
@@ -32,16 +24,8 @@
         "Rarity": 3,
         "Price": 5000,
         "MaxStackCount": 99,
-        "SortID": 999031,
-        "Weight": 1,
-        "Recipe": {
-            "Product_Count": 1,
-            "WorkAmount": 300,
-            "Material1_Id": "Palvolve_EvolutionStone",
-            "Material1_Count": 1,
-            "Material2_Id": "Palvolve_Essence_Fire",
-            "Material2_Count": 1
-        }
+        "SortId": 999011,
+        "Weight": 1
     },
     "Palvolve_AdaptationStone_Water": {
         "Type": "Generic",
@@ -54,16 +38,8 @@
         "Rarity": 3,
         "Price": 5000,
         "MaxStackCount": 99,
-        "SortID": 999032,
-        "Weight": 1,
-        "Recipe": {
-            "Product_Count": 1,
-            "WorkAmount": 300,
-            "Material1_Id": "Palvolve_EvolutionStone",
-            "Material1_Count": 1,
-            "Material2_Id": "Palvolve_Essence_Water",
-            "Material2_Count": 1
-        }
+        "SortId": 999012,
+        "Weight": 1
     },
     "Palvolve_AdaptationStone_Leaf": {
         "Type": "Generic",
@@ -76,16 +52,8 @@
         "Rarity": 3,
         "Price": 5000,
         "MaxStackCount": 99,
-        "SortID": 999033,
-        "Weight": 1,
-        "Recipe": {
-            "Product_Count": 1,
-            "WorkAmount": 300,
-            "Material1_Id": "Palvolve_EvolutionStone",
-            "Material1_Count": 1,
-            "Material2_Id": "Palvolve_Essence_Leaf",
-            "Material2_Count": 1
-        }
+        "SortId": 999013,
+        "Weight": 1
     },
     "Palvolve_AdaptationStone_Electricity": {
         "Type": "Generic",
@@ -98,16 +66,8 @@
         "Rarity": 3,
         "Price": 5000,
         "MaxStackCount": 99,
-        "SortID": 999034,
-        "Weight": 1,
-        "Recipe": {
-            "Product_Count": 1,
-            "WorkAmount": 300,
-            "Material1_Id": "Palvolve_EvolutionStone",
-            "Material1_Count": 1,
-            "Material2_Id": "Palvolve_Essence_Electricity",
-            "Material2_Count": 1
-        }
+        "SortId": 999014,
+        "Weight": 1
     },
     "Palvolve_AdaptationStone_Ice": {
         "Type": "Generic",
@@ -120,16 +80,8 @@
         "Rarity": 3,
         "Price": 5000,
         "MaxStackCount": 99,
-        "SortID": 999035,
-        "Weight": 1,
-        "Recipe": {
-            "Product_Count": 1,
-            "WorkAmount": 300,
-            "Material1_Id": "Palvolve_EvolutionStone",
-            "Material1_Count": 1,
-            "Material2_Id": "Palvolve_Essence_Ice",
-            "Material2_Count": 1
-        }
+        "SortId": 999015,
+        "Weight": 1
     },
     "Palvolve_AdaptationStone_Earth": {
         "Type": "Generic",
@@ -142,16 +94,8 @@
         "Rarity": 3,
         "Price": 5000,
         "MaxStackCount": 99,
-        "SortID": 999036,
-        "Weight": 1,
-        "Recipe": {
-            "Product_Count": 1,
-            "WorkAmount": 300,
-            "Material1_Id": "Palvolve_EvolutionStone",
-            "Material1_Count": 1,
-            "Material2_Id": "Palvolve_Essence_Earth",
-            "Material2_Count": 1
-        }
+        "SortId": 999016,
+        "Weight": 1
     },
     "Palvolve_AdaptationStone_Dark": {
         "Type": "Generic",
@@ -164,16 +108,8 @@
         "Rarity": 3,
         "Price": 5000,
         "MaxStackCount": 99,
-        "SortID": 999037,
-        "Weight": 1,
-        "Recipe": {
-            "Product_Count": 1,
-            "WorkAmount": 300,
-            "Material1_Id": "Palvolve_EvolutionStone",
-            "Material1_Count": 1,
-            "Material2_Id": "Palvolve_Essence_Dark",
-            "Material2_Count": 1
-        }
+        "SortId": 999017,
+        "Weight": 1
     },
     "Palvolve_AdaptationStone_Dragon": {
         "Type": "Generic",
@@ -186,15 +122,7 @@
         "Rarity": 3,
         "Price": 5000,
         "MaxStackCount": 99,
-        "SortID": 999038,
-        "Weight": 1,
-        "Recipe": {
-            "Product_Count": 1,
-            "WorkAmount": 300,
-            "Material1_Id": "Palvolve_EvolutionStone",
-            "Material1_Count": 1,
-            "Material2_Id": "Palvolve_Essence_Dragon",
-            "Material2_Count": 1
-        }
+        "SortId": 999018,
+        "Weight": 1
     }
 }
