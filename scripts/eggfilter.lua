@@ -17,12 +17,16 @@ local function Log(msg)
     print(string.format("[Palvolve] %s\n", msg))
 end
 
--- Rewrites one save-parameter struct; returns "old>new" when it changed
+-- Rewrites one save-parameter struct; returns "old>new" when it changed.
+-- Defensive: should an egg ever carry an Alpha id (BOSS_ prefix), the base
+-- lookup uses the unprefixed species - the hatch result is the plain base
+-- form either way (alphas are not meant to come from eggs).
 local function normalize(saveParam)
     local changed = nil
     pcall(function()
         local id = saveParam.CharacterID:ToString()
-        local base = Config.baseFormOf(id)
+        local lookupId = id:gsub("^BOSS_", "")
+        local base = Config.baseFormOf(lookupId)
         if base and base ~= id then
             saveParam.CharacterID = FName(base)
             changed = id .. " -> " .. base

@@ -2,7 +2,7 @@
 -- snapshots/rollback, IV bonus and the staged evolution sequence.
 -- Sequence design: direct manager teardown first (the holder recall animates
 -- a mesh clone that ignores a hidden actor and is therefore only a fallback),
--- species swap while despawned, two-phase activation pump with class-verified
+-- species swap while despawned, two-phase activation pump with id-verified
 -- respawn, staged reveal driven by the FX staging (fx.lua).
 
 local Config = require("config")
@@ -317,6 +317,34 @@ local function lockBusy()
     return true
 end
 
+-- Alpha pals keep a BOSS_ prefix on their CharacterID while the pair map
+-- uses base ids: strip the prefix for matching and re-apply it on the swap
+-- target so an Alpha stays an Alpha. Only species with a real BOSS_ row are
+-- valid alpha targets - an id without a row cannot resolve its blueprint
+-- class (spawn/summon failure risk). Lucky ("shiny") status lives in
+-- SaveParameter.IsRarePal, which the in-place swap never touches.
+local BOSS_PREFIX = "BOSS_"
+local okBoss, BossSet = pcall(require, "boss_static")
+if not okBoss then BossSet = nil end
+
+local function baseCharacterId(rawId)
+    if rawId:sub(1, #BOSS_PREFIX) == BOSS_PREFIX then
+        return rawId:sub(#BOSS_PREFIX + 1), true
+    end
+    return rawId, false
+end
+
+-- swap target for an alpha; nil when the species has no BOSS_ row
+local function alphaTargetId(baseTo)
+    if BossSet and BossSet[baseTo] then return BOSS_PREFIX .. baseTo end
+    return nil
+end
+
+local function swapTargetId(pair, isAlpha)
+    if not isAlpha then return pair.to end
+    return alphaTargetId(pair.to)
+end
+
 -- Only one own pal can be summoned at a time, so the otomo holder is the
 -- authoritative source (a FindAllOf scan would also hit ghost actors).
 local function findEligible()
@@ -327,10 +355,24 @@ local function findEligible()
     if not (actor and actor:IsValid()) then return nil end
     local param = paramOf(actor)
     if not (param and isOwned(param)) then return nil end
-    local id = param:GetCharacterID():ToString()
-    local pair = Config.findPair(id)
-    if not pair then
+    local id, isAlpha = baseCharacterId(param:GetCharacterID():ToString())
+    -- pick the first pair that is not alpha-blocked, so a branched species
+    -- whose FIRST target lacks a BOSS_ row still reaches its other options
+    local pairList = Config.findPairs(id)
+    if not pairList or #pairList == 0 then
         return nil, string.format("%s has no evolution", id)
+    end
+    local pair, alphaBlockedTo = nil, nil
+    for _, cand in ipairs(pairList) do
+        if isAlpha and not swapTargetId(cand, true) then
+            alphaBlockedTo = alphaBlockedTo or cand.to
+        else
+            pair = cand
+            break
+        end
+    end
+    if not pair then
+        return nil, string.format("%s has no Alpha form - the Alpha cannot evolve into it", alphaBlockedTo)
     end
     local level = 0
     pcall(function() level = param:GetLevel() end)
@@ -338,11 +380,12 @@ local function findEligible()
         return nil, string.format("%s needs level %d to evolve (currently %d)",
             id, pair.minLevel, level)
     end
-    return actor, param, pair, level, holder
+    return actor, param, pair, level, holder, isAlpha
 end
 
 local function performEvolution(p)
     local actor, param, pair, holder = p.actor, p.param, p.pair, p.holder
+    local isAlpha = p.isAlpha == true
     pending = nil
     sequenceRunning = true
     sequenceStartedAt = os.clock()
@@ -557,13 +600,25 @@ local function performEvolution(p)
             finishAbort()
             return
         end
+        -- Revalidate at the mutation boundary: the id (and alpha state) must
+        -- still match what was selected - another mod or a dev probe could
+        -- have changed the pal during the dissolve/despawn window
+        local curId, curAlpha = baseCharacterId(param:GetCharacterID():ToString())
+        if curId ~= pair.from or curAlpha ~= isAlpha then
+            Log(string.format("Aborted: pal changed during the sequence (now %s%s, expected %s%s)",
+                curAlpha and BOSS_PREFIX or "", curId, isAlpha and BOSS_PREFIX or "", pair.from))
+            refundCost("pal changed mid-sequence")
+            finishAbort()
+            return
+        end
+        local targetId = swapTargetId(pair, isAlpha) or pair.to
         local okSwap, errSwap = pcall(function()
-            param.SaveParameter.CharacterID = FName(pair.to)
-            param.SaveParameterMirror.CharacterID = FName(pair.to)
+            param.SaveParameter.CharacterID = FName(targetId)
+            param.SaveParameterMirror.CharacterID = FName(targetId)
         end)
         local idNow = ""
         pcall(function() idNow = param:GetCharacterID():ToString() end)
-        if not okSwap or idNow ~= pair.to then
+        if not okSwap or idNow ~= targetId then
             Log(string.format("SWAP FAILED (err=%s, id=%s) - no respawn attempt",
                 tostring(errSwap), idNow))
             refundCost("swap failed")
@@ -575,9 +630,11 @@ local function performEvolution(p)
         applyIvBonus(param)
         pcall(function() param:FullRecoveryHP() end)
 
-        -- Snapshot only AFTER a successful swap (no phantom rollback entries)
+        -- Snapshot only AFTER a successful swap (no phantom rollback entries);
+        -- stores the RAW ids (BOSS_ included) so a rollback restores the alpha
         table.insert(snapshots, {
-            key = key, from = pair.from, to = pair.to, level = level, nickname = nickname,
+            key = key, from = isAlpha and (BOSS_PREFIX .. pair.from) or pair.from,
+            to = targetId, level = level, nickname = nickname,
             ivHP = talentsBefore.Talent_HP, ivMelee = talentsBefore.Talent_Melee,
             ivShot = talentsBefore.Talent_Shot, ivDefense = talentsBefore.Talent_Defense,
         })
@@ -610,15 +667,21 @@ local function performEvolution(p)
             Log(string.format("Holder state cleanup ok=%s reselect ok=%s", tostring(okInact), tostring(okSel)))
         end
 
-        -- Activation pump with staged reveal
-        local expectedClass = "BP_" .. pair.to .. "_C"
+        -- Activation pump with staged reveal. The respawn check compares the
+        -- actor's individual CharacterID against the raw target id instead of
+        -- synthesizing a BP class name: boss blueprints are named
+        -- BP_<species>_BOSS_C (via DT_PalBPClass), NOT BP_BOSS_<species>_C,
+        -- so name synthesis breaks for alphas while the id is always exact.
         local function isRespawned()
             local a = nil
             pcall(function() a = holder:TryGetSpawnedOtomo() end)
             if not (a and a:IsValid()) then return false end
-            local cls = ""
-            pcall(function() cls = a:GetClass():GetFullName() end)
-            if not cls:find(expectedClass, 1, true) then return false end
+            local idSpawned = ""
+            pcall(function()
+                local p = paramOf(a)
+                if p and p:IsValid() then idSpawned = p:GetCharacterID():ToString() end
+            end)
+            if idSpawned ~= targetId then return false end
             -- Hide instantly so the raw spawn is never visible (reveal is
             -- staged). Collision stays ON: the native landing flow needs it,
             -- and it is only switched off for the teleport itself.
@@ -885,7 +948,12 @@ function Evolution.check()
         Log("An evolution is already running - please wait")
         return
     end
-    local actor, param, pair, level, holder = findEligible()
+    -- drop an expired confirm: a stale pending otherwise suppresses the
+    -- eligibility reason messages below
+    if pending and (os.clock() - pending.armedAt) > Config.confirmWindowSeconds then
+        pending = nil
+    end
+    local actor, param, pair, level, holder, isAlpha = findEligible()
     if not actor then
         if not pending then
             -- second return value carries the reason message when present
@@ -908,7 +976,8 @@ function Evolution.check()
     if pending and (now - pending.armedAt) <= Config.confirmWindowSeconds then
         if pending.key == key then
             -- use FRESH handles (the pal may have been resummoned since arming)
-            performEvolution({ actor = actor, param = param, pair = pair, holder = holder, key = key })
+            performEvolution({ actor = actor, param = param, pair = pair, holder = holder,
+                key = key, isAlpha = isAlpha })
             return
         else
             Log(string.format("Confirm target changed (was %s, now %s) - re-armed",
@@ -965,7 +1034,7 @@ function Evolution.canOffer()
         if not (actor and actor:IsValid()) then return false end
         local param = paramOf(actor)
         if not (param and isOwned(param)) then return false end
-        local id = param:GetCharacterID():ToString()
+        local id = baseCharacterId(param:GetCharacterID():ToString())
         return #Config.findPairs(id) > 0
     end)
     return ok and res == true
@@ -982,7 +1051,7 @@ function Evolution.listOptions()
     if not (actor and actor:IsValid()) then return nil, "No own pal summoned" end
     local param = paramOf(actor)
     if not (param and isOwned(param)) then return nil, "No own pal summoned" end
-    local id = param:GetCharacterID():ToString()
+    local id, isAlpha = baseCharacterId(param:GetCharacterID():ToString())
     local pairList = Config.findPairs(id)
     if not pairList or #pairList == 0 then
         return nil, string.format("%s has no evolution", id)
@@ -992,7 +1061,9 @@ function Evolution.listOptions()
     local options = {}
     for _, pair in ipairs(pairList) do
         local opt = { pair = pair, label = palDisplayName(pair.to) }
-        if level < pair.minLevel then
+        if isAlpha and not swapTargetId(pair, true) then
+            opt.blocked = string.format("%s has no Alpha form", pair.to)
+        elseif level < pair.minLevel then
             opt.blocked = string.format("%s needs level %d (currently %d)",
                 pair.to, pair.minLevel, level)
         else
@@ -1026,10 +1097,14 @@ function Evolution.executeOption(opt)
     if not (actor and actor:IsValid()) then Log("No own pal summoned") return end
     local param = paramOf(actor)
     if not (param and isOwned(param)) then Log("No own pal summoned") return end
-    local id = param:GetCharacterID():ToString()
+    local id, isAlpha = baseCharacterId(param:GetCharacterID():ToString())
     if id ~= opt.pair.from then
         Log(string.format("Selection outdated: summoned pal is %s, option was for %s",
             id, opt.pair.from))
+        return
+    end
+    if isAlpha and not swapTargetId(opt.pair, true) then
+        Log(string.format("%s has no Alpha form - the Alpha cannot evolve into it", opt.pair.to))
         return
     end
     local level = 0
@@ -1049,7 +1124,7 @@ function Evolution.executeOption(opt)
         return
     end
     performEvolution({ actor = actor, param = param, pair = opt.pair,
-        holder = holder, key = individualKey(param) })
+        holder = holder, key = individualKey(param), isAlpha = isAlpha })
 end
 
 function Evolution.rollbackLast()
@@ -1127,20 +1202,36 @@ function Evolution.init()
     end)
 
     -- Level-up notification: fires ONCE per individual and target once the
-    -- threshold is reached
+    -- threshold is reached.
+    -- The hook may ONLY be registered once the player pawn exists: the 1.0
+    -- title screen already loads BP_MonsterBase_C (menu pals), and a script
+    -- hook attached before/while a world loads lives through the actor
+    -- restore storm, which aborts the whole process inside UE4SS.
     local notified = {}
     local hookRegistered = false
     local function tryHook()
         if hookRegistered then return true end
+        local player = FindFirstOf("PalPlayerCharacter")
+        if not (player and player:IsValid()) then return false end
         local ok = pcall(RegisterHook,
             "/Game/Pal/Blueprint/Character/Monster/BP_MonsterBase.BP_MonsterBase_C:OnUpdateLevelDelegate_イベント_0",
             function(self, addLevel, nowLevel)
                 pcall(function()
+                    -- no player pawn = a world is loading or being torn down;
+                    -- never touch game state from the load path
+                    local pc = FindFirstOf("PalPlayerCharacter")
+                    if not (pc and pc:IsValid()) then return end
                     local actor = self:get()
                     local param = actor.CharacterParameterComponent:GetIndividualParameter()
                     if not isOwned(param) then return end
-                    local id = param:GetCharacterID():ToString()
-                    local pair = Config.findPair(id)
+                    local id, isAlpha = baseCharacterId(param:GetCharacterID():ToString())
+                    local pair = nil
+                    for _, cand in ipairs(Config.findPairs(id)) do
+                        if not (isAlpha and not swapTargetId(cand, true)) then
+                            pair = cand
+                            break
+                        end
+                    end
                     if not pair then return end
                     -- nowLevel is the level BEFORE the addition
                     local newLevel = nowLevel:get() + addLevel:get()
