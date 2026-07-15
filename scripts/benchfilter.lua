@@ -88,6 +88,12 @@ function BenchFilter.init()
     end)
 
     LoopAsync(1000, function()
+        -- Only enter the game thread when there is actual work: every
+        -- ExecuteInGameThread call registers a transient callback ref, and
+        -- UE4SS's callback GC occasionally frees such refs while they are
+        -- still scheduled (corrupted closures, in the worst case a silent
+        -- process death). Idle ticks must therefore stay ref-free.
+        if swept and #pending == 0 then return false end
         ExecuteInGameThread(function()
             pcall(function()
                 if not swept then

@@ -9,6 +9,16 @@ end
 -- Required line for the dev loop: tail-ue4ss-log waits for "[Palvolve] loaded"
 Log("loaded")
 
+-- Role detection: UI modules and their retry pollers must not run on a
+-- dedicated server. Their endless LoopAsync+ExecuteInGameThread retries
+-- (the hooked widgets never load headless) churn transient callback refs,
+-- which UE4SS's callback GC occasionally frees while still scheduled -
+-- observed as corrupted closures and silent server deaths.
+local Role = require("role")
+if Role.isDedicated() then
+    Log("dedicated server detected: UI modules disabled")
+end
+
 -- Evolution core
 local Evolution = nil
 local okCore, errCore = pcall(function()
@@ -20,7 +30,7 @@ if not okCore then
 end
 
 -- Radial menu integration (Evolve entry in the hold-4 wheel)
-if Evolution then
+if Evolution and not Role.isDedicated() then
     local okRadial, errRadial = pcall(function()
         require("radialmenu").init({
             check = Evolution.check,
@@ -43,11 +53,13 @@ if not okEgg then
 end
 
 -- Pal Alchemy Workbench visual (teal tint on the reused medicine bench)
-local okBench, errBench = pcall(function()
-    require("benchvisual").init()
-end)
-if not okBench then
-    Log("bench visual failed to load: " .. tostring(errBench))
+if not Role.isDedicated() then
+    local okBench, errBench = pcall(function()
+        require("benchvisual").init()
+    end)
+    if not okBench then
+        Log("bench visual failed to load: " .. tostring(errBench))
+    end
 end
 
 -- Pal Alchemy Workbench recipe filter (per-instance converter target patch)

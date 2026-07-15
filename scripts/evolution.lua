@@ -731,7 +731,11 @@ local function performEvolution(p)
                     end)
                 end
                 pcall(function() fx.onPreReveal(ctx, newActor) end)
-                ExecuteWithDelay(fx.revealDelayMs(), function()
+                -- one-shot LoopAsync instead of ExecuteWithDelay: the delay
+                -- API's transient callback refs get freed by UE4SS's callback
+                -- GC under load ("Ref was not function"), killing every
+                -- deferred callback of the mod at once
+                LoopAsync(fx.revealDelayMs(), function()
                     ExecuteInGameThread(function()
                         if seq.done then return end
                         -- refetch: the reference may change after the spawn
@@ -767,6 +771,7 @@ local function performEvolution(p)
                             finishAbort()
                         end
                     end)
+                    return true
                 end)
             else
                 -- failure path: never leave anything invisible behind
@@ -788,8 +793,8 @@ local function performEvolution(p)
                     pc:SetOtomoSlot(idx)
                     pc:TrySwitchOtomo()
                 end)
-                Log(string.format("EVOLVED (data only): %s -> %s (level %d) - respawn not confirmed (class '%s' instead of %s); summon rescue ok=%s",
-                    pair.from, pair.to, level, cls, expectedClass, tostring(okRescue)))
+                Log(string.format("EVOLVED (data only): %s -> %s (level %d) - respawn not confirmed (got class '%s', expected id %s); summon rescue ok=%s",
+                    pair.from, pair.to, level, cls, targetId, tostring(okRescue)))
                 finishAbort()
             end
         end
@@ -921,7 +926,10 @@ local function performEvolution(p)
     pcall(function()
         if fx.dissolveDurationMs then dissolveMs = fx.dissolveDurationMs() end
     end)
-    ExecuteWithDelay(dissolveMs, function()
+    -- one-shot LoopAsync instead of ExecuteWithDelay: the delay API's
+    -- transient callback refs get freed by UE4SS's callback GC under load
+    -- ("Ref was not function"), killing every deferred callback of the mod
+    LoopAsync(dissolveMs, function()
         ExecuteInGameThread(function()
             if seq.done then return end
             local ok, err = pcall(function()
@@ -938,6 +946,7 @@ local function performEvolution(p)
                 finishAbort()
             end
         end)
+        return true
     end)
 end
 
@@ -1207,12 +1216,21 @@ function Evolution.init()
     -- title screen already loads BP_MonsterBase_C (menu pals), and a script
     -- hook attached before/while a world loads lives through the actor
     -- restore storm, which aborts the whole process inside UE4SS.
+    -- The pawn alone is not enough: when joining a server it spawns while
+    -- actors are still streaming in, so require it to survive two polls
+    -- (5 s apart) before attaching the hook.
     local notified = {}
     local hookRegistered = false
+    local stablePolls = 0
     local function tryHook()
         if hookRegistered then return true end
         local player = FindFirstOf("PalPlayerCharacter")
-        if not (player and player:IsValid()) then return false end
+        if not (player and player:IsValid()) then
+            stablePolls = 0
+            return false
+        end
+        stablePolls = stablePolls + 1
+        if stablePolls < 2 then return false end
         local ok = pcall(RegisterHook,
             "/Game/Pal/Blueprint/Character/Monster/BP_MonsterBase.BP_MonsterBase_C:OnUpdateLevelDelegate_イベント_0",
             function(self, addLevel, nowLevel)
@@ -1250,12 +1268,17 @@ function Evolution.init()
         hookRegistered = ok
         return ok
     end
-    if not tryHook() then
-        LoopAsync(5000, function()
-            if hookRegistered then return true end
-            ExecuteInGameThread(function() tryHook() end)
-            return hookRegistered
-        end)
+    -- The notification is client-side UX (fanfare + on-screen hint); on a
+    -- dedicated server the poll would churn transient callback refs forever
+    -- (no local player pawn ever exists), so it must not run there.
+    if not require("role").isDedicated() then
+        if not tryHook() then
+            LoopAsync(5000, function()
+                if hookRegistered then return true end
+                ExecuteInGameThread(function() tryHook() end)
+                return hookRegistered
+            end)
+        end
     end
 
     -- Console: "palvolve check|rollback|radial"

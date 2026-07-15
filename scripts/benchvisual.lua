@@ -177,6 +177,10 @@ function BenchVisual.init()
     end)
 
     LoopAsync(1000, function()
+        -- idle ticks must not enter the game thread: every ExecuteInGameThread
+        -- call registers a transient callback ref, and UE4SS's callback GC
+        -- occasionally frees such refs while still scheduled
+        if swept and #pending == 0 then return false end
         ExecuteInGameThread(function()
             pcall(function()
                 if not swept then
