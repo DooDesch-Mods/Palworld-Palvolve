@@ -6,15 +6,16 @@ Evolve your captured Pals into stronger related forms and adapt them into their 
 
 ## Features
 
-- **95 curated transformations:** evolution chains (e.g. Pengullet -> Penking, Swee -> Sweepa -> Wumpo) and 87 element adaptations (e.g. Penking -> Penking Lux), all config-driven with per-pair level thresholds.
+- **99 curated transformations:** evolution chains (e.g. Pengullet -> Penking, Mau -> Sekhmet), fun chains and 87 element adaptations (e.g. Penking -> Penking Lux), all config-driven with per-pair level thresholds.
 - **Radial menu integration:** hold 4, pick "Evolve" and choose from your Pal's options in a submenu - unaffordable options are greyed out with the reason, backing out is always one click away. Entries follow the game language.
 - **A transformation worth watching:** your Pal spins up, shrinks into a blinding light and re-emerges growing from a spark to full size, with the game's own element effects - the old element while it dissolves, the new one when it reveals. Dual-element Pals pulse in both.
-- **A real economy:** evolutions cost an Evolution Stone plus materials based on the Pal's drops; adaptations cost the matching element's Adaptation Stone plus the target form's materials.
-- **The Element Extractor:** an own buildable bench (technology level 10) that breaks skill fruits down 1:1 into element essences (or 10x matching drops like Flame Organs, Wool or Horns), forges Evolution Stones from Paldium, Meteor Fragments and Pal Fluids, and attunes them with an essence into element Adaptation Stones.
+- **Alphas and Luckys stay special:** an Alpha evolves into the Alpha form of its target species, a Lucky stays Lucky - the status survives every transformation.
+- **Stones as the price of power:** every transformation costs its stone - Evolution Stones forged from Paldium Fragments, Meteor Fragments and Pal Fluids, element Adaptation Stones attuned with the matching essence. Optional drop-based material costs can be enabled on top.
+- **The Pal Alchemy Workbench:** an own buildable bench (technology level 10) that breaks skill fruits down 1:1 into element essences (or 10x matching drops like Flame Organs, Wool or Horns), forges Evolution Stones and attunes them into element Adaptation Stones.
 - **Egg filter:** eggs only hatch base forms, so evolved forms stay something you earn (on by default, configurable).
 - **Web configurator:** explore every transformation as an interactive graph at [palvolve.doodesch.de](https://palvolve.doodesch.de), toggle categories or build your own tree, and download a ready-to-use config.
 - **Identity preserved, and then some:** everything individual carries over, including moves the target species could never learn - builds vanilla cannot have. +5 to all IV talents per stage (capped at 100).
-- **Transactional and safe:** every evolution snapshots the Pal first and refunds all costs if anything aborts before the transformation. `palvolve rollback` in the UE4SS console restores the last snapshot.
+- **Transactional and safe:** every evolution snapshots the Pal first and refunds all costs if anything aborts before the transformation completes.
 - Keyboard fallback: F2 checks and confirms the summoned Pal's next evolution without the radial menu.
 
 ## Installation
@@ -38,11 +39,11 @@ Subscribe, then enable the mod in-game under Options > Mod Management. UE4SS is 
 
 ## Before you uninstall
 
-**Demolish every placed Element Extractor before removing the mod.** Worlds containing placed modded buildings will not load once the mod is gone (a known game-side limitation). Modded items left in inventories are cleaned up automatically by PalSchema.
+**Demolish every placed Pal Alchemy Workbench before removing the mod.** Worlds containing placed modded buildings will not load once the mod is gone (a known game-side limitation). Modded items left in inventories are cleaned up automatically by PalSchema.
 
 ## Configuration
 
-The easy way: open the **[Palvolve Configurator](https://palvolve.doodesch.de)**, explore every transformation in an interactive graph, toggle whole categories or build your own tree, then drop the downloaded `config_user.lua` next to `scripts\config.lua` - the mod picks it up automatically and it survives mod updates.
+The easy way: open the **[Palvolve Configurator](https://palvolve.doodesch.de)**, explore every transformation in an interactive graph, toggle whole categories or build your own tree, then drop the downloaded `config_user.lua` into `%LocalAppData%\Pal\Saved\Palvolve\` (create the folder if it does not exist - the mod also creates it on its first launch). The file survives mod updates and works for Workshop installs; placing it next to `scripts\config.lua` works as well.
 
 For hand-tuning, everything lives in `scripts\config.lua`: individual pairs, level thresholds, cost scaling, the egg filter and the transformation timings.
 
