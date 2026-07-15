@@ -1,14 +1,14 @@
 {
     "DT_MapObjectNameText": {
-        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "เครื่องสกัดธาตุ"
+        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "โต๊ะทำงานเล่นแร่แปรธาตุพาล"
     },
     "DT_BuildObjectDescText": {
         "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "ย่อยผลไม้สกิลและวัตถุดิบธาตุให้เป็นแก่นแท้บริสุทธิ์ แล้วหลอมหินวิวัฒนาการและหินปรับตัว"
     },
     "DT_TechnologyNameText": {
-        "NAME_RECIPE_Palvolve_ElementExtractor": "เครื่องสกัดธาตุ"
+        "NAME_RECIPE_Palvolve_ElementExtractor": "โต๊ะทำงานเล่นแร่แปรธาตุพาล"
     },
     "DT_TechnologyDescText": {
-        "DESC_RECIPE_Palvolve_ElementExtractor": "ปลดล็อกเครื่องสกัดธาตุ ศูนย์กลางของการสกัดแก่นแท้ หินวิวัฒนาการ และหินปรับตัว"
+        "DESC_RECIPE_Palvolve_ElementExtractor": "ปลดล็อกโต๊ะทำงานเล่นแร่แปรธาตุพาล สถานที่สำหรับสกัดสารสกัดและสร้างหินวิวัฒนาการกับหินปรับตัว"
     }
 }

@@ -1,14 +1,14 @@
 {
     "DT_MapObjectNameText": {
-        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "원소 추출기"
+        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "팰 연금 작업대"
     },
     "DT_BuildObjectDescText": {
         "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "기술 열매와 원소 소재를 순수한 정수로 분해하고, 진화의 돌과 적응의 돌을 제련한다."
     },
     "DT_TechnologyNameText": {
-        "NAME_RECIPE_Palvolve_ElementExtractor": "원소 추출기"
+        "NAME_RECIPE_Palvolve_ElementExtractor": "팰 연금 작업대"
     },
     "DT_TechnologyDescText": {
-        "DESC_RECIPE_Palvolve_ElementExtractor": "원소 추출기를 해금한다. 정수 추출, 진화의 돌, 적응의 돌 제작의 중심 설비다."
+        "DESC_RECIPE_Palvolve_ElementExtractor": "팰 연금 작업대를 해제한다. 정수 추출과 진화석, 적응석 제작이 이루어지는 곳이다."
     }
 }

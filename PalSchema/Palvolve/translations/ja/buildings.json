@@ -1,14 +1,14 @@
 {
     "DT_MapObjectNameText": {
-        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "属性抽出機"
+        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "パル錬金作業台"
     },
     "DT_BuildObjectDescText": {
         "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "技の実や属性素材を純粋なエッセンスへ分解し、進化の石と適応の石を鍛造する。"
     },
     "DT_TechnologyNameText": {
-        "NAME_RECIPE_Palvolve_ElementExtractor": "属性抽出機"
+        "NAME_RECIPE_Palvolve_ElementExtractor": "パル錬金作業台"
     },
     "DT_TechnologyDescText": {
-        "DESC_RECIPE_Palvolve_ElementExtractor": "属性抽出機をアンロックする。エッセンス抽出、進化の石、適応の石の拠点となる設備。"
+        "DESC_RECIPE_Palvolve_ElementExtractor": "パル錬金作業台をアンロックする。エキス抽出、進化石、適応石を生み出す拠点だ。"
     }
 }

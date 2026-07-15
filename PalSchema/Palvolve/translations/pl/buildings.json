@@ -1,14 +1,14 @@
 {
     "DT_MapObjectNameText": {
-        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "Ekstraktor żywiołów"
+        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "Alchemiczny stół warsztatowy Pali"
     },
     "DT_BuildObjectDescText": {
         "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "Rozkłada owoce umiejętności i materiały żywiołów na czyste esencje oraz wykuwa Kamienie ewolucji i Kamienie adaptacji."
     },
     "DT_TechnologyNameText": {
-        "NAME_RECIPE_Palvolve_ElementExtractor": "Ekstraktor żywiołów"
+        "NAME_RECIPE_Palvolve_ElementExtractor": "Alchemiczny stół warsztatowy Pali"
     },
     "DT_TechnologyDescText": {
-        "DESC_RECIPE_Palvolve_ElementExtractor": "Odblokowuje Ekstraktor żywiołów, centrum ekstrakcji esencji, Kamieni ewolucji i Kamieni adaptacji."
+        "DESC_RECIPE_Palvolve_ElementExtractor": "Odblokowuje alchemiczny stół warsztatowy Pali, służący do ekstrakcji esencji oraz tworzenia Kamieni ewolucji i Kamieni adaptacji."
     }
 }

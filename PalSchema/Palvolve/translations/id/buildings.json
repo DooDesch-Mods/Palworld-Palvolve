@@ -1,14 +1,14 @@
 {
     "DT_MapObjectNameText": {
-        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "Ekstraktor Elemen"
+        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "Meja Kerja Alkimia Pal"
     },
     "DT_BuildObjectDescText": {
         "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "Mengurai Buah Skill dan material elemen menjadi esensi murni, lalu menempa Batu Evolusi dan Batu Adaptasi."
     },
     "DT_TechnologyNameText": {
-        "NAME_RECIPE_Palvolve_ElementExtractor": "Ekstraktor Elemen"
+        "NAME_RECIPE_Palvolve_ElementExtractor": "Meja Kerja Alkimia Pal"
     },
     "DT_TechnologyDescText": {
-        "DESC_RECIPE_Palvolve_ElementExtractor": "Membuka Ekstraktor Elemen, pusat ekstraksi esensi, Batu Evolusi, dan Batu Adaptasi."
+        "DESC_RECIPE_Palvolve_ElementExtractor": "Membuka Meja Kerja Alkimia Pal, pusat pengolahan ekstrak serta pembuatan Batu Evolusi dan Batu Adaptasi."
     }
 }

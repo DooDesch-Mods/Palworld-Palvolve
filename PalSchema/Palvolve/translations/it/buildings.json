@@ -1,14 +1,14 @@
 {
     "DT_MapObjectNameText": {
-        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "Estrattore elementale"
+        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "Banco da lavoro di alchimia Pal"
     },
     "DT_BuildObjectDescText": {
         "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "Scompone frutti della tecnica e materiali elementali in essenze pure, poi forgia pietre evolutive e pietre dell'adattamento."
     },
     "DT_TechnologyNameText": {
-        "NAME_RECIPE_Palvolve_ElementExtractor": "Estrattore elementale"
+        "NAME_RECIPE_Palvolve_ElementExtractor": "Banco da lavoro di alchimia Pal"
     },
     "DT_TechnologyDescText": {
-        "DESC_RECIPE_Palvolve_ElementExtractor": "Sblocca l'estrattore elementale, il cuore dell'estrazione di essenze, delle pietre evolutive e delle pietre dell'adattamento."
+        "DESC_RECIPE_Palvolve_ElementExtractor": "Sblocca il banco da lavoro di alchimia Pal, il centro per l'estrazione dell'essenza e la creazione di Pietre evolutive e Pietre di adattamento."
     }
 }
