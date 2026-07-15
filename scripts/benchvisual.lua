@@ -1,4 +1,4 @@
--- Palvolve bench visual: the Element Extractor reuses the vanilla medieval
+-- Palvolve bench visual: the Pal Alchemy Workbench reuses the vanilla medieval
 -- medicine workbench blueprint, so placed instances get a teal tint to stand
 -- apart from the real thing. Instances are recognized by their data row id
 -- (Model.MapObjectMasterDataId / BuildObjectId == our PalSchema row), never
@@ -9,14 +9,16 @@ local Config = require("config")
 local BenchVisual = {}
 
 local ROW_ID = "Palvolve_ElementExtractor"
--- material probe: logs mesh/material names of our bench so the tint can
--- target real parameter names; flip to false once the tint is verified
-local PROBE = true
+-- material probe: logs mesh/material names of our bench for tint debugging
+local PROBE = false
 -- teal accent, matches the mod's stone/branding palette
 local TINT = { R = 0.12, G = 0.55, B = 0.60, A = 1.0 }
--- common tint parameter names across Palworld building materials; setting a
--- parameter that does not exist on a material is a harmless no-op
-local PARAM_NAMES = { "BaseColor", "Color", "Tint", "MainColor", "ColorA" }
+-- tint parameters of the bench materials' parent (M_PalLit): "BaseColor"
+-- multiplies the base texture, "ChangeColor" + "ChangeColor Rate" drive the
+-- game's own recolor system. Setting a parameter that does not exist on a
+-- material is a harmless no-op.
+local VECTOR_PARAMS = { "BaseColor", "ChangeColor" }
+local SCALAR_PARAMS = { ["ChangeColor Rate"] = 0.6 }
 
 local function Log(msg)
     print(string.format("[Palvolve] %s\n", msg))
@@ -44,62 +46,163 @@ local function isOurBench(actor)
     return found
 end
 
+-- TArrays returned from UFunctions hand out RemoteUnrealParam wrappers on
+-- indexing - unwrap before calling UObject methods on the element
+local function unwrap(elem)
+    if elem and type(elem) == "userdata" and elem.get then
+        return elem:get()
+    end
+    return elem
+end
+
 local function tintActor(actor)
-    pcall(function()
-        local meshes = actor:K2_GetComponentsByClass(StaticFindObject("/Script/Engine.StaticMeshComponent"))
-        for i = 1, #meshes do
-            local mesh = meshes[i]
-            if mesh and mesh:IsValid() then
-                if PROBE or Config.devMode then
-                    pcall(function()
-                        local mats = mesh:GetMaterials()
-                        for m = 1, #mats do
-                            local mat = mats[m]
-                            local name = mat and mat:IsValid() and mat:GetFName():ToString() or "nil"
-                            local full = ""
-                            pcall(function() full = mat:GetFullName() end)
-                            Log(string.format("[probe-bench] mesh=%s material[%d]=%s (%s)",
-                                mesh:GetFName():ToString(), m, name, full))
-                        end
-                    end)
+    local ok, err = pcall(function()
+        local meshClass = StaticFindObject("/Script/Engine.StaticMeshComponent")
+        if not (meshClass and meshClass:IsValid()) then
+            Log("[probe-bench] StaticMeshComponent class not found")
+            return
+        end
+        local meshes = actor:K2_GetComponentsByClass(meshClass)
+        local count = meshes and #meshes or 0
+        if PROBE or Config.devMode then
+            Log(string.format("[probe-bench] %d static mesh components on %s",
+                count, actor:GetFName():ToString()))
+        end
+        if count == 0 and (PROBE or Config.devMode) then
+            -- the visuals may live on other component types (or on a child
+            -- actor entirely) - list what the actor actually carries
+            local allClass = StaticFindObject("/Script/Engine.ActorComponent")
+            local comps = actor:K2_GetComponentsByClass(allClass)
+            local total = comps and #comps or 0
+            Log(string.format("[probe-bench] %d total components", total))
+            for i = 1, math.min(total, 30) do
+                local c = unwrap(comps[i])
+                if c and c:IsValid() then
+                    Log(string.format("[probe-bench] comp[%d]=%s (%s)", i,
+                        c:GetFName():ToString(), c:GetClass():GetFName():ToString()))
                 end
-                for _, param in ipairs(PARAM_NAMES) do
-                    pcall(function()
-                        mesh:SetVectorParameterValueOnMaterials(FName(param), TINT)
-                    end)
+            end
+        end
+        -- the game already assigns MaterialInstanceDynamic objects to placed
+        -- build objects, so the tint parameters are set DIRECTLY on those
+        -- per-instance MIDs (parameters resolve through the parent chain up
+        -- to M_PalLit). Never wrap the runtime MID in another MID - that
+        -- loses the texture overrides and renders the mesh untextured.
+        local midClass = StaticFindObject("/Script/Engine.MaterialInstanceDynamic")
+        local kismet = StaticFindObject("/Script/Engine.Default__KismetMaterialLibrary")
+        for i = 1, count do
+            local mesh = unwrap(meshes[i])
+            if mesh and mesh:IsValid() then
+                local mats = mesh:GetMaterials()
+                local matCount = mats and #mats or 0
+                for m = 1, matCount do
+                    local mat = unwrap(mats[m])
+                    if mat and mat:IsValid() then
+                        local isMid = midClass and midClass:IsValid() and mat:IsA(midClass)
+                        if not isMid and kismet and kismet:IsValid() then
+                            -- static slot: create a MID from the constant
+                            -- instance and assign it immediately (unassigned
+                            -- MIDs are garbage collected within a minute)
+                            local okMid = pcall(function()
+                                local mid = kismet:CreateDynamicMaterialInstance(actor, mat, FName(""), 0)
+                                if mid and mid:IsValid() then
+                                    mesh:SetMaterial(m - 1, mid)
+                                    mat = mid
+                                    isMid = true
+                                end
+                            end)
+                            if not okMid and (PROBE or Config.devMode) then
+                                Log(string.format("[probe-bench] MID creation failed for slot %d", m - 1))
+                            end
+                        end
+                        if isMid then
+                            for _, param in ipairs(VECTOR_PARAMS) do
+                                pcall(function()
+                                    mat:SetVectorParameterValue(FName(param), TINT)
+                                end)
+                            end
+                            for param, value in pairs(SCALAR_PARAMS) do
+                                pcall(function()
+                                    mat:SetScalarParameterValue(FName(param), value)
+                                end)
+                            end
+                            if PROBE or Config.devMode then
+                                Log(string.format("[probe-bench] tint set on slot %d (%s)",
+                                    m - 1, mat:GetFName():ToString()))
+                            end
+                        end
+                    end
                 end
             end
         end
     end)
+    if not ok then
+        Log(string.format("[probe-bench] tint error: %s", tostring(err)))
+    end
 end
 
 -- The model (and with it the row id) arrives via replication after the actor
--- constructs, so the check runs slightly deferred.
-local function onBuildObject(actor)
-    ExecuteWithDelay(750, function()
-        ExecuteInGameThread(function()
-            if isOurBench(actor) then
-                tintActor(actor)
-                if PROBE or Config.devMode then Log("[probe-bench] tint attempt on Element Extractor instance") end
-            end
-        end)
+-- constructs, so candidates are queued and retried from a single LoopAsync.
+-- ExecuteWithDelay is avoided on purpose - its transient callback refs get
+-- garbage collected under load ("Ref was not function"), which killed every
+-- deferred callback of the mod in one session.
+local MAX_TRIES = 8
+
+-- returns true when the entry is finished (tinted or not ours), false when
+-- the actor's row id is not readable yet and the entry should be retried
+local function handleActor(actor)
+    if not (actor and actor:IsValid()) then return true end
+    local id = nil
+    pcall(function()
+        local model = actor:GetModel()
+        if model and model:IsValid() then
+            local master = model.MapObjectMasterDataId
+            if master and master.ToString then id = master:ToString() end
+        end
     end)
+    if id == nil or id == "" or id == "None" then return false end
+    if isOurBench(actor) then
+        tintActor(actor)
+        if PROBE or Config.devMode then Log("[probe-bench] tint attempt on Pal Alchemy Workbench instance") end
+    end
+    return true
 end
 
 function BenchVisual.init()
+    local pending = {}
+    local swept = false
+
     NotifyOnNewObject("/Script/Pal.PalBuildObject", function(actor)
-        pcall(onBuildObject, actor)
+        pending[#pending + 1] = { actor = actor, tries = 0 }
     end)
-    -- benches already placed when the mod loads (world load order)
-    ExecuteWithDelay(5000, function()
+
+    LoopAsync(1000, function()
         ExecuteInGameThread(function()
             pcall(function()
-                local objs = FindAllOf("PalBuildObject") or {}
-                for _, bo in ipairs(objs) do
-                    if isOurBench(bo) then tintActor(bo) end
+                if not swept then
+                    -- benches already placed when the mod loads
+                    swept = true
+                    local objs = FindAllOf("PalBuildObject") or {}
+                    for _, bo in ipairs(objs) do
+                        pending[#pending + 1] = { actor = bo, tries = 0 }
+                    end
+                end
+                if #pending == 0 then return end
+                local batch = pending
+                pending = {}
+                for _, entry in ipairs(batch) do
+                    local done = true
+                    pcall(function() done = handleActor(entry.actor) end)
+                    if not done then
+                        entry.tries = entry.tries + 1
+                        if entry.tries < MAX_TRIES then
+                            pending[#pending + 1] = entry
+                        end
+                    end
                 end
             end)
         end)
+        return false
     end)
 end
 

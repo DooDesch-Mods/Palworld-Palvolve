@@ -42,12 +42,20 @@ if not okEgg then
     Log("egg filter failed to load: " .. tostring(errEgg))
 end
 
--- Element Extractor visual (teal tint on the reused medicine bench)
+-- Pal Alchemy Workbench visual (teal tint on the reused medicine bench)
 local okBench, errBench = pcall(function()
     require("benchvisual").init()
 end)
 if not okBench then
     Log("bench visual failed to load: " .. tostring(errBench))
+end
+
+-- Pal Alchemy Workbench recipe filter (per-instance converter target patch)
+local okFilter, errFilter = pcall(function()
+    require("benchfilter").init()
+end)
+if not okFilter then
+    Log("bench filter failed to load: " .. tostring(errFilter))
 end
 
 -- Dev probes (devMode only; set devMode=false before release and do not package probes.lua)
