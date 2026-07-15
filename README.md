@@ -33,7 +33,7 @@ Subscribe, then enable the mod in-game under Options > Mod Management. UE4SS is 
 
 ## Compatibility
 
-- Palworld 1.0 (buildid 24088745).
+- Palworld 1.0 (buildid 24181527).
 - Singleplayer and co-op host. Dedicated servers are not supported yet (UE4SS does not run there); server support is on the roadmap.
 - Requires UE4SS (Palworld build) and PalSchema.
 

@@ -3,18 +3,22 @@
   "PackageName": "DooDesch.Palvolve",
   "Thumbnail": "thumbnail.png",
   "Version": "1.0.0",
-  "MinRevision": 24088745,
+  "MinRevision": 24181527,
   "Author": "DooDesch",
   "Dependencies": [],
   "Tags": [],
   "InstallRule": [
     {
       "Type": "Lua",
-      "Targets": ["scripts"]
+      "Targets": [
+        "scripts"
+      ]
     },
     {
       "Type": "PalSchema",
-      "Targets": ["PalSchema"]
+      "Targets": [
+        "PalSchema"
+      ]
     }
   ]
 }
