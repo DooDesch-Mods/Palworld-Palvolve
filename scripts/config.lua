@@ -65,8 +65,10 @@ local Config = {
     -- Material costs on top of the stone. Materials derive from drop tables
     -- (evolutions price the BASE pal's drops, adaptations the TARGET form's);
     -- a per-pair `materials = { { id = "...", count = n }, ... }` overrides.
+    -- Off by default: the stone + essence chain already carries the price,
+    -- extra per-pal materials are opt-in for players who want more grind.
     costs = {
-        enabled = true,
+        enabled = false,
         slots = 2,        -- max distinct material types taken from a drop row
         minRate = 50.0,   -- ignore drop slots rarer than this (percent)
         countScale = 4.0, -- count = ceil(avg(min,max) * countScale), clamped
@@ -147,14 +149,14 @@ local Config = {
         category = "funchain",
         minLevel = 45,
         stone = "evolution",
-        enabled = false
+        enabled = true
     }, {
         from = "PinkCat",
         to = "BadCatgirl",
         category = "funchain",
         minLevel = 35,
         stone = "evolution",
-        enabled = false
+        enabled = true
     }, {
         from = "SmallArmadillo",
         to = "DrillGame",
@@ -168,7 +170,7 @@ local Config = {
         category = "funchain",
         minLevel = 45,
         stone = "evolution",
-        enabled = false
+        enabled = true
     }, -- ==================== Element adaptations (base -> variant) ====================
     -- Default threshold 30; both DataTable rows exist for every pair.
     {
@@ -844,11 +846,39 @@ function Config.baseFormOf(characterId)
 end
 
 -- Optional user overlay: the configurator at palvolve.doodesch.de generates
--- a config_user.lua next to this file. It replaces the pair map wholesale
--- and merges a whitelist of globals. Mod updates overwrite config.lua but
--- never the user file.
-local okUser, user = pcall(require, "config_user")
-if okUser and type(user) == "table" then
+-- a config_user.lua. It replaces the pair map wholesale and merges a
+-- whitelist of globals. Preferred location (identical on every PC, works for
+-- Workshop installs where the mod folder is managed by Steam):
+--   %LocalAppData%\Pal\Saved\Palvolve\config_user.lua
+-- Fallback: next to this file. Mod updates never touch the user file.
+local function loadUserConfig()
+    local localAppData = os.getenv("LOCALAPPDATA")
+    if localAppData then
+        local dir = localAppData .. "\\Pal\\Saved\\Palvolve"
+        local path = dir .. "\\config_user.lua"
+        local chunk = loadfile(path)
+        if chunk then
+            local okChunk, result = pcall(chunk)
+            if okChunk and type(result) == "table" then return result, path end
+        else
+            -- make the documented drop folder exist so users only have to
+            -- paste the path; probe first to avoid a shell call on every start
+            local probe = io.open(dir .. "\\.palvolve", "w")
+            if probe then
+                probe:close()
+                os.remove(dir .. "\\.palvolve")
+            else
+                pcall(os.execute, 'mkdir "' .. dir .. '" >nul 2>nul')
+            end
+        end
+    end
+    local okReq, result = pcall(require, "config_user")
+    if okReq and type(result) == "table" then return result, "scripts" end
+    return nil
+end
+
+local user, userSource = loadUserConfig()
+if user then
     if type(user.map) == "table" then
         local cleaned = {}
         for _, p in ipairs(user.map) do
@@ -876,7 +906,7 @@ if okUser and type(user) == "table" then
             if user.costs[k] ~= nil then Config.costs[k] = user.costs[k] end
         end
     end
-    print(string.format("[Palvolve] user config loaded (%d pairs)\n", #Config.map))
+    print(string.format("[Palvolve] user config loaded (%d pairs, %s)\n", #Config.map, tostring(userSource)))
 end
 
 return Config
