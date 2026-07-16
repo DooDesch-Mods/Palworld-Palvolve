@@ -831,6 +831,17 @@ local function performEvolution(p)
                 if watcherDone then return true end
                 ExecuteInGameThread(function()
                     if watcherDone then return end
+                    -- Disconnect guard: on a dedicated server the requesting
+                    -- player's controller (and its otomo holder) are destroyed
+                    -- when they leave. Calling a UFunction on a torn-down UObject
+                    -- raises a native "Pure virtual not implemented" assert that
+                    -- pcall does NOT catch, so gate every deferred touch on
+                    -- :IsValid() and abort the sequence (the data mutation already
+                    -- committed and the lock was released at finishOk).
+                    if not (holder and holder:IsValid() and pcSender and pcSender:IsValid()) then
+                        watcherDone = true
+                        return
+                    end
                     if phase == "await_recall" then
                         local out = nil
                         pcall(function() out = holder:TryGetSpawnedOtomo() end)
@@ -940,6 +951,8 @@ local function performEvolution(p)
                                 LoopAsync(250, function()
                                     if vfxFired then return true end
                                     vfxFired = true
+                                    -- disconnect guard (see the main loop above)
+                                    if not (holder and holder:IsValid()) then return true end
                                     pcall(function()
                                         local na = holder:TryGetSpawnedOtomo()
                                         if na and na:IsValid() then
@@ -961,6 +974,9 @@ local function performEvolution(p)
                                 local held = false
                                 LoopAsync(300, function()
                                     if held then return true end
+                                    -- disconnect guard: never touch a dead holder,
+                                    -- and do not attempt an unfreeze on it
+                                    if not (holder and holder:IsValid()) then held = true; return true end
                                     local na = nil
                                     pcall(function() na = holder:TryGetSpawnedOtomo() end)
                                     if not (na and na:IsValid()) then held = true; return true end
