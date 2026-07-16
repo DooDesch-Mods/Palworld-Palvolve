@@ -284,12 +284,19 @@ local M = {
         ctx.fx.revealActor = newActor
         -- explosion finale: simultaneous bursts around the spot in the
         -- TARGET form's element(s) - dual-element targets alternate
+        -- Finale spread. Offsets are ctx-overridable so the MP client can widen
+        -- them to frame the full-size target species (a big pal dwarfs the
+        -- default 80-unit spread and all bursts cluster inside its body); the
+        -- singleplayer path leaves them nil and keeps the original tight look.
+        local fr = ctx.finaleRadius or 80
+        local fzA = ctx.finaleZa; if fzA == nil then fzA = 40 end
+        local fzB = ctx.finaleZb; if fzB == nil then fzB = 100 end
         spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ)
         spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ, elemAt(ctx.elemsTo, 1))
-        spawnBurst(ctx.worldCtx, ctx.oldX + 80, ctx.oldY, ctx.oldZ + 40, elemAt(ctx.elemsTo, 2))
-        spawnBurst(ctx.worldCtx, ctx.oldX - 80, ctx.oldY, ctx.oldZ + 40, elemAt(ctx.elemsTo, 3))
-        spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY + 80, ctx.oldZ + 100, elemAt(ctx.elemsTo, 4))
-        spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY - 80, ctx.oldZ + 100, elemAt(ctx.elemsTo, 5))
+        spawnBurst(ctx.worldCtx, ctx.oldX + fr, ctx.oldY, ctx.oldZ + fzA, elemAt(ctx.elemsTo, 2))
+        spawnBurst(ctx.worldCtx, ctx.oldX - fr, ctx.oldY, ctx.oldZ + fzA, elemAt(ctx.elemsTo, 3))
+        spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY + fr, ctx.oldZ + fzB, elemAt(ctx.elemsTo, 4))
+        spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY - fr, ctx.oldZ + fzB, elemAt(ctx.elemsTo, 5))
         playEffect(newActor, 2)
 
         -- One continuous driver from reveal to the end of the finale hold:

@@ -9,6 +9,7 @@ local Config = require("config")
 local FX = require("fx")
 local Costs = require("costs")
 local Elements = require("elements")
+local Conditions = require("conditions")
 local Role = require("role")
 local Authority = require("authority")
 local NetChannel = require("netchannel")
@@ -35,6 +36,24 @@ end)()
 
 local function Log(msg)
     print(string.format("[%s] %s\n", MOD_NAME, msg))
+end
+
+-- Absolute per-species capsule half-height, from the pal's static parameter
+-- component (filled from the pal database at spawn). Readable on a HEADLESS
+-- dedicated server, unlike GetSimpleCollisionHalfHeight / GetScaledCapsuleHalfHeight
+-- which return a small BP default (~30) until a loaded mesh resizes the capsule -
+-- with no mesh on a server, a big target species therefore sank into the ground.
+-- Returns nil when unavailable so callers can fall back.
+local function staticCapsuleHalf(actor)
+    local h = nil
+    pcall(function()
+        local spc = actor.StaticCharacterParameterComponent
+        if spc and spc:IsValid() then
+            local v = spc.MeshCapsuleHalfHeight
+            if v and v > 0 then h = v end
+        end
+    end)
+    return h
 end
 
 -- ---------------------------------------------------------------- utilities
@@ -454,30 +473,36 @@ local function findEligibleFor(playerCtx)
     local param = paramOf(actor)
     if not (param and isOwnedBy(param, playerCtx and playerCtx.playerUId)) then return nil end
     local id, isAlpha = baseCharacterId(param:GetCharacterID():ToString())
-    -- pick the first pair that is not alpha-blocked, so a branched species
-    -- whose FIRST target lacks a BOSS_ row still reaches its other options
+    -- pick the first pair that passes EVERY gate (alpha form, level,
+    -- conditions), so a branched species whose first target is blocked
+    -- still reaches its other options
     local pairList = Config.findPairs(id)
     if not pairList or #pairList == 0 then
         return nil, string.format("%s has no evolution", id)
     end
-    local pair, pairIndex, alphaBlockedTo = nil, nil, nil
+    local level = 0
+    pcall(function() level = param:GetLevel() end)
+    local condCtx = { actor = actor, param = param, playerCtx = playerCtx, holder = holder }
+    local pair, pairIndex, firstReason, alphaBlockedTo = nil, nil, nil, nil
     for i, cand in ipairs(pairList) do
         if isAlpha and not swapTargetId(cand, true) then
             alphaBlockedTo = alphaBlockedTo or cand.to
+        elseif level < cand.minLevel then
+            firstReason = firstReason or string.format(
+                "%s needs level %d to evolve (currently %d)", id, cand.minLevel, level)
         else
-            pair = cand
-            pairIndex = i
-            break
+            local condOk, unmet = Conditions.evaluate(cand, condCtx)
+            if condOk then
+                pair = cand
+                pairIndex = i
+                break
+            end
+            firstReason = firstReason or string.format("%s needs: %s", cand.to, unmet)
         end
     end
     if not pair then
-        return nil, string.format("%s has no Alpha form - the Alpha cannot evolve into it", alphaBlockedTo)
-    end
-    local level = 0
-    pcall(function() level = param:GetLevel() end)
-    if level < pair.minLevel then
-        return nil, string.format("%s needs level %d to evolve (currently %d)",
-            id, pair.minLevel, level)
+        return nil, firstReason
+            or string.format("%s has no Alpha form - the Alpha cannot evolve into it", alphaBlockedTo)
     end
     -- pairIndex is the position in Config.findPairs(id) - the token a
     -- connected client sends over the net channel
@@ -517,7 +542,10 @@ local function performEvolution(p)
         oldX, oldY, oldZ = loc.X, loc.Y, loc.Z
     end)
     pcall(function() oldYaw = actor:K2_GetActorRotation().Yaw end)
-    pcall(function() oldHalf = actor:GetSimpleCollisionHalfHeight() end)
+    oldHalf = staticCapsuleHalf(actor)
+    if not oldHalf or oldHalf <= 0 then
+        pcall(function() oldHalf = actor:GetSimpleCollisionHalfHeight() end)
+    end
     if not oldHalf or oldHalf <= 0 then
         pcall(function() oldHalf = actor.CapsuleComponent:GetScaledCapsuleHalfHeight() end)
     end
@@ -797,6 +825,8 @@ local function performEvolution(p)
             local startedAt = os.clock()
             local watcherDone = false
             local spawnedAt = nil
+            local nhTries = 0
+            local nhBest = 0
             LoopAsync(150, function()
                 if watcherDone then return true end
                 ExecuteInGameThread(function()
@@ -829,17 +859,41 @@ local function performEvolution(p)
                         local cand = nil
                         pcall(function() cand = handle:TryGetIndividualActor() end)
                         if not (cand and cand:IsValid()) then watcherDone = true return end
-                        local nh = 0
-                        pcall(function() nh = cand:GetSimpleCollisionHalfHeight() end)
-                        if not nh or nh <= 0 then
+                        -- Read the new pal's capsule half-height. A freshly
+                        -- spawned actor's capsule is NOT yet sized to the target
+                        -- species for the first frames - it reports a small
+                        -- default (~30) that put destZ far too low and sank a big
+                        -- pal (Penking) into the ground. Poll until the capsule
+                        -- has grown past the old pal's half (evolutions are
+                        -- bigger) or a short budget elapses, keeping the best
+                        -- value seen. This also gives the client's own capsule
+                        -- read time to settle before the reveal signal.
+                        -- Absolute capsule half from the static parameter
+                        -- component (correct without a mesh, headless-safe). Fall
+                        -- back to the collision accessors + a short settle poll
+                        -- only if that source is unavailable.
+                        local nh = staticCapsuleHalf(cand)
+                        if not (nh and nh > 0) then
+                            pcall(function() nh = cand:GetSimpleCollisionHalfHeight() end)
+                        end
+                        if not (nh and nh > 0) then
                             pcall(function() nh = cand.CapsuleComponent:GetScaledCapsuleHalfHeight() end)
                         end
+                        nh = nh or 0
+                        if nh > nhBest then nhBest = nh end
+                        local grew = nhBest > ((savedHalf or 0) * 1.1)
+                        if (not grew) and nhTries < 8 then
+                            nhTries = nhTries + 1
+                            return -- stay in "activate"; let the value settle
+                        end
+                        nh = (nhBest > 0) and nhBest or nh
                         -- feet-on-ground for the taller new species, plus a
                         -- small lift so it never spawns sunk into the ground
                         local destZ = (savedZ or 0) + 40
                         if savedZ and savedHalf and savedHalf > 0 and nh and nh > 0 then
                             destZ = savedZ - savedHalf + nh + 40
                         end
+                        Log(string.format("[mpseq] place nh=%.0f destZ=%.0f", nh or 0, destZ))
                         local activated = false
                         pcall(function()
                             activated = holder:ActivateCurrentOtomo({
@@ -852,6 +906,14 @@ local function performEvolution(p)
                             local newActor = nil
                             pcall(function() newActor = holder:TryGetSpawnedOtomo() end)
                             if newActor and newActor:IsValid() and newActor ~= oldActor then
+                                -- Re-read the absolute half from the activated
+                                -- actor's static parameter component and recompute
+                                -- destZ from the best value (belt and braces).
+                                local nh2 = staticCapsuleHalf(newActor) or 0
+                                local nhUse = math.max(nhBest or 0, nh2 or 0)
+                                if savedZ and savedHalf and savedHalf > 0 and nhUse > 0 then
+                                    destZ = savedZ - savedHalf + nhUse + 40
+                                end
                                 -- hard transform-safe freeze (suppresses the
                                 -- movement tick + AI + actions, leaves rotation
                                 -- writable for the client spin), then place once
@@ -1386,7 +1448,9 @@ function Evolution.listOptions()
     end
     local level = 0
     pcall(function() level = param:GetLevel() end)
+    local condCtx = { actor = actor, param = param, playerCtx = playerCtx, holder = holder }
     local options = {}
+    local byTarget = {}
     for i, pair in ipairs(pairList) do
         -- index is the pair's position in Config.findPairs(id) - the compact
         -- token a connected client sends over the net channel (the host
@@ -1398,14 +1462,33 @@ function Evolution.listOptions()
             opt.blocked = string.format("%s needs level %d (currently %d)",
                 pair.to, pair.minLevel, level)
         else
-            local costList = Costs.resolve(pair, level, holder)
-            local costOk, missing = Costs.check(playerCtx, costList)
-            if not costOk then
-                opt.blocked = string.format("%s missing: %s",
-                    pair.to, Costs.describeMissing(missing))
+            local condOk, unmet = Conditions.evaluate(pair, condCtx)
+            if not condOk then
+                opt.blocked = string.format("%s needs: %s", pair.to, unmet)
+            else
+                local costList = Costs.resolve(pair, level, holder)
+                local costOk, missing = Costs.check(playerCtx, costList)
+                if not costOk then
+                    opt.blocked = string.format("%s missing: %s",
+                        pair.to, Costs.describeMissing(missing))
+                end
             end
         end
-        table.insert(options, opt)
+        -- Same-target variants (either/or conditions) collapse into ONE wheel
+        -- entry: the first unblocked variant wins its index; while every
+        -- variant is blocked the reasons are joined so the player sees all
+        -- ways to unlock the target.
+        local existing = byTarget[pair.to]
+        if not existing then
+            byTarget[pair.to] = opt
+            table.insert(options, opt)
+        elseif existing.blocked and not opt.blocked then
+            existing.pair = opt.pair
+            existing.index = opt.index
+            existing.blocked = nil
+        elseif existing.blocked and opt.blocked then
+            existing.blocked = existing.blocked .. " or " .. opt.blocked
+        end
     end
     return options
 end
@@ -1434,25 +1517,39 @@ local function handleEvolveRequest(playerCtx, fromId, toId)
         return false, string.format("Selection outdated: summoned pal is %s, option was for %s",
             id, fromId)
     end
-    -- the pair is re-resolved from the mod config, never taken from the request
-    local pair = nil
+    -- The pair is re-resolved from the mod config, never taken from the
+    -- request. Several same-target variants may exist (either/or conditions):
+    -- the first candidate that passes every gate wins, so a stale client pick
+    -- still lands on whichever variant currently holds.
+    local candidates = {}
     for _, cand in ipairs(Config.findPairs(id)) do
-        if cand.to == toId then
-            pair = cand
-            break
-        end
+        if cand.to == toId then table.insert(candidates, cand) end
     end
-    if not pair then
+    if #candidates == 0 then
         return false, string.format("%s has no configured evolution into %s", id, tostring(toId))
-    end
-    if isAlpha and not swapTargetId(pair, true) then
-        return false, string.format("%s has no Alpha form - the Alpha cannot evolve into it", pair.to)
     end
     local level = 0
     pcall(function() level = param:GetLevel() end)
-    if level < pair.minLevel then
-        return false, string.format("%s needs level %d to evolve (currently %d)",
-            id, pair.minLevel, level)
+    local condCtx = { actor = actor, param = param, playerCtx = playerCtx, holder = holder }
+    local pair, failReason = nil, nil
+    for _, cand in ipairs(candidates) do
+        if isAlpha and not swapTargetId(cand, true) then
+            failReason = failReason or string.format(
+                "%s has no Alpha form - the Alpha cannot evolve into it", cand.to)
+        elseif level < cand.minLevel then
+            failReason = failReason or string.format(
+                "%s needs level %d to evolve (currently %d)", id, cand.minLevel, level)
+        else
+            local condOk, unmet = Conditions.evaluate(cand, condCtx)
+            if condOk then
+                pair = cand
+                break
+            end
+            failReason = failReason or string.format("%s needs: %s", cand.to, unmet)
+        end
+    end
+    if not pair then
+        return false, failReason or "Conditions not met"
     end
     -- fresh cost pre-check for a readable message; the transaction inside
     -- performEvolution is the authoritative consume
@@ -1636,18 +1733,21 @@ function Evolution.onNetSignal(kind)
         local a = nil
         pcall(function() a = holder:TryGetSpawnedOtomo() end)
         if not (a and a:IsValid()) then remoteRevealBusy = false; return end
-        Log(string.format("[mpseq-c] reveal fx: elemsFrom=%d elemsTo=%d",
-            #(remoteCtx.elemsFrom or {}), #(remoteCtx.elemsTo or {})))
-        -- re-anchor the reveal bursts to where the pal actually appears (the
-        -- host teleported it higher/elsewhere), so the finale fires AROUND it
+        remoteCtx.worldCtx = holder
+        -- The server now places the pal at the correct height (it reads the
+        -- absolute capsule half from the static parameter component), so just
+        -- anchor the finale to where the pal actually stands and size the beam
+        -- spread to the species. Height comes from the same static source (also
+        -- available on the client), falling back to the capsule accessor.
+        local nh = staticCapsuleHalf(a)
+        if not (nh and nh > 0) then pcall(function() nh = a:GetSimpleCollisionHalfHeight() end) end
+        if not (nh and nh > 0) then nh = 60 end
+        -- Anchor the finale to where the pal actually stands; leaving
+        -- finaleRadius/Za/Zb unset keeps the tight singleplayer default spread.
         pcall(function()
             local loc = a:K2_GetActorLocation()
-            remoteCtx.oldX, remoteCtx.oldY, remoteCtx.oldZ = loc.X, loc.Y, loc.Z
-        end)
-        pcall(function()
-            local nh = a:GetSimpleCollisionHalfHeight()
-            if not nh or nh <= 0 then nh = a.CapsuleComponent:GetScaledCapsuleHalfHeight() end
             remoteCtx.newHalf = nh
+            remoteCtx.oldX, remoteCtx.oldY, remoteCtx.oldZ = loc.X, loc.Y, loc.Z
         end)
         pcall(function() FX.onPreReveal(remoteCtx, a) end)
         local rd = false
@@ -1830,8 +1930,13 @@ function Evolution.init()
                         if notified[key] then return end
                         notified[key] = true
                         playFanfare(actor)
-                        Log(string.format("%s reached level %d and can evolve into %s! (press %s)",
-                            id, newLevel, pair.to, Config.confirmKey))
+                        -- conditions are transient, so the reached-level hint
+                        -- still fires and just names what else must hold
+                        local condHint = ""
+                        local conds = Conditions.describe(pair)
+                        if conds then condHint = string.format(" (when: %s)", conds) end
+                        Log(string.format("%s reached level %d and can evolve into %s!%s (press %s)",
+                            id, newLevel, pair.to, condHint, Config.confirmKey))
                     end
                 end)
             end)
