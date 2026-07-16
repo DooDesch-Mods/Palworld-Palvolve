@@ -628,10 +628,15 @@ bindProbeKey("PAGE_DOWN", "probe-pal", function()
         local function dump(kind, list)
             local ok = pcall(function()
                 for i = 1, #list do
+                    -- indexed TArray access yields RemoteUnrealParam wrappers
+                    local v = list[i]
+                    if type(v) == "userdata" then
+                        pcall(function() v = v:get() end)
+                    end
                     local out = {}
-                    local hit = db:FindWazaForBP(list[i], out)
+                    local hit = db:FindWazaForBP(v, out)
                     Log(string.format("[probe-wazaelem] %s waza=%s found=%s element=%s",
-                        kind, tostring(list[i]), tostring(hit), tostring(out.Element)))
+                        kind, tostring(v), tostring(hit), tostring(out.Element)))
                 end
             end)
             if not ok then Log(string.format("[probe-wazaelem] %s list not indexable", kind)) end

@@ -50,22 +50,26 @@ local ELEMENTS = {
 -- EPalGenderType (objectdump 99662-99666)
 local GENDER_MALE, GENDER_FEMALE = 1, 2
 
--- LastInsideRegionNameID row-key prefixes (DT_WorldMapAreaData). A condition
--- matches when the player's current region starts with ANY listed prefix.
-local REGION_PREFIXES = {
-    inCave = { "REGION_UndergroundCave_", "REGION_FixedDungeon_" },
-    inDesert = { "REGION_Desert" },
-    inVolcano = { "REGION_Volcano" },
-    inSnow = { "REGION_Frost" },
-    inGrassland = { "REGION_Grass" },
-    inForest = { "REGION_Forest" },
-    inSakura = { "REGION_Sakura" },
-    inDarkIsland = { "REGION_Darkisland" },
-    onSkyIsland = { "REGION_Skyisland" },
-    onMushroomIsland = { "REGION_Mushroom" },
-    atWorldTree = { "REGION_FootOfWorldTree" },
-    onOilrig = { "REGION_Oilrig" },
-    inSanctuary = { "REGION_Preserve" },
+-- LastInsideRegionNameID row-key patterns (DT_WorldMapAreaData). The live
+-- world reports the UNPREFIXED rows with mixed casing ("Grass_001",
+-- "Desert_UndergroundCave_001", "Sakurajim_Mushroom" - probe-verified), the
+-- REGION_* rows exist as well, so a condition matches when the lowercased
+-- region CONTAINS any listed pattern. Side effect by design: a desert cave
+-- counts as desert AND cave (conditions stay AND-able).
+local REGION_PATTERNS = {
+    inCave = { "undergroundcave", "fixeddungeon" },
+    inDesert = { "desert" },
+    inVolcano = { "volcano" },
+    inSnow = { "frost" },
+    inGrassland = { "grass" },
+    inForest = { "forest" },
+    inSakura = { "sakura" },
+    inDarkIsland = { "darkisland" },
+    onSkyIsland = { "skyisland" },
+    onMushroomIsland = { "mushroom" },
+    atWorldTree = { "footofworldtree" },
+    onOilrig = { "oilrig" },
+    inSanctuary = { "preserve" },
 }
 
 -- Tier B tuning values (probe before trusting)
@@ -102,7 +106,9 @@ local function playerPawn(ctx)
     return nil
 end
 
--- UFunction-returned TArray: prefer ForEach, fall back to #/[] indexing
+-- UFunction-returned TArray: prefer ForEach, fall back to #/[] indexing.
+-- Indexed access hands back RemoteUnrealParam wrappers (probe-verified), so
+-- unwrap with :get() before passing the value on.
 local function forEachInArray(arr, fn)
     if not arr then return end
     local ok = pcall(function()
@@ -110,7 +116,13 @@ local function forEachInArray(arr, fn)
     end)
     if ok then return end
     pcall(function()
-        for i = 1, #arr do fn(arr[i]) end
+        for i = 1, #arr do
+            local v = arr[i]
+            if type(v) == "userdata" then
+                pcall(function() v = v:get() end)
+            end
+            fn(v)
+        end
     end)
 end
 
@@ -137,12 +149,12 @@ local function playerRegion(ctx)
 end
 
 local function regionMatches(ctx, conditionId)
-    local prefixes = REGION_PREFIXES[conditionId]
-    if not prefixes then return false end
-    local region = playerRegion(ctx)
+    local patterns = REGION_PATTERNS[conditionId]
+    if not patterns then return false end
+    local region = playerRegion(ctx):lower()
     if region == "" then return false end
-    for _, prefix in ipairs(prefixes) do
-        if region:sub(1, #prefix) == prefix then return true end
+    for _, pattern in ipairs(patterns) do
+        if region:find(pattern, 1, true) then return true end
     end
     return false
 end
@@ -431,10 +443,14 @@ Conditions.ORDER = {
     "inSakura", "inDarkIsland", "onSkyIsland", "onMushroomIsland",
     "atWorldTree", "onOilrig", "inSanctuary",
     "isMale", "isFemale",
+    -- probe-confirmed 2026-07-17: HP fixed-point scale x1000, stomach rate
+    -- and friendship rank read correctly at runtime
+    "hpLow", "hpFull", "hungry", "wellFed", "highTrust",
     "isGliding", "inOwnBase", "inCombat",
-    -- Tier B (probe-gated in the web editor, accepted by the mod)
-    "raining", "snowing", "thunderstorm", "foggy",
-    "hpLow", "hpFull", "hungry", "wellFed", "highTrust", "isRiding",
+    -- Tier B (probe-gated in the web editor, accepted by the mod): weather
+    -- values read but dynamic variance is unproven; riding vs the staged
+    -- transformation is untested
+    "raining", "snowing", "thunderstorm", "foggy", "isRiding",
 }
 
 Conditions.LABELS = {

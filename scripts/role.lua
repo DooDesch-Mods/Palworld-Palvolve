@@ -70,7 +70,12 @@ function Role.playerCtxFor(pc)
         local g = ctx.playerState.PlayerUId
         ctx.playerUId = { A = g.A, B = g.B, C = g.C, D = g.D }
     end)
-    pcall(function() ctx.pawn = pc:GetPawn() end)
+    -- the reflected getter is K2_GetPawn; plain GetPawn does not exist as a
+    -- UFunction, so read the replicated Pawn property first
+    pcall(function() ctx.pawn = pc.Pawn end)
+    if not (ctx.pawn and ctx.pawn:IsValid()) then
+        pcall(function() ctx.pawn = pc:K2_GetPawn() end)
+    end
     pcall(function() ctx.isLocal = pc:IsLocalPlayerController() end)
     if ctx.isLocal == nil then ctx.isLocal = false end
     return ctx
