@@ -31,6 +31,12 @@ local Config = {
     confirmWindowSeconds = 10,
     debounceSeconds = 0.5,
 
+    -- Multiplayer request channel (host-side limits per requesting player)
+    net = {
+        rateLimitSeconds = 2, -- minimum spacing between evolve requests
+        reqIdCacheSize = 32,  -- replay protection window (request ids)
+    },
+
     -- IV bonus per evolution stage (applied to Talent_HP/Melee/Shot/Defense, capped)
     ivBonusPerStage = 5,
     ivCap = 100,

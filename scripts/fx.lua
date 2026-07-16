@@ -130,10 +130,16 @@ local function digimonCfg()
     }
 end
 
-local function yawTowardsPlayer(x, y)
+local function yawTowardsPlayer(ctx, x, y)
     local yaw = nil
     pcall(function()
-        local player = FindFirstOf("PalPlayerCharacter")
+        -- the requesting player's pawn (threaded through the sequence ctx);
+        -- FindFirstOf stays only as a fallback for legacy callers - on a
+        -- host with several players it may face the wrong one
+        local player = ctx and ctx.playerPawn
+        if not (player and player:IsValid()) then
+            player = FindFirstOf("PalPlayerCharacter")
+        end
         if player and player:IsValid() then
             local p = player:K2_GetActorLocation()
             yaw = math.deg(math.atan(p.Y - y, p.X - x))
@@ -142,7 +148,13 @@ local function yawTowardsPlayer(x, y)
     return yaw
 end
 
+-- Yaw backend, overridable per sequence (activeYawFn). Singleplayer rotates
+-- the ACTOR; multiplayer sets it on the MESH instead, because on a client the
+-- actor rotation is replicated/frozen by the server and would fight a local
+-- spin, while mesh rotation is purely local and smooth.
+local activeYawFn = nil
 local function setYaw(actor, yaw)
+    if activeYawFn then activeYawFn(actor, yaw) return end
     pcall(function()
         actor:K2_SetActorRotation({ Pitch = 0, Yaw = yaw, Roll = 0 }, false)
     end)
@@ -156,10 +168,22 @@ local M = {
     end,
     revealDelayMs = function() return 100 end,
 
+    -- Pure-visual reveal flash for the CLIENT presentation of a remote
+    -- (server-authoritative) evolution: a light + burst at a world location,
+    -- with NO actor manipulation. The pal is a replicated proxy on a client,
+    -- so freezing/despawning/respawning it locally does not hold and crashes;
+    -- only cosmetic Niagara spawns are safe.
+    remoteBurst = function(worldCtx, x, y, z)
+        spawnLight(worldCtx, x, y, z)
+        spawnBurst(worldCtx, x, y, z, "Normal")
+    end,
+
     onDissolve = function(ctx)
+        -- adopt this sequence's transform backend (MP overrides the yaw sink)
+        activeYawFn = ctx.setYaw
         local c = digimonCfg()
         preloadBursts(ctx.elemsFrom, ctx.elemsTo)
-        local faceYaw = yawTowardsPlayer(ctx.oldX, ctx.oldY) or ctx.oldYaw or 0
+        local faceYaw = yawTowardsPlayer(ctx, ctx.oldX, ctx.oldY) or ctx.oldYaw or 0
         ctx.fx.faceYaw = faceYaw
         setYaw(ctx.actor, faceYaw)
 
@@ -247,6 +271,7 @@ local M = {
     onGap = function(ctx) end, -- the peak loop already carries the hold state
 
     onPreReveal = function(ctx, newActor)
+        activeYawFn = ctx.setYaw
         -- freeze the fresh actor so its own summon/landing logic cannot fight
         -- the grow animation
         if ctx.freeze then pcall(ctx.freeze, newActor) end
@@ -272,7 +297,7 @@ local M = {
         -- through the hold and steers back into the face-player yaw at the
         -- very end.
         local c = digimonCfg()
-        local faceYaw = yawTowardsPlayer(ctx.oldX, ctx.oldY) or (ctx.fx.faceYaw or 0)
+        local faceYaw = yawTowardsPlayer(ctx, ctx.oldX, ctx.oldY) or (ctx.fx.faceYaw or 0)
         setYaw(newActor, faceYaw)
         pcall(function()
             local ctrl = newActor:GetController()
@@ -370,12 +395,20 @@ local M = {
                 local sNow = state.scale or 1
                 local oldH = (ctx.oldHalf and ctx.oldHalf > 0) and ctx.oldHalf or 30
                 local newH = (ctx.newHalf and ctx.newHalf > 0) and ctx.newHalf or oldH
-                pcall(function()
-                    newActor:K2_SetActorLocation({
-                        X = ctx.oldX or 0, Y = ctx.oldY or 0,
-                        Z = (ctx.oldZ or 0) - oldH + newH * sNow,
-                    }, false, {}, false)
-                end)
+                -- SP re-anchors the actor location so the feet stay grounded
+                -- while growing. On MP the actor location is server-authoritative
+                -- (the host already teleported + froze it), so a client write
+                -- would fight replication - ctx.placeForScale is a no-op there.
+                if ctx.placeForScale then
+                    ctx.placeForScale(newActor, sNow, oldH, newH)
+                else
+                    pcall(function()
+                        newActor:K2_SetActorLocation({
+                            X = ctx.oldX or 0, Y = ctx.oldY or 0,
+                            Z = (ctx.oldZ or 0) - oldH + newH * sNow,
+                        }, false, {}, false)
+                    end)
+                end
                 if t >= totalS then
                     state.stopped = true
                     state.finished = true

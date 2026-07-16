@@ -148,7 +148,9 @@ local function makeLabelWidget(owner, text)
     pcall(function()
         local cls = StaticFindObject(CONTENT_WBP)
         local lib = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
-        local pc = FindFirstOf("PalPlayerController")
+        -- widget owner must be THIS machine's player controller; on a listen
+        -- host FindFirstOf could return a remote client's controller
+        local pc = require("role").getLocalPlayerController()
         if not (cls and cls:IsValid() and lib and lib:IsValid() and pc and pc:IsValid()) then return end
         widget = lib:Create(owner, cls, pc)
     end)

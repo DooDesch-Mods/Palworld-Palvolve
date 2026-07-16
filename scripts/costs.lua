@@ -21,10 +21,13 @@ end
 
 -- ---------------------------------------------------------------- inventory
 
-local function inventoryData()
+-- All inventory access is scoped to a playerCtx (role.lua): on a host with
+-- connected clients FindFirstOf would hit an arbitrary controller, so the
+-- requesting player's controller must be threaded through explicitly.
+local function inventoryDataFor(playerCtx)
     local inv = nil
     pcall(function()
-        local pc = FindFirstOf("PalPlayerController")
+        local pc = playerCtx and playerCtx.pc
         if pc and pc:IsValid() then
             inv = pc:GetPalPlayerState():GetInventoryData()
         end
@@ -33,10 +36,10 @@ local function inventoryData()
     return nil
 end
 
-function Costs.countItem(staticItemId)
+function Costs.countItem(playerCtx, staticItemId)
     local n = 0
     pcall(function()
-        local inv = inventoryData()
+        local inv = inventoryDataFor(playerCtx)
         if inv then n = inv:CountItemNum(FName(staticItemId)) end
     end)
     return n
@@ -44,10 +47,10 @@ end
 
 -- Consumes `need` items; success is verified via the count difference
 -- (RequestConsumeInventoryItem is the only BP-exposed consume path).
-local function tryConsumeItems(staticItemId, need)
+local function tryConsumeItems(playerCtx, staticItemId, need)
     local ok = false
     pcall(function()
-        local inv = inventoryData()
+        local inv = inventoryDataFor(playerCtx)
         if not inv then return end
         local id = FName(staticItemId)
         local before = inv:CountItemNum(id)
@@ -62,10 +65,10 @@ local function tryConsumeItems(staticItemId, need)
     return ok
 end
 
-local function giveItems(staticItemId, count)
+local function giveItems(playerCtx, staticItemId, count)
     local res = -1
     pcall(function()
-        local inv = inventoryData()
+        local inv = inventoryDataFor(playerCtx)
         if inv then
             res = inv:AddItem_ServerInternal(FName(staticItemId), count, false, 0.0, true)
         end
@@ -234,10 +237,10 @@ function Costs.resolve(pair, level, worldCtx)
 end
 
 -- Returns ok, missing[] where missing entries carry {label, count, have}
-function Costs.check(costList)
+function Costs.check(playerCtx, costList)
     local missing = {}
     for _, c in ipairs(costList) do
-        local have = Costs.countItem(c.id)
+        local have = Costs.countItem(playerCtx, c.id)
         if have < c.count then
             table.insert(missing, { label = c.label, count = c.count, have = have })
         end
@@ -266,14 +269,14 @@ end
 -- Consumes the cost list item by item (each verified); a partial failure
 -- refunds everything already taken (reverse order) and yields nil.
 -- txn:refund(reason) is idempotent; txn:commit() makes it a no-op.
-function Costs.beginTransaction(costList)
+function Costs.beginTransaction(playerCtx, costList)
     local consumed = {}
     for _, c in ipairs(costList) do
-        if tryConsumeItems(c.id, c.count) then
+        if tryConsumeItems(playerCtx, c.id, c.count) then
             table.insert(consumed, c)
         else
             for i = #consumed, 1, -1 do
-                giveItems(consumed[i].id, consumed[i].count)
+                giveItems(playerCtx, consumed[i].id, consumed[i].count)
             end
             return nil, c
         end
@@ -287,7 +290,7 @@ function Costs.beginTransaction(costList)
         txn.done = true
         local allOk = true
         for i = #consumed, 1, -1 do
-            if not giveItems(consumed[i].id, consumed[i].count) then allOk = false end
+            if not giveItems(playerCtx, consumed[i].id, consumed[i].count) then allOk = false end
         end
         if #consumed > 0 then
             if allOk then

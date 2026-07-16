@@ -9,6 +9,9 @@ local Config = require("config")
 local FX = require("fx")
 local Costs = require("costs")
 local Elements = require("elements")
+local Role = require("role")
+local Authority = require("authority")
+local NetChannel = require("netchannel")
 
 local Evolution = {}
 
@@ -53,6 +56,25 @@ local function isOwned(param)
     return owned
 end
 
+-- Strict ownership against a specific player: multiplayer requests may only
+-- touch pals owned by the requesting player. Falls back to the any-owner
+-- check when no uid is available (playerCtx without a PlayerState yet).
+local function isOwnedBy(param, playerUId)
+    if not playerUId then return isOwned(param) end
+    local owned = false
+    pcall(function()
+        local g = param.SaveParameter.OwnerPlayerUId
+        owned = (g.A == playerUId.A and g.B == playerUId.B
+            and g.C == playerUId.C and g.D == playerUId.D)
+            and (g.A ~= 0 or g.B ~= 0 or g.C ~= 0 or g.D ~= 0)
+        if not owned and Config.devMode then
+            Log(string.format("[ownership] pal owner %08X-%08X-%08X-%08X vs requester %08X-%08X-%08X-%08X",
+                g.A, g.B, g.C, g.D, playerUId.A, playerUId.B, playerUId.C, playerUId.D))
+        end
+    end)
+    return owned
+end
+
 local function guidString(g)
     return string.format("%08X-%08X-%08X-%08X", g.A, g.B, g.C, g.D)
 end
@@ -73,10 +95,38 @@ local function paramOf(palActor)
     return nil
 end
 
-local function findHolder(actor)
+-- Otomo holder of a SPECIFIC player (never FindFirstOf: on a host with
+-- connected clients that would return an arbitrary player's holder).
+--
+-- The holder is a component of the player's CONTROLLER (verified: in the net
+-- RPC hook holder:GetOwner() returns the PalPlayerController). The generic
+-- component getter resolves it from a stable controller reference and works
+-- for a REMOTE client on a dedicated server - unlike
+-- PalUtility:GetOtomoHolderComponent, which takes only a WorldContextObject
+-- and resolves via the local player / world context (null for remote
+-- clients). Dump: AActor:GetComponentByClass (objectdump ...:511-513),
+-- PalOtomoHolderComponentBase class (...:52602).
+local otomoHolderClass = nil
+local function findHolderFor(playerCtx, actor)
+    -- primary: component of the player's own controller
+    local holder = nil
+    pcall(function()
+        local pc = playerCtx and playerCtx.pc
+        if pc and pc:IsValid() then
+            if not (otomoHolderClass and otomoHolderClass:IsValid()) then
+                otomoHolderClass = StaticFindObject("/Script/Pal.PalOtomoHolderComponentBase")
+            end
+            if otomoHolderClass then
+                local h = pc:GetComponentByClass(otomoHolderClass)
+                if h and h:IsValid() then holder = h end
+            end
+        end
+    end)
+    if holder then return holder end
+    -- fallbacks: by the summoned otomo, then the world-context util
+    -- (the latter works for the local player on standalone/listen host)
     local util = palUtility()
     if not util then return nil end
-    local holder = nil
     if actor then
         pcall(function()
             if actor:IsValid() then holder = util:GetOtomoHolderByOtomoPal(actor) end
@@ -84,7 +134,7 @@ local function findHolder(actor)
         if holder and holder:IsValid() then return holder end
     end
     pcall(function()
-        local pc = FindFirstOf("PalPlayerController")
+        local pc = playerCtx and playerCtx.pc
         if pc and pc:IsValid() then holder = util:GetOtomoHolderComponent(pc) end
     end)
     if holder and holder:IsValid() then return holder end
@@ -125,9 +175,10 @@ local function saveSnapshots()
         f:write("return {\n")
         for _, s in ipairs(snapshots) do
             f:write(string.format(
-                "  { key = %q, from = %q, to = %q, level = %d, nickname = %q, ivHP = %d, ivMelee = %d, ivShot = %d, ivDefense = %d },\n",
+                "  { key = %q, from = %q, to = %q, level = %d, nickname = %q, ivHP = %d, ivMelee = %d, ivShot = %d, ivDefense = %d, uid = %q },\n",
                 s.key or "", s.from, s.to, s.level, s.nickname or "",
-                s.ivHP or -1, s.ivMelee or -1, s.ivShot or -1, s.ivDefense or -1))
+                s.ivHP or -1, s.ivMelee or -1, s.ivShot or -1, s.ivDefense or -1,
+                s.uid or ""))
         end
         f:write("}\n")
         f:close()
@@ -156,6 +207,50 @@ local function setFrozen(palActor, frozen)
         local util = palUtility()
         if util then util:SetMoveDisableFlag(palActor, frozen, FName("PalvolveSeq")) end
     end)
+end
+
+-- Stronger, TRANSFORM-SAFE freeze for the MP reveal. The base/otomo AI would
+-- otherwise drag the pal off (flee / base work) mid-animation. This suppresses
+-- the movement component's TICK (harder than SetMoveDisableFlag - stops nav,
+-- gravity, floor snap, facing-driven movement) plus AI + queued actions, while
+-- NEVER writing the actor transform, so the client-driven reveal spin holds.
+-- All calls verified against the 1.0 object dump.
+local REVEAL_FLAG = FName("PalvolveReveal")
+local function setRevealFrozen(actor, frozen)
+    if not (actor and actor:IsValid()) then return end
+    local ctrl, move = nil, nil
+    pcall(function() ctrl = actor:GetController() end)
+    pcall(function() move = actor.CharacterMovement end)
+    if frozen then
+        if move and move:IsValid() then
+            pcall(function() move:SetMoveDisableFlag(REVEAL_FLAG, true) end)
+            pcall(function() move:SetComponentTickSuppressFlag(REVEAL_FLAG, true) end)
+            pcall(function() move:StopMovementImmediately() end)
+        end
+        if ctrl and ctrl:IsValid() then
+            pcall(function() ctrl:SetActiveAI(false) end)
+            pcall(function() ctrl:StopMovement() end)
+        end
+        pcall(function() actor.ActionComponent:CancelAllAction() end)
+    else
+        if move and move:IsValid() then
+            pcall(function() move:SetComponentTickSuppressFlag(REVEAL_FLAG, false) end)
+            pcall(function() move:SetMoveDisableFlag(REVEAL_FLAG, false) end)
+        end
+        if ctrl and ctrl:IsValid() then
+            pcall(function() ctrl:SetActiveAI(true) end)
+        end
+    end
+end
+
+-- true when the pal's AI is still (or again) active - the re-assert guard
+local function isAiActive(actor)
+    local active = false
+    pcall(function()
+        local ctrl = actor:GetController()
+        if ctrl and ctrl:IsValid() then active = ctrl:IsActiveAI() end
+    end)
+    return active
 end
 
 -- Failure-path rescue ONLY: the success path gets a landed and active actor
@@ -238,7 +333,7 @@ end
 
 -- devMode telemetry: after a reveal, log for ~6s WHO moves the new actor where
 -- (position, attach parent, movement mode, scale, height above the player)
-local function startRevealDiagnostics(holderRef, label)
+local function startRevealDiagnostics(holderRef, label, playerCtx)
     if not Config.devMode then return end
     local ticks = 0
     LoopAsync(500, function()
@@ -261,8 +356,8 @@ local function startRevealDiagnostics(holderRef, label)
                 pcall(function() scaleX = a:GetActorScale3D().X end)
                 local dz = 0
                 pcall(function()
-                    local p = FindFirstOf("PalPlayerCharacter")
-                    if p and p:IsValid() then dz = loc.Z - p:K2_GetActorLocation().Z end
+                    local pawn = playerCtx and playerCtx.pawn
+                    if pawn and pawn:IsValid() then dz = loc.Z - pawn:K2_GetActorLocation().Z end
                 end)
                 local active = "?"
                 pcall(function() active = tostring(a.bIsPalActiveActor) end)
@@ -296,8 +391,11 @@ end
 -- ---------------------------------------------------------------- core sequence
 
 -- pending = { armedAt, key, pair } - the armed confirm state; the confirm
--- press always fetches FRESH handles via findEligible()
+-- press always fetches FRESH handles via findEligibleFor()
 local pending = nil
+-- the pair a connected client last requested over the net channel, so the
+-- host's success ack can drive the local reveal (Evolution.playRemoteReveal)
+local lastRemotePair = nil
 -- Global sequence lock: never two evolutions in parallel. A watchdog aborts a
 -- stuck sequence once its per-run budget (derived from the configured phase
 -- timings) has elapsed, in case an error path ever leaks the lock.
@@ -347,14 +445,14 @@ end
 
 -- Only one own pal can be summoned at a time, so the otomo holder is the
 -- authoritative source (a FindAllOf scan would also hit ghost actors).
-local function findEligible()
-    local holder = findHolder(nil)
+local function findEligibleFor(playerCtx)
+    local holder = findHolderFor(playerCtx, nil)
     if not holder then return nil end
     local actor = nil
     pcall(function() actor = holder:TryGetSpawnedOtomo() end)
     if not (actor and actor:IsValid()) then return nil end
     local param = paramOf(actor)
-    if not (param and isOwned(param)) then return nil end
+    if not (param and isOwnedBy(param, playerCtx and playerCtx.playerUId)) then return nil end
     local id, isAlpha = baseCharacterId(param:GetCharacterID():ToString())
     -- pick the first pair that is not alpha-blocked, so a branched species
     -- whose FIRST target lacks a BOSS_ row still reaches its other options
@@ -362,12 +460,13 @@ local function findEligible()
     if not pairList or #pairList == 0 then
         return nil, string.format("%s has no evolution", id)
     end
-    local pair, alphaBlockedTo = nil, nil
-    for _, cand in ipairs(pairList) do
+    local pair, pairIndex, alphaBlockedTo = nil, nil, nil
+    for i, cand in ipairs(pairList) do
         if isAlpha and not swapTargetId(cand, true) then
             alphaBlockedTo = alphaBlockedTo or cand.to
         else
             pair = cand
+            pairIndex = i
             break
         end
     end
@@ -380,12 +479,23 @@ local function findEligible()
         return nil, string.format("%s needs level %d to evolve (currently %d)",
             id, pair.minLevel, level)
     end
-    return actor, param, pair, level, holder, isAlpha
+    -- pairIndex is the position in Config.findPairs(id) - the token a
+    -- connected client sends over the net channel
+    return actor, param, pair, level, holder, isAlpha, pairIndex
 end
 
 local function performEvolution(p)
     local actor, param, pair, holder = p.actor, p.param, p.pair, p.holder
     local isAlpha = p.isAlpha == true
+    -- the requesting player's context: every controller/pawn access below
+    -- must stay scoped to this player (multiplayer hosts serve many)
+    local playerCtx = p.playerCtx
+    -- On a dedicated server the pal has no locally rendered actor: the reveal
+    -- staging (teleport, scale, FX, the respawn pump) operates on actor/physics
+    -- state that is unsafe headless and crashed the process. The headless path
+    -- does only the authoritative data mutation (swap + IV + snapshot + cost)
+    -- and a clean recall; the client re-summons to see the new species.
+    local headless = Role.isDedicated()
     pending = nil
     sequenceRunning = true
     sequenceStartedAt = os.clock()
@@ -415,6 +525,7 @@ local function performEvolution(p)
     local fx = FX
     local ctx = {
         actor = actor, worldCtx = holder,
+        playerPawn = playerCtx and playerCtx.pawn or nil,
         oldX = oldX, oldY = oldY, oldZ = oldZ, oldYaw = oldYaw, oldHalf = oldHalf,
         unfreeze = function(a) setFrozen(a, false) end,
         freeze = function(a) setFrozen(a, true) end,
@@ -489,14 +600,14 @@ local function performEvolution(p)
     if not mgr then
         Log("Evolution aborted: PalCharacterManager not found")
         finishAbort()
-        return
+        return false, "Evolution aborted: PalCharacterManager not found"
     end
     local handle = nil
     pcall(function() handle = mgr:GetIndividualHandleFromCharacterParameter(param) end)
     if not (handle and handle:IsValid()) then
         Log("Evolution aborted: individual handle unavailable")
         finishAbort()
-        return
+        return false, "Evolution aborted: individual handle unavailable"
     end
 
     -- Take the full cost BEFORE the sequence (no TOCTOU: anything that fails
@@ -504,12 +615,13 @@ local function performEvolution(p)
     local costList = Costs.resolve(pair, level, holder)
     if #costList > 0 then
         local failedItem
-        txn, failedItem = Costs.beginTransaction(costList)
+        txn, failedItem = Costs.beginTransaction(playerCtx, costList)
         if not txn then
-            Log(string.format("Evolution aborted: %dx %s not available/consumable",
-                failedItem and failedItem.count or 0, failedItem and failedItem.label or "?"))
+            local msg = string.format("Evolution aborted: %dx %s not available/consumable",
+                failedItem and failedItem.count or 0, failedItem and failedItem.label or "?")
+            Log(msg)
             finishAbort()
-            return
+            return false, msg
         end
         Log("Cost taken: " .. Costs.describe(costList))
     end
@@ -518,9 +630,9 @@ local function performEvolution(p)
     if Config.devMode then
         local pz = "?"
         pcall(function()
-            local p = FindFirstOf("PalPlayerCharacter")
-            if p and p:IsValid() then
-                local pl = p:K2_GetActorLocation()
+            local pawn = playerCtx and playerCtx.pawn
+            if pawn and pawn:IsValid() then
+                local pl = pawn:K2_GetActorLocation()
                 pz = string.format("(%.0f,%.0f,%.0f)", pl.X, pl.Y, pl.Z)
             end
         end)
@@ -529,10 +641,13 @@ local function performEvolution(p)
     end
 
     -- Freeze + dissolve staging (white glow in place; the actor is
-    -- hard-hidden right before the teardown so no recall visuals ever show)
-    setFrozen(actor, true)
-    pcall(function() actor:SetActorEnableCollision(false) end)
-    pcall(function() fx.onDissolve(ctx) end)
+    -- hard-hidden right before the teardown so no recall visuals ever show).
+    -- Skipped headless - pure presentation on the local player's actor.
+    if not headless then
+        setFrozen(actor, true)
+        pcall(function() actor:SetActorEnableCollision(false) end)
+        pcall(function() fx.onDissolve(ctx) end)
+    end
     playFanfare(actor)
 
     -- Teardown with per-strategy despawn verification. The direct manager
@@ -546,7 +661,7 @@ local function performEvolution(p)
             holder:InactivateCurrentOtomo()
         end },
         { name = "PlayerController:InactiveOtomo", fn = function()
-            local pc = FindFirstOf("PalPlayerController")
+            local pc = playerCtx and playerCtx.pc
             if pc and pc:IsValid() then pc:InactiveOtomo() end
         end },
     }
@@ -593,6 +708,8 @@ local function performEvolution(p)
     end
 
     proceedAfterDespawn = function()
+        local targetId = swapTargetId(pair, isAlpha) or pair.to
+
         -- Swap in the despawned state (safest write moment) + verify
         if not param:IsValid() then
             Log("Aborted: parameter invalid after despawn")
@@ -611,7 +728,6 @@ local function performEvolution(p)
             finishAbort()
             return
         end
-        local targetId = swapTargetId(pair, isAlpha) or pair.to
         local okSwap, errSwap = pcall(function()
             param.SaveParameter.CharacterID = FName(targetId)
             param.SaveParameterMirror.CharacterID = FName(targetId)
@@ -637,8 +753,179 @@ local function performEvolution(p)
             to = targetId, level = level, nickname = nickname,
             ivHP = talentsBefore.Talent_HP, ivMelee = talentsBefore.Talent_Melee,
             ivShot = talentsBefore.Talent_Shot, ivDefense = talentsBefore.Talent_Defense,
+            -- owning player (additive; multiplayer rollback needs to know
+            -- whose pal the snapshot belongs to)
+            uid = playerCtx and playerCtx.playerUId
+                and guidString(playerCtx.playerUId) or nil,
         })
         saveSnapshots()
+
+        -- Headless (dedicated server): the authoritative param swap is done.
+        -- Do NOT touch the otomo lifecycle - on this path the pal was never
+        -- despawned (the teardown is skipped headless), so it is still summoned
+        -- as its old actor while its param is already the new species. Any
+        -- despawn/InactivateCurrentOtomo/respawn-pump here either crashes
+        -- headless or leaves the otomo un-summonable. The client recalls and
+        -- re-summons through the normal game path to get the new form.
+        if headless then
+            -- Server-authoritative MP presentation state machine. The pal is
+            -- still summoned as its old actor (teardown skipped headless) with
+            -- its param already the target species. We freeze it in place and
+            -- drive the client's cosmetic re-play through phase signals, doing
+            -- the parts only the authority can: the pool break (so the re-summon
+            -- spawns the NEW species, not a pooled old body) and the teleport
+            -- back to the saved spot.
+            local savedX, savedY, savedZ, savedYaw, savedHalf = oldX, oldY, oldZ, oldYaw, oldHalf
+            local pcSender = playerCtx.pc
+            local oldActor = actor
+            local savedSlot = -1
+            pcall(function() savedSlot = holder:GetSlotIndexByIndividualHandle(handle) end)
+            setRevealFrozen(actor, true)
+            NetChannel.sendSignal(pcSender, "start")
+            Log(string.format("EVOLVED (server): %s -> %s (level %d) - MP sequence", pair.from, pair.to, level))
+            finishOk()
+
+            -- Server-authoritative reload. The client recalls (dissolve done),
+            -- then the SERVER does what only the authority can and what the
+            -- client's activate RPC does NOT: destroy the pooled old body and
+            -- SpawnOtomoByLoad, which REBUILDS the actor from the swapped param
+            -- (new species mesh). ActivateCurrentOtomo then removes it from the
+            -- reserve list (no trainer-anchor float). The new actor is proven by
+            -- POINTER inequality (its param id alone reads new even on the old
+            -- pooled body). Only then teleport/freeze and signal the reveal.
+            local phase = "await_recall"
+            local startedAt = os.clock()
+            local watcherDone = false
+            local spawnedAt = nil
+            LoopAsync(150, function()
+                if watcherDone then return true end
+                ExecuteInGameThread(function()
+                    if watcherDone then return end
+                    if phase == "await_recall" then
+                        local out = nil
+                        pcall(function() out = holder:TryGetSpawnedOtomo() end)
+                        if not (out and out:IsValid()) then
+                            pcall(function() mgr:DespawnCharacterByHandle(handle, nil) end)
+                            pcall(function() holder:InactivateCurrentOtomo() end)
+                            pcall(function() pcSender:SetOtomoSlot(savedSlot) end)
+                            pcall(function() holder:SpawnOtomoByLoad(savedSlot) end)
+                            spawnedAt = os.clock()
+                            phase = "await_actor"
+                            Log("[mpseq] recall done -> reload (SpawnOtomoByLoad)")
+                        end
+                    elseif phase == "await_actor" then
+                        -- wait for the freshly loaded reserve actor (must be a
+                        -- DIFFERENT UObject than the old pooled body)
+                        local cand = nil
+                        pcall(function() cand = handle:TryGetIndividualActor() end)
+                        if cand and cand:IsValid() and cand ~= oldActor then
+                            phase = "activate"
+                            Log("[mpseq] fresh actor -> activate")
+                        elseif (os.clock() - (spawnedAt or 0)) > 5 then
+                            Log("[mpseq] reload produced no new actor (timeout)")
+                            watcherDone = true
+                        end
+                    elseif phase == "activate" then
+                        local cand = nil
+                        pcall(function() cand = handle:TryGetIndividualActor() end)
+                        if not (cand and cand:IsValid()) then watcherDone = true return end
+                        local nh = 0
+                        pcall(function() nh = cand:GetSimpleCollisionHalfHeight() end)
+                        if not nh or nh <= 0 then
+                            pcall(function() nh = cand.CapsuleComponent:GetScaledCapsuleHalfHeight() end)
+                        end
+                        -- feet-on-ground for the taller new species, plus a
+                        -- small lift so it never spawns sunk into the ground
+                        local destZ = (savedZ or 0) + 40
+                        if savedZ and savedHalf and savedHalf > 0 and nh and nh > 0 then
+                            destZ = savedZ - savedHalf + nh + 40
+                        end
+                        local activated = false
+                        pcall(function()
+                            activated = holder:ActivateCurrentOtomo({
+                                Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
+                                Translation = { X = savedX or 0, Y = savedY or 0, Z = destZ },
+                                Scale3D = { X = 1, Y = 1, Z = 1 },
+                            })
+                        end)
+                        if activated then
+                            local newActor = nil
+                            pcall(function() newActor = holder:TryGetSpawnedOtomo() end)
+                            if newActor and newActor:IsValid() and newActor ~= oldActor then
+                                -- hard transform-safe freeze (suppresses the
+                                -- movement tick + AI + actions, leaves rotation
+                                -- writable for the client spin), then place once
+                                setRevealFrozen(newActor, true)
+                                pcall(function()
+                                    newActor:K2_TeleportTo({ X = savedX or 0, Y = savedY or 0, Z = destZ },
+                                        { Pitch = 0, Yaw = savedYaw or 0, Roll = 0 })
+                                end)
+                                pcall(function() newActor:ForceNetUpdate() end)
+                                Log("[mpseq] activated fresh " .. targetId .. " -> reveal")
+                                NetChannel.sendSignal(pcSender, "reveal")
+                                -- The evolution flash VFX (VisualEffectComponent:
+                                -- AddVisualEffect) is a LOCAL call - on a client
+                                -- proxy it does not render (the component is
+                                -- server-authoritative), so the SP "grand finale"
+                                -- flash was missing in MP. Broadcast it from the
+                                -- authority via the replicated multicast so every
+                                -- client sees it (issuerID 0 = play for all).
+                                -- Delay it so it lands after the client's
+                                -- onPreReveal has shrunk the actor to 0.02 and the
+                                -- grow-reveal has begun - the flash then grows with
+                                -- the pal exactly as in SP, no full-size pop.
+                                local vfxFired = false
+                                LoopAsync(250, function()
+                                    if vfxFired then return true end
+                                    vfxFired = true
+                                    pcall(function()
+                                        local na = holder:TryGetSpawnedOtomo()
+                                        if na and na:IsValid() then
+                                            local vec = na.VisualEffectComponent
+                                            if vec and vec:IsValid() then
+                                                vec:AddVisualEffect_ToALL(2, { FloatValues = {} }, 0)
+                                            end
+                                        end
+                                    end)
+                                    return true
+                                end)
+                                watcherDone = true
+                                -- Keep it pinned for the reveal. The named flags
+                                -- are persistent, so only re-assert if the AI
+                                -- flips back on (init race). NO transform writes -
+                                -- re-teleporting jittered the pal and reset the
+                                -- client spin. Release at the end.
+                                local holdStart = os.clock()
+                                local held = false
+                                LoopAsync(300, function()
+                                    if held then return true end
+                                    local na = nil
+                                    pcall(function() na = holder:TryGetSpawnedOtomo() end)
+                                    if not (na and na:IsValid()) then held = true; return true end
+                                    if (os.clock() - holdStart) < 6.2 then
+                                        if isAiActive(na) then setRevealFrozen(na, true) end
+                                        return false
+                                    end
+                                    held = true
+                                    setRevealFrozen(na, false)
+                                    return true
+                                end)
+                            end
+                        end
+                    end
+                    -- hard deadline: never leave a pal frozen on a lost packet
+                    if (not watcherDone) and (os.clock() - startedAt) > 20 then
+                        watcherDone = true
+                        pcall(function()
+                            local na = holder:TryGetSpawnedOtomo()
+                            if na and na:IsValid() then setRevealFrozen(na, false) end
+                        end)
+                    end
+                end)
+                return watcherDone
+            end)
+            return
+        end
 
         -- Belt and braces: destroy the pooled actor even if a fallback strategy
         -- did the recall (idempotent, pcall-guarded)
@@ -657,7 +944,7 @@ local function performEvolution(p)
         -- without one (community recipe: SetOtomoSlot + TrySwitchOtomo).
         local okSel = pcall(function()
             local idx = holder:GetSlotIndexByIndividualHandle(handle)
-            local pc = FindFirstOf("PalPlayerController")
+            local pc = playerCtx.pc
             pc:SetOtomoSlot(idx)
         end)
         if not (okInact and okSel) then
@@ -758,7 +1045,7 @@ local function performEvolution(p)
                         Log(string.format("EVOLVED: %s -> %s (level %d)%s",
                             pair.from, pair.to, level,
                             nickname ~= "" and (" '" .. nickname .. "'") or ""))
-                        startRevealDiagnostics(holder, pair.to)
+                        startRevealDiagnostics(holder, pair.to, playerCtx)
                         if fx.keepsFrozenUntilDone and okReveal then
                             -- the prototype ends the sequence via ctx.completeOk/Abort
                             return
@@ -789,7 +1076,7 @@ local function performEvolution(p)
                 -- the player until a world reload.
                 local okRescue = pcall(function()
                     local idx = holder:GetSlotIndexByIndividualHandle(handle)
-                    local pc = FindFirstOf("PalPlayerController")
+                    local pc = playerCtx.pc
                     pc:SetOtomoSlot(idx)
                     pc:TrySwitchOtomo()
                 end)
@@ -920,6 +1207,15 @@ local function performEvolution(p)
         end)
     end
 
+    -- Headless (dedicated server): skip the whole teardown/reveal machinery.
+    -- The pal stays summoned as its old actor; proceedAfterDespawn only writes
+    -- the new species onto the param (safe while summoned) and the headless
+    -- branch there finishes. The client recalls + re-summons to render it.
+    if headless then
+        proceedAfterDespawn()
+        return true
+    end
+
     -- Start the teardown only AFTER the dissolve staging; the actor is
     -- hard-hidden right before it so no despawn visuals are ever seen
     local dissolveMs = 1200
@@ -948,6 +1244,9 @@ local function performEvolution(p)
         end)
         return true
     end)
+    -- the sequence is started; asynchronous stages report their outcome
+    -- through the sequence's own logging/abort paths
+    return true
 end
 
 -- ---------------------------------------------------------------- public API
@@ -957,26 +1256,37 @@ function Evolution.check()
         Log("An evolution is already running - please wait")
         return
     end
+    local playerCtx = Role.localPlayerCtx()
+    if not playerCtx then
+        Log("No local player")
+        return
+    end
     -- drop an expired confirm: a stale pending otherwise suppresses the
     -- eligibility reason messages below
     if pending and (os.clock() - pending.armedAt) > Config.confirmWindowSeconds then
         pending = nil
     end
-    local actor, param, pair, level, holder, isAlpha = findEligible()
+    local actor, param, pair, level, holder, isAlpha, pairIndex = findEligibleFor(playerCtx)
     if not actor then
         if not pending then
             -- second return value carries the reason message when present
-            Log(param or "No own pal summoned")
+            local reason = param or "No own pal summoned"
+            Log(reason)
+            Role.chat(playerCtx, reason)
         end
         return
     end
 
-    -- Full cost check (stone + materials); lists every missing item
+    -- Full cost check (stone + materials); lists every missing item. On a
+    -- connected client this reads the client's own (replicated) inventory
+    -- for a readable message; the host re-checks authoritatively.
     local costList = Costs.resolve(pair, level, holder)
-    local costOk, missing = Costs.check(costList)
+    local costOk, missing = Costs.check(playerCtx, costList)
     if not costOk then
-        Log(string.format("%s (Lv %d) could evolve into %s, but missing: %s",
-            pair.from, level, pair.to, Costs.describeMissing(missing)))
+        local reason = string.format("%s (Lv %d) could evolve into %s, but missing: %s",
+            pair.from, level, pair.to, Costs.describeMissing(missing))
+        Log(reason)
+        Role.chat(playerCtx, reason)
         return
     end
 
@@ -984,9 +1294,16 @@ function Evolution.check()
     local key = individualKey(param)
     if pending and (now - pending.armedAt) <= Config.confirmWindowSeconds then
         if pending.key == key then
-            -- use FRESH handles (the pal may have been resummoned since arming)
-            performEvolution({ actor = actor, param = param, pair = pair, holder = holder,
-                key = key, isAlpha = isAlpha })
+            if Role.hasWorldAuthority() then
+                -- use FRESH handles (the pal may have been resummoned since arming)
+                performEvolution({ actor = actor, param = param, pair = pair, holder = holder,
+                    key = key, isAlpha = isAlpha, playerCtx = playerCtx })
+            else
+                -- connected client: the confirm travels to the host, which
+                -- re-derives and consumes authoritatively
+                pending = nil
+                NetChannel.sendEvolve(playerCtx, pairIndex or 0)
+            end
             return
         else
             Log(string.format("Confirm target changed (was %s, now %s) - re-armed",
@@ -1036,13 +1353,14 @@ end
 -- only checked in the submenu - this runs on every wheel rebuild.
 function Evolution.canOffer()
     local ok, res = pcall(function()
-        local holder = findHolder(nil)
+        local playerCtx = Role.localPlayerCtx()
+        local holder = findHolderFor(playerCtx, nil)
         if not holder then return false end
         local actor = nil
         pcall(function() actor = holder:TryGetSpawnedOtomo() end)
         if not (actor and actor:IsValid()) then return false end
         local param = paramOf(actor)
-        if not (param and isOwned(param)) then return false end
+        if not (param and isOwnedBy(param, playerCtx and playerCtx.playerUId)) then return false end
         local id = baseCharacterId(param:GetCharacterID():ToString())
         return #Config.findPairs(id) > 0
     end)
@@ -1054,12 +1372,13 @@ end
 -- nothing is available.
 function Evolution.listOptions()
     if lockBusy() then return nil, "An evolution is already running - please wait" end
-    local holder = findHolder(nil)
+    local playerCtx = Role.localPlayerCtx()
+    local holder = findHolderFor(playerCtx, nil)
     local actor = nil
     if holder then pcall(function() actor = holder:TryGetSpawnedOtomo() end) end
     if not (actor and actor:IsValid()) then return nil, "No own pal summoned" end
     local param = paramOf(actor)
-    if not (param and isOwned(param)) then return nil, "No own pal summoned" end
+    if not (param and isOwnedBy(param, playerCtx and playerCtx.playerUId)) then return nil, "No own pal summoned" end
     local id, isAlpha = baseCharacterId(param:GetCharacterID():ToString())
     local pairList = Config.findPairs(id)
     if not pairList or #pairList == 0 then
@@ -1068,8 +1387,11 @@ function Evolution.listOptions()
     local level = 0
     pcall(function() level = param:GetLevel() end)
     local options = {}
-    for _, pair in ipairs(pairList) do
-        local opt = { pair = pair, label = palDisplayName(pair.to) }
+    for i, pair in ipairs(pairList) do
+        -- index is the pair's position in Config.findPairs(id) - the compact
+        -- token a connected client sends over the net channel (the host
+        -- re-derives the pair from its own config at this index)
+        local opt = { pair = pair, index = i, label = palDisplayName(pair.to) }
         if isAlpha and not swapTargetId(pair, true) then
             opt.blocked = string.format("%s has no Alpha form", pair.to)
         elseif level < pair.minLevel then
@@ -1077,7 +1399,7 @@ function Evolution.listOptions()
                 pair.to, pair.minLevel, level)
         else
             local costList = Costs.resolve(pair, level, holder)
-            local costOk, missing = Costs.check(costList)
+            local costOk, missing = Costs.check(playerCtx, costList)
             if not costOk then
                 opt.blocked = string.format("%s missing: %s",
                     pair.to, Costs.describeMissing(missing))
@@ -1088,52 +1410,265 @@ function Evolution.listOptions()
     return options
 end
 
--- Executes one option from listOptions - the submenu selection IS the
--- confirmation. Fetches fresh handles; the option only names the pair.
-function Evolution.executeOption(opt)
-    if not (opt and opt.pair) then return end
+-- Authoritative evolve request: re-derives and re-validates EVERYTHING from
+-- the requesting player's context; caller-supplied data is only the pair
+-- NAMES, never handles. Serves the in-process path (standalone/listen host)
+-- and decoded network requests. Returns ok, message.
+local function handleEvolveRequest(playerCtx, fromId, toId)
     if lockBusy() then
-        Log("An evolution is already running - please wait")
-        return
+        return false, "An evolution is already running - please wait"
     end
-    if opt.blocked then
-        Log(opt.blocked)
-        return
+    if not (playerCtx and playerCtx.pc and playerCtx.pc:IsValid()) then
+        return false, "Requesting player unavailable"
     end
-    local holder = findHolder(nil)
+    local holder = findHolderFor(playerCtx, nil)
     local actor = nil
     if holder then pcall(function() actor = holder:TryGetSpawnedOtomo() end) end
-    if not (actor and actor:IsValid()) then Log("No own pal summoned") return end
+    if not (actor and actor:IsValid()) then return false, "No own pal summoned" end
     local param = paramOf(actor)
-    if not (param and isOwned(param)) then Log("No own pal summoned") return end
-    local id, isAlpha = baseCharacterId(param:GetCharacterID():ToString())
-    if id ~= opt.pair.from then
-        Log(string.format("Selection outdated: summoned pal is %s, option was for %s",
-            id, opt.pair.from))
-        return
+    if not (param and isOwnedBy(param, playerCtx.playerUId)) then
+        return false, "No own pal summoned"
     end
-    if isAlpha and not swapTargetId(opt.pair, true) then
-        Log(string.format("%s has no Alpha form - the Alpha cannot evolve into it", opt.pair.to))
-        return
+    local id, isAlpha = baseCharacterId(param:GetCharacterID():ToString())
+    if id ~= fromId then
+        return false, string.format("Selection outdated: summoned pal is %s, option was for %s",
+            id, fromId)
+    end
+    -- the pair is re-resolved from the mod config, never taken from the request
+    local pair = nil
+    for _, cand in ipairs(Config.findPairs(id)) do
+        if cand.to == toId then
+            pair = cand
+            break
+        end
+    end
+    if not pair then
+        return false, string.format("%s has no configured evolution into %s", id, tostring(toId))
+    end
+    if isAlpha and not swapTargetId(pair, true) then
+        return false, string.format("%s has no Alpha form - the Alpha cannot evolve into it", pair.to)
     end
     local level = 0
     pcall(function() level = param:GetLevel() end)
-    if level < opt.pair.minLevel then
-        Log(string.format("%s needs level %d to evolve (currently %d)",
-            id, opt.pair.minLevel, level))
-        return
+    if level < pair.minLevel then
+        return false, string.format("%s needs level %d to evolve (currently %d)",
+            id, pair.minLevel, level)
     end
     -- fresh cost pre-check for a readable message; the transaction inside
     -- performEvolution is the authoritative consume
-    local costList = Costs.resolve(opt.pair, level, holder)
-    local costOk, missing = Costs.check(costList)
+    local costList = Costs.resolve(pair, level, holder)
+    local costOk, missing = Costs.check(playerCtx, costList)
     if not costOk then
-        Log(string.format("%s (Lv %d) could evolve into %s, but missing: %s",
-            id, level, opt.pair.to, Costs.describeMissing(missing)))
+        return false, string.format("%s (Lv %d) could evolve into %s, but missing: %s",
+            id, level, pair.to, Costs.describeMissing(missing))
+    end
+    -- ok = the sequence STARTED; asynchronous stage failures surface via
+    -- the sequence's own logging/abort handling (completion acks are a
+    -- network-layer concern of a later phase)
+    local started, reason = performEvolution({ actor = actor, param = param, pair = pair,
+        holder = holder, key = individualKey(param), isAlpha = isAlpha,
+        playerCtx = playerCtx })
+    if not started then
+        return false, reason or "Evolution could not start"
+    end
+    return true
+end
+
+-- Host entry for a decoded network request: the client only sent WHICH
+-- radial option it picked (an index into the sender's evolution pairs). The
+-- host re-derives the pair from ITS OWN config at that index and hands off
+-- to the fully-revalidating handleEvolveRequest. Returns ok, message (the
+-- message is chatted back to the requester).
+local function handleEvolveByIndex(playerCtx, pairIndex)
+    local holder = findHolderFor(playerCtx, nil)
+    local actor = nil
+    if holder then pcall(function() actor = holder:TryGetSpawnedOtomo() end) end
+    if not (actor and actor:IsValid()) then return false, "No own pal summoned" end
+    local param = paramOf(actor)
+    if not (param and isOwnedBy(param, playerCtx and playerCtx.playerUId)) then
+        return false, "No own pal summoned"
+    end
+    local baseId = baseCharacterId(param:GetCharacterID():ToString())
+    local pairList = Config.findPairs(baseId)
+    local pair = pairList and pairList[pairIndex]
+    if not pair then
+        return false, "That evolution option is no longer available"
+    end
+    local ok, msg = handleEvolveRequest(playerCtx, baseId, pair.to)
+    if ok then
+        return true, string.format("Evolving into %s...", palDisplayName(pair.to))
+    end
+    return false, msg
+end
+
+-- Executes one option from listOptions - the submenu selection IS the
+-- confirmation. Only the pair names travel; the authority re-derives
+-- fresh handles and re-validates.
+function Evolution.executeOption(opt)
+    if not (opt and opt.pair) then return end
+    local playerCtx = Role.localPlayerCtx()
+    -- the option was greyed out in the wheel (missing materials, too low a
+    -- level, no Alpha form): tell the player IN CHAT what is missing, not
+    -- just in the log they never see
+    if opt.blocked then
+        Log(opt.blocked)
+        Role.chat(playerCtx, opt.blocked)
         return
     end
-    performEvolution({ actor = actor, param = param, pair = opt.pair,
-        holder = holder, key = individualKey(param), isAlpha = isAlpha })
+    if not playerCtx then
+        Log("No local player")
+        return
+    end
+    if Role.hasWorldAuthority() then
+        -- re-validation can still fail (state changed since the wheel was
+        -- built); surface that reason in chat too
+        local ok, msg = handleEvolveRequest(playerCtx, opt.pair.from, opt.pair.to)
+        if not ok and msg then
+            Log(msg)
+            Role.chat(playerCtx, msg)
+        end
+    else
+        -- connected client: send the picked option index to the host over
+        -- the net channel. The host does the authoritative swap and, on
+        -- success, signals this client to re-play the transformation locally
+        -- (Evolution.playRemoteReveal, via the net channel client hook).
+        lastRemotePair = opt.pair
+        local sent = NetChannel.sendEvolve(playerCtx, opt.index or 0)
+        if not sent then
+            local msg = "Could not reach the server - please try again"
+            Log(msg)
+            Role.chat(playerCtx, msg)
+        end
+    end
+end
+
+-- Build the fx ctx for the CLIENT re-play. Same shape as the singleplayer ctx,
+-- but the transform backend is swapped for MP: yaw goes on the MESH (client-
+-- local, smooth), position is owned by the server (placeForScale no-op), and
+-- freeze is a no-op (the host freezes authoritatively). Actor SCALE stays as
+-- the SP path uses it - scale is not in FRepMovement, so it renders locally on
+-- this client and is not reset by the server's movement packets.
+local remoteCtx = nil
+local remoteRevealBusy = false
+local remoteRevealStart = 0
+local function buildRemoteCtx(actor, holder, playerCtx, pair)
+    local ox, oy, oz, oyaw, ohalf = nil, nil, nil, 0, 0
+    pcall(function() local l = actor:K2_GetActorLocation(); ox, oy, oz = l.X, l.Y, l.Z end)
+    pcall(function() oyaw = actor:K2_GetActorRotation().Yaw end)
+    pcall(function() ohalf = actor:GetSimpleCollisionHalfHeight() end)
+    if not ohalf or ohalf <= 0 then
+        pcall(function() ohalf = actor.CapsuleComponent:GetScaledCapsuleHalfHeight() end)
+    end
+    local ctx = {
+        actor = actor, worldCtx = holder,
+        playerPawn = playerCtx and playerCtx.pawn or nil,
+        oldX = ox, oldY = oy, oldZ = oz, oldYaw = oyaw, oldHalf = ohalf, newHalf = nil,
+        fx = {},
+        -- yaw uses the SP default (actor rotation): the host freezes the pal,
+        -- so it sends no rotation updates and the client-side spin holds.
+        placeForScale = function() end, -- position is server-authoritative
+        freeze = function() end,        -- freeze is server-authoritative
+        unfreeze = function() end,
+    }
+    ctx.elemsFrom = (pair and Elements.of(pair.from, holder)) or {}
+    if pair and pair.stone == "adaptation" then
+        local adapted = Elements.adaptationElement(pair, holder)
+        ctx.elemsTo = adapted and { adapted } or (Elements.of(pair.to, holder) or {})
+    elseif pair then
+        ctx.elemsTo = Elements.of(pair.to, holder) or {}
+    else
+        ctx.elemsTo = {}
+    end
+    ctx.colorFrom = Elements.colorFor(ctx.elemsFrom[1])
+    ctx.colorTo = Elements.colorFor(ctx.elemsTo[1])
+    ctx.completeOk = function() remoteRevealBusy = false; remoteCtx = nil end
+    ctx.completeAbort = function()
+        pcall(function() FX.cleanup(ctx) end)
+        remoteRevealBusy = false; remoteCtx = nil
+    end
+    return ctx
+end
+
+-- CLIENT presentation, driven by the host's phase signals. Reuses the EXACT
+-- singleplayer fx staging (dissolve/hide/gap/preReveal/reveal - timing, glow,
+-- element bursts, peak loop, finale) so the look is 1:1; the lifecycle
+-- (recall/re-summon) goes through the vanilla client-facing controller RPCs,
+-- and the host owns freeze + position + the pool break.
+--   start  = host froze + swapped the pal -> dissolve, then recall
+--   ready  = host destroyed the old pooled body -> re-summon the new form
+--   reveal = host teleported + froze the fresh pal at the old spot -> grow/finale
+function Evolution.onNetSignal(kind)
+    local playerCtx = Role.localPlayerCtx()
+    if not playerCtx then return end
+    local pc = playerCtx.pc
+    local holder = findHolderFor(playerCtx, nil)
+    if not holder then return end
+
+    Log("[mpseq-c] signal: " .. tostring(kind))
+    if kind == "start" then
+        if remoteRevealBusy and (os.clock() - remoteRevealStart) < 20 then return end
+        local actor = nil
+        pcall(function() actor = holder:TryGetSpawnedOtomo() end)
+        if not (actor and actor:IsValid()) then return end
+        remoteRevealBusy = true
+        remoteRevealStart = os.clock()
+        remoteCtx = buildRemoteCtx(actor, holder, playerCtx, lastRemotePair)
+        local toName = lastRemotePair and palDisplayName(lastRemotePair.to) or "its new form"
+        Role.chat(playerCtx, string.format("Evolving into %s...", toName))
+        pcall(function() playFanfare(actor) end)
+        pcall(function() FX.onDissolve(remoteCtx) end)
+        -- after the dissolve, start the hold loop and recall the pal
+        local dur = 1200
+        pcall(function() if FX.dissolveDurationMs then dur = FX.dissolveDurationMs() end end)
+        local done = false
+        LoopAsync(dur, function()
+            if done then return true end
+            done = true
+            ExecuteInGameThread(function()
+                if remoteCtx then pcall(function() FX.onHide(remoteCtx) end) end
+                pcall(function() pc:InactiveOtomo() end)
+            end)
+            return true
+        end)
+
+    elseif kind == "reveal" then
+        if not remoteCtx then return end
+        local a = nil
+        pcall(function() a = holder:TryGetSpawnedOtomo() end)
+        if not (a and a:IsValid()) then remoteRevealBusy = false; return end
+        Log(string.format("[mpseq-c] reveal fx: elemsFrom=%d elemsTo=%d",
+            #(remoteCtx.elemsFrom or {}), #(remoteCtx.elemsTo or {})))
+        -- re-anchor the reveal bursts to where the pal actually appears (the
+        -- host teleported it higher/elsewhere), so the finale fires AROUND it
+        pcall(function()
+            local loc = a:K2_GetActorLocation()
+            remoteCtx.oldX, remoteCtx.oldY, remoteCtx.oldZ = loc.X, loc.Y, loc.Z
+        end)
+        pcall(function()
+            local nh = a:GetSimpleCollisionHalfHeight()
+            if not nh or nh <= 0 then nh = a.CapsuleComponent:GetScaledCapsuleHalfHeight() end
+            remoteCtx.newHalf = nh
+        end)
+        pcall(function() FX.onPreReveal(remoteCtx, a) end)
+        local rd = false
+        LoopAsync((FX.revealDelayMs and FX.revealDelayMs()) or 100, function()
+            if rd then return true end
+            rd = true
+            ExecuteInGameThread(function()
+                pcall(function() FX.onReveal(remoteCtx, a) end)
+                pcall(function() playFanfare(a) end)
+            end)
+            return true
+        end)
+        -- safety: never leave the busy flag stuck if the reveal driver stalls
+        local sd = false
+        LoopAsync(9000, function()
+            if sd then return true end
+            sd = true
+            remoteRevealBusy = false
+            return true
+        end)
+    end
 end
 
 function Evolution.rollbackLast()
@@ -1150,8 +1685,19 @@ function Evolution.rollbackLast()
     local reverted = false
     local all = FindAllOf("PalIndividualCharacterParameter") or {}
     local hasKey = last.key and last.key ~= ""
+    -- owner isolation: a snapshot with a stored owner uid may only ever
+    -- restore a pal of that same player (legacy snapshots have no uid)
+    local function ownerMatches(p)
+        if not (last.uid and last.uid ~= "") then return true end
+        local m = false
+        pcall(function()
+            m = guidString(p.SaveParameter.OwnerPlayerUId) == last.uid
+        end)
+        return m
+    end
     for _, p in ipairs(all) do
-        if p:IsValid() and isOwned(p) and p:GetCharacterID():ToString() == last.to then
+        if p:IsValid() and isOwned(p) and ownerMatches(p)
+            and p:GetCharacterID():ToString() == last.to then
             -- With a key only the exact match counts (a species fallback could
             -- hit the wrong individual, e.g. SmallYeti->Yeti vs MopKing->Yeti)
             local match = hasKey and (individualKey(p) == last.key) or (not hasKey)
@@ -1199,16 +1745,37 @@ end
 function Evolution.init()
     loadSnapshots()
 
-    local lastPress = 0
-    RegisterKeyBind(Key[Config.confirmKey], function()
-        local now = os.clock()
-        if (now - lastPress) < Config.debounceSeconds then return end
-        lastPress = now
-        ExecuteInGameThread(function()
-            local ok, err = pcall(Evolution.check)
-            if not ok then Log("check FAIL: " .. tostring(err)) end
-        end)
+    -- authority entry for in-process and network requests
+    Authority.bind({ evolve = handleEvolveRequest })
+
+    -- host side of the net channel: decode connected-client evolve requests
+    -- and run them through the fully-revalidating index handler. The hook
+    -- fires only where the game routes _ToServer RPCs (the authority); on a
+    -- pure client it registers but never fires.
+    NetChannel.initHost(function(senderCtx, pairIndex)
+        return handleEvolveByIndex(senderCtx, pairIndex)
     end)
+
+    -- client side of the net channel: the host drives the presentation with
+    -- phase signals (start/ready/reveal) which we play locally (no local
+    -- player = no-op, so this is harmless on a dedicated server)
+    NetChannel.initClient(function(kind)
+        Evolution.onNetSignal(kind)
+    end)
+
+    -- keybinds are player input - meaningless on a dedicated server
+    if not Role.isDedicated() then
+        local lastPress = 0
+        RegisterKeyBind(Key[Config.confirmKey], function()
+            local now = os.clock()
+            if (now - lastPress) < Config.debounceSeconds then return end
+            lastPress = now
+            ExecuteInGameThread(function()
+                local ok, err = pcall(Evolution.check)
+                if not ok then Log("check FAIL: " .. tostring(err)) end
+            end)
+        end)
+    end
 
     -- Level-up notification: fires ONCE per individual and target once the
     -- threshold is reached.
@@ -1241,7 +1808,10 @@ function Evolution.init()
                     if not (pc and pc:IsValid()) then return end
                     local actor = self:get()
                     local param = actor.CharacterParameterComponent:GetIndividualParameter()
-                    if not isOwned(param) then return end
+                    -- the notification is local UX: only this machine's
+                    -- player should hear about their own pals
+                    local localCtx = Role.localPlayerCtx()
+                    if not isOwnedBy(param, localCtx and localCtx.playerUId) then return end
                     local id, isAlpha = baseCharacterId(param:GetCharacterID():ToString())
                     local pair = nil
                     for _, cand in ipairs(Config.findPairs(id)) do
@@ -1271,7 +1841,7 @@ function Evolution.init()
     -- The notification is client-side UX (fanfare + on-screen hint); on a
     -- dedicated server the poll would churn transient callback refs forever
     -- (no local player pawn ever exists), so it must not run there.
-    if not require("role").isDedicated() then
+    if not Role.isDedicated() then
         if not tryHook() then
             LoopAsync(5000, function()
                 if hookRegistered then return true end
