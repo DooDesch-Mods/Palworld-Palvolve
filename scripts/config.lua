@@ -3,10 +3,19 @@
 -- "adaptation" (element variant). stone: "evolution" | "adaptation" - item costs
 -- only apply while requireStone is true.
 --
+-- Optional per-pair field `conditions = { "night", "knowsMove:Dragon", ... }`:
+-- every listed condition must hold at evolve time (AND). An either/or split is
+-- two pairs with the same from/to and different conditions - the gates try all
+-- same-target candidates. Vocabulary and colon syntax ("knowsMove:<Element>",
+-- "inParty:<CharacterID>") live in conditions.lua; unknown ids are dropped at
+-- load with a log line.
+--
 -- Map basis: DT_PalMonsterParameter row names (buildid 24088745). findPair
 -- returns the FIRST enabled match: evolutions are therefore listed BEFORE
 -- adaptations of the same base (e.g. Penguin). BOSS_/GYM_/RAID_/_Oilrig/
 -- _Tower ids must NEVER be targets (boss/spawn logic is attached to them).
+local Conditions = require("conditions")
+
 local Config = {
     -- Dev mode: loads the probe suite (F3/F5-F10/INSERT cheats, requires
     -- probes.lua) and enables the [diag] sequence telemetry in the log.
@@ -90,8 +99,8 @@ local Config = {
         enabled = true,
     },
 
-    -- Map schema version (for future migrations)
-    schemaVersion = 3,
+    -- Map schema version (for future migrations); 4 = per-pair conditions
+    schemaVersion = 4,
     gameBuild = 24088745,
 
     map = { -- ==================== True evolutions (small -> big form) ====================
@@ -893,6 +902,17 @@ if user then
                 p.minLevel = tonumber(p.minLevel) or 1
                 p.stone = p.stone or (p.category == "adaptation" and "adaptation" or "evolution")
                 if p.enabled == nil then p.enabled = true end
+                if p.conditions ~= nil then
+                    -- unknown ids are dropped (fail open: a config written for
+                    -- a newer vocabulary must not brick this pair entirely);
+                    -- runtime failures of KNOWN ids fail closed in conditions.lua
+                    local clean, dropped = Conditions.sanitize(p.conditions)
+                    p.conditions = (#clean > 0) and clean or nil
+                    if #dropped > 0 then
+                        print(string.format("[Palvolve] %s -> %s: dropped unknown conditions: %s\n",
+                            p.from, p.to, table.concat(dropped, ", ")))
+                    end
+                end
                 table.insert(cleaned, p)
             end
         end

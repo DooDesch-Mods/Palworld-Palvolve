@@ -1,6 +1,8 @@
 -- Palvolve dev probes (devMode only, not part of the shipped packages).
 -- Markers: [probe-speciesswap] [probe-vfx] [probe-overlay] [probe-ake]
 --          [probe-freeze] [probe-giveexp] [probe-testkit] [probe-revert]
+--          [probe-daynight] [probe-weather] [probe-loc] [probe-ctx]
+--          [probe-waterstatus] [probe-wazaelem] [probe-hpscale] [cond]
 --
 -- Keybinds (test world "ModDev", own pal summoned):
 --   F5 = overlay glow on/off (M_Glow)     F6 = cycle visual effects
@@ -9,6 +11,8 @@
 --   F10 = EXP to pals around (level-up smoke test)
 --   F3 = revert own evolved pals          INSERT (fallback F4) = test kit
 --   END = free-evolution toggle (no stone/material costs)
+--   HOME = time/weather + evaluated conditions   PAGE_UP = location/context
+--   PAGE_DOWN = pal raw readings (water, status sweep, waza elements, HP)
 --
 local M = {}
 
@@ -423,7 +427,232 @@ RegisterKeyBind(Key.F4, Debounced("radialarm", function()
     end)
 end))
 
-Log(string.format("Probes active: F3 revert(own), F4 arm radial probes, F5 overlay, F6 VFX, F7 morph FX bases, F8 fanfare, F9 freeze, F10 give EXP, END free mode, test kit on %s",
+-- ------------------------------------------------ condition probes (X/Y evos)
+-- Markers: [probe-daynight] [probe-weather] on HOME
+--          [probe-loc] [probe-ctx] on PAGE_UP
+--          [probe-waterstatus] [probe-wazaelem] [probe-hpscale] on PAGE_DOWN
+-- Their raw readings freeze the constants in conditions.lua (status ids,
+-- region prefixes, stage type, waza elements, HP fixed-point scale) and
+-- decide whether the Tier B conditions (weather, hp, hunger, trust, riding)
+-- get unlocked in the web editor.
+
+local Conditions = require("conditions")
+local Role = require("role")
+
+-- gate-shaped ctx: the summoned otomo of the LOCAL player (never FindFirstOf
+-- on controllers - wrong player on a host with guests)
+local function conditionCtx()
+    local playerCtx = Role.localPlayerCtx()
+    if not playerCtx then return nil, "no local player" end
+    local holder = nil
+    pcall(function()
+        local cls = StaticFindObject("/Script/Pal.PalOtomoHolderComponentBase")
+        if cls and playerCtx.pc and playerCtx.pc:IsValid() then
+            local h = playerCtx.pc:GetComponentByClass(cls)
+            if h and h:IsValid() then holder = h end
+        end
+    end)
+    if not holder then return nil, "no otomo holder" end
+    local actor = nil
+    pcall(function() actor = holder:TryGetSpawnedOtomo() end)
+    if not (actor and actor:IsValid()) then return nil, "no own pal summoned" end
+    local param = nil
+    pcall(function() param = actor.CharacterParameterComponent:GetIndividualParameter() end)
+    if not (param and param:IsValid()) then return nil, "no individual parameter" end
+    return { actor = actor, param = param, playerCtx = playerCtx, holder = holder }
+end
+
+local function bindProbeKey(keyName, name, fn)
+    local key = Key[keyName]
+    if not key then
+        Log(string.format("[probe-cond] key %s unavailable - probe %s unbound", keyName, name))
+        return
+    end
+    RegisterKeyBind(key, Debounced(name, function()
+        ExecuteInGameThread(function()
+            local suc, e = pcall(fn)
+            if not suc then Log(string.format("[%s] FAIL: %s", name, tostring(e))) end
+        end)
+    end))
+end
+
+-- HOME: world state (time of day, weather) + the evaluated view of every
+-- boolean condition for the summoned pal
+bindProbeKey("HOME", "probe-world", function()
+    local util = StaticFindObject("/Script/Pal.Default__PalUtility")
+    local playerCtx = Role.localPlayerCtx()
+    local wc = playerCtx and playerCtx.pawn
+    if not (util and util:IsValid() and wc and wc:IsValid()) then
+        Log("[probe-daynight] no world context")
+        return
+    end
+    pcall(function()
+        local tm = util:GetTimeManager(wc)
+        local gs = util:GetGameSetting(wc)
+        Log(string.format("[probe-daynight] IsNight=%s type=%d hour=%d hoursF=%.2f nightWindow=%d..%d",
+            tostring(util:IsNight(wc)), tm:GetCurrentDayTimeType(),
+            tm:GetCurrentPalWorldTime_Hour(), tm:GetCurrentPalWorldHoursFloat(),
+            gs.NightStartHour, gs.NightEndHour))
+    end)
+    local sky = FindFirstOf("PalSkyCreator")
+    if sky and sky:IsValid() then
+        pcall(function()
+            local fx = sky.WeatherSettings.WeatherFXSettings
+            local fog = sky.WeatherSettings.ExponentialHeightFogSettings
+            Log(string.format("[probe-weather] rain=%.2f snow=%.2f lightning=%s fogDensity=%.4f timeOfDay=%.2f",
+                fx.RainAmount, fx.SnowAmount, tostring(fx.EnableLightnings),
+                fog.FogDensity, sky.TimeOfDay))
+        end)
+    else
+        Log("[probe-weather] no PalSkyCreator instance")
+    end
+    local ctx, why = conditionCtx()
+    if ctx then
+        Conditions.debugDump(ctx)
+    else
+        Log("[probe-world] no condition ctx: " .. tostring(why))
+    end
+end)
+
+-- PAGE_UP: player location (region/stage/sanctuary raw) + player context
+-- (party slots, own base, combat, riding, gliding, level)
+bindProbeKey("PAGE_UP", "probe-loc", function()
+    local util = StaticFindObject("/Script/Pal.Default__PalUtility")
+    local playerCtx = Role.localPlayerCtx()
+    local pawn = playerCtx and playerCtx.pawn
+    if not (util and util:IsValid() and pawn and pawn:IsValid()) then
+        Log("[probe-loc] no local player pawn")
+        return
+    end
+    pcall(function()
+        local ps = playerCtx.playerState
+        local region = pawn.LastInsideRegionNameID:ToString()
+        local inStage, inDungeon, insideStage = "?", "?", "?"
+        pcall(function() inStage = tostring(ps:IsInStage()) end)
+        pcall(function() inDungeon = tostring(ps:IsInStateByStageType(1)) end)
+        pcall(function() insideStage = tostring(util:IsInsideStage(pawn)) end)
+        local sanctuary = "?"
+        pcall(function()
+            local sub = util:GetWildlifeSanctuarySubsystem(pawn)
+            local loc = pawn:K2_GetActorLocation()
+            local area = sub:FindArea({ X = loc.X, Y = loc.Y, Z = loc.Z })
+            sanctuary = tostring((area ~= nil) and area:IsValid())
+        end)
+        Log(string.format("[probe-loc] region=%q inStage=%s inDungeon=%s isInsideStage=%s sanctuary=%s",
+            region, inStage, inDungeon, insideStage, sanctuary))
+    end)
+    pcall(function()
+        local cls = StaticFindObject("/Script/Pal.PalOtomoHolderComponentBase")
+        local holder = playerCtx.pc:GetComponentByClass(cls)
+        if holder and holder:IsValid() then
+            local n = holder:GetMaxOtomoNum()
+            for i = 0, n - 1 do
+                local h = holder:GetOtomoIndividualHandle(i)
+                if h and h:IsValid() then
+                    local id, spawned = "nil", false
+                    pcall(function()
+                        local p = h:TryGetIndividualParameter()
+                        if p and p:IsValid() then id = p:GetCharacterID():ToString() end
+                    end)
+                    pcall(function()
+                        local a = h:TryGetIndividualActor()
+                        spawned = a and a:IsValid() or false
+                    end)
+                    Log(string.format("[probe-ctx] party slot=%d id=%s spawned=%s", i, id, tostring(spawned)))
+                end
+            end
+        end
+    end)
+    pcall(function()
+        local mgr = util:GetBaseCampManager(pawn)
+        local loc = pawn:K2_GetActorLocation()
+        local camp = mgr:GetInRangedBaseCamp({ X = loc.X, Y = loc.Y, Z = loc.Z }, 0.0)
+        if camp and camp:IsValid() then
+            local cg = camp:GetGroupIdBelongTo()
+            local pg = pawn.CharacterParameterComponent:GetIndividualParameter():GetGroupId()
+            Log(string.format("[probe-ctx] baseCamp inRange=true own=%s",
+                tostring(cg.A == pg.A and cg.B == pg.B and cg.C == pg.C and cg.D == pg.D)))
+        else
+            Log("[probe-ctx] baseCamp inRange=false")
+        end
+    end)
+    pcall(function()
+        local bm = util:GetBattleManager(pawn)
+        local out = {}
+        local conflictOk, conflict = pcall(function() return bm:GetConflictEnemies(pawn, out, true) end)
+        Log(string.format("[probe-ctx] combat callOk=%s conflict=%s anyPlayer=%s",
+            tostring(conflictOk), tostring(conflict), tostring(bm:IsBattleModeAnyPlayer())))
+    end)
+    pcall(function()
+        local mv = pawn:GetPalCharacterMovementComponent()
+        Log(string.format("[probe-ctx] riding=%s ridingFly=%s gliding=%s jetpack=%s playerLevel=%d",
+            tostring(playerCtx.pc:IsRiding()), tostring(playerCtx.pc:IsRidingFlyPal()),
+            tostring(mv:IsGliding()), tostring(mv:IsJetpackGliding()),
+            pawn.CharacterParameterComponent:GetIndividualParameter():GetLevel()))
+    end)
+end)
+
+-- PAGE_DOWN: summoned pal raw readings (water, active status sweep, waza
+-- elements, HP fixed-point scale, gender/stomach/trust)
+bindProbeKey("PAGE_DOWN", "probe-pal", function()
+    local ctx, why = conditionCtx()
+    if not ctx then
+        Log("[probe-waterstatus] no condition ctx: " .. tostring(why))
+        return
+    end
+    pcall(function()
+        local mv = ctx.actor:GetPalCharacterMovementComponent()
+        Log(string.format("[probe-waterstatus] entered=%s swimming=%s rate=%.2f mode=%s",
+            tostring(mv:IsEnteredWater()), tostring(mv:IsSwimming()),
+            mv:GetInWaterRate(), tostring(mv.MovementMode)))
+    end)
+    pcall(function()
+        local sc = ctx.actor.StatusComponent
+        local active = {}
+        for id = 1, 77 do
+            pcall(function()
+                local s = sc:GetExecutionStatus(id)
+                if s ~= nil and s:IsValid() then table.insert(active, tostring(id)) end
+            end)
+        end
+        Log(string.format("[probe-waterstatus] active status ids: %s",
+            #active > 0 and table.concat(active, ",") or "none"))
+    end)
+    pcall(function()
+        local util = StaticFindObject("/Script/Pal.Default__PalUtility")
+        local db = util:GetWazaDatabase(ctx.actor)
+        if not (db and db:IsValid()) then
+            Log("[probe-wazaelem] no waza database")
+            return
+        end
+        local function dump(kind, list)
+            local ok = pcall(function()
+                for i = 1, #list do
+                    local out = {}
+                    local hit = db:FindWazaForBP(list[i], out)
+                    Log(string.format("[probe-wazaelem] %s waza=%s found=%s element=%s",
+                        kind, tostring(list[i]), tostring(hit), tostring(out.Element)))
+                end
+            end)
+            if not ok then Log(string.format("[probe-wazaelem] %s list not indexable", kind)) end
+        end
+        dump("mastered", ctx.param:GetMasteredWaza())
+        dump("equipped", ctx.param:GetEquipWaza())
+    end)
+    pcall(function()
+        local fixedMax = "?"
+        pcall(function() fixedMax = tostring(ctx.param.SaveParameter.MaxHP.Value) end)
+        Log(string.format("[probe-hpscale] hpFixed=%d maxInt=%d maxFixed=%s",
+            ctx.param:GetHP().Value, ctx.param:GetMaxHP(), fixedMax))
+    end)
+    pcall(function()
+        Log(string.format("[probe-pal] gender=%s stomachRate=%.2f trustRank=%s condenserRank=%s",
+            tostring(ctx.param:GetGenderType()), ctx.param:GetFullStomachRate(),
+            tostring(ctx.param:GetFriendshipRank()), tostring(ctx.param:GetRank())))
+    end)
+end)
+
+Log(string.format("Probes active: F3 revert(own), F4 arm radial probes, F5 overlay, F6 VFX, F7 morph FX bases, F8 fanfare, F9 freeze, F10 give EXP, END free mode, test kit on %s, conditions on HOME/PAGE_UP/PAGE_DOWN",
     Key.INS and "INSERT" or "POS1"))
 
 return M
