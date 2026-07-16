@@ -839,6 +839,7 @@ local function performEvolution(p)
                     -- :IsValid() and abort the sequence (the data mutation already
                     -- committed and the lock was released at finishOk).
                     if not (holder and holder:IsValid() and pcSender and pcSender:IsValid()) then
+                        Log("[mpseq] requester left mid-sequence - aborting server presentation")
                         watcherDone = true
                         return
                     end
@@ -976,7 +977,11 @@ local function performEvolution(p)
                                     if held then return true end
                                     -- disconnect guard: never touch a dead holder,
                                     -- and do not attempt an unfreeze on it
-                                    if not (holder and holder:IsValid()) then held = true; return true end
+                                    if not (holder and holder:IsValid()) then
+                                        Log("[mpseq] requester left during reveal hold - releasing")
+                                        held = true
+                                        return true
+                                    end
                                     local na = nil
                                     pcall(function() na = holder:TryGetSpawnedOtomo() end)
                                     if not (na and na:IsValid()) then held = true; return true end
