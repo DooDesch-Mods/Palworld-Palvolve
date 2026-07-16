@@ -5,7 +5,7 @@
   "Version": "1.0.0",
   "MinRevision": 24181527,
   "Author": "DooDesch",
-  "Dependencies": [],
+  "Dependencies": [3625223587],
   "Tags": [],
   "InstallRule": [
     {

@@ -14,28 +14,35 @@ Evolve your captured Pals into stronger related forms and adapt them into their 
 - **The Pal Alchemy Workbench:** an own buildable bench (technology level 10) that breaks skill fruits down 1:1 into element essences (or 10x matching drops like Flame Organs, Wool or Horns), forges Evolution Stones and attunes them into element Adaptation Stones.
 - **Egg filter:** eggs only hatch base forms, so evolved forms stay something you earn (on by default, configurable).
 - **Web configurator:** explore every transformation as an interactive graph at [palvolve.doodesch.de](https://palvolve.doodesch.de), toggle categories or build your own tree, and download a ready-to-use config.
+- **Conditional evolutions (X/Y branches):** any pair can require conditions that must hold at the moment of evolution - time of day, standing in water, active status effects (electrified, burning, frozen, ...), locations (cave, desert, volcano, snow, sakura, wildlife sanctuary, ...), gender, being in your own base, in combat, knowing a move of an element (e.g. a Dragon move) or having a specific Pal in your party. Give the same Pal two targets with different conditions and it evolves differently by day and night - the radial menu shows exactly what each option still needs.
 - **Identity preserved, and then some:** everything individual carries over, including moves the target species could never learn - builds vanilla cannot have. +5 to all IV talents per stage (capped at 100).
 - **Transactional and safe:** every evolution snapshots the Pal first and refunds all costs if anything aborts before the transformation completes.
 - Keyboard fallback: F2 checks and confirms the summoned Pal's next evolution without the radial menu.
 
 ## Installation
 
+Palvolve needs two companions: **UE4SS** (the script runtime) and **PalSchema** (the data framework). Install the **Palworld-specific** builds.
+
+> ⚠️ **Use the right UE4SS build.** Install **UE4SS Experimental (Palworld)** by *Oak* - Steam Workshop item [3625223587](https://steamcommunity.com/sharedfiles/filedetails/?id=3625223587) (Okaetsu's `experimental-palworld` build). **Do NOT install the generic upstream RE-UE4SS ("dev") build** - on Palworld 1.0 it causes a Steam-ID mismatch that forces the character-creation screen and silently stops all mods from loading.
+
 ### Steam Workshop (recommended)
 
-Subscribe, then enable the mod in-game under Options > Mod Management. UE4SS is installed automatically as a Workshop dependency; PalSchema is required as well.
+Subscribe to Palvolve, then enable it in-game under **Options > Mod Management**. The correct **UE4SS** is pulled in automatically as a Workshop dependency. **PalSchema is not on the Workshop** - install it separately following its [installation guide](https://okaetsu.github.io/PalSchema/docs/installation) (which also confirms the matching UE4SS build).
 
 ### Manual (UE4SS + PalSchema)
 
-1. Install [UE4SS for Palworld](https://steamcommunity.com/sharedfiles/filedetails/?id=3625223587) and [PalSchema](https://pwmodding.wiki/).
+1. Install **UE4SS Experimental (Palworld)** ([Workshop 3625223587](https://steamcommunity.com/sharedfiles/filedetails/?id=3625223587)) and **PalSchema** following the [PalSchema installation guide](https://okaetsu.github.io/PalSchema/docs/installation) - it pairs the correct UE4SS build. Do not use the generic upstream RE-UE4SS.
 2. Copy `Mods\Palvolve` (with `scripts\main.lua`) into `<Palworld>\Pal\Binaries\Win64\ue4ss\Mods\`.
 3. Copy `Mods\PalSchema\mods\Palvolve` into `<Palworld>\Pal\Binaries\Win64\ue4ss\Mods\PalSchema\mods\`.
 4. Add the line `Palvolve : 1` to `ue4ss\Mods\mods.txt` (above the Keybinds entry).
 
+> Never mix a Workshop UE4SS and a manual UE4SS in the same Palworld install - that double-loads UE4SS and crashes the game.
+
 ## Compatibility
 
 - Palworld 1.0 (buildid 24181527).
-- Singleplayer and co-op host. Dedicated servers are not supported yet (UE4SS does not run there); server support is on the roadmap.
-- Requires UE4SS (Palworld build) and PalSchema.
+- Singleplayer and co-op host. Dedicated servers are not officially supported yet (server-side support is in progress).
+- Requires **UE4SS Experimental (Palworld)** and **PalSchema** (see Installation).
 
 ## Before you uninstall
 
@@ -44,6 +51,8 @@ Subscribe, then enable the mod in-game under Options > Mod Management. UE4SS is 
 ## Configuration
 
 The easy way: open the **[Palvolve Configurator](https://palvolve.doodesch.de)**, explore every transformation in an interactive graph, toggle whole categories or build your own tree, then drop the downloaded `config_user.lua` into `%LocalAppData%\Pal\Saved\Palvolve\` (create the folder if it does not exist - the mod also creates it on its first launch). The file survives mod updates and works for Workshop installs; placing it next to `scripts\config.lua` works as well.
+
+Conditions are edited per pair in the configurator: all selected conditions must hold at once (AND). For an either/or branch, duplicate the pair and give each copy different conditions - the mod merges same-target variants into one menu entry that unlocks when any variant is satisfied. Hand-written configs use `conditions = { "night", "knowsMove:Dragon", "inParty:Penguin" }`; unknown ids are dropped at load with a log line, and older mod versions simply ignore the field.
 
 For hand-tuning, everything lives in `scripts\config.lua`: individual pairs, level thresholds, cost scaling, the egg filter and the transformation timings.
 
