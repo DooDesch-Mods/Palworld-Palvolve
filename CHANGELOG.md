@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Multiplayer and dedicated server support: a connected client can evolve on a dedicated server. The server validates ownership, level and cost, performs the species swap authoritatively and consumes the stones from the requesting player, and the client plays back the transformation. Singleplayer and co-op host keep the identical in-process path. Info.json now installs the mod server-side (`IsServer`).
+- Conditional evolutions: every pair can carry `conditions = { ... }` (AND semantics) that must hold at evolve time - day/night, in water, status effects (burning, electrified, frozen, wet, poisoned, stunned, sleeping, muddy, blinded, toxic gas), locations (cave, desert, volcano, snow, grassland, forest, sakura, dark island, sky islands, mushroom island, World Tree, oil rig, wildlife sanctuary), gender, gliding, own base, in combat, plus parameterized `knowsMove:<Element>` and `inParty:<CharacterID>`. Either/or branches (X/Y evolutions) are two pairs with the same target and different conditions; the radial menu merges them into one entry that unlocks when any variant holds.
+- Configurator support: conditions are editable per pair (with a duplicate button for either/or branches), travel through share links (payload v2; old v1 links keep working) and the exported `config_user.lua`.
+- Blocked radial options now name the missing conditions ("Dynamoff needs: Electrified or In a wildlife sanctuary"); the level-up hint names conditions as "(when: ...)".
+
+### Compatibility
+
+- Older mod versions ignore the `conditions` field entirely (those pairs behave as unconditional); unknown condition ids from newer configs are dropped at load with a log line.
+- Config schema version 4 (mod) / emitted `config_user.lua` schema 2 (web).
+
+### Known issues
+
+- Dedicated servers: the final reveal effects (target element bursts + evolution flash) do not render on the client yet; the evolution itself completes correctly and preserves the Pal's identity.
+
 ## [1.0.0] - 2026-07-15
 
 ### Added

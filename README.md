@@ -41,8 +41,12 @@ Subscribe to Palvolve, then enable it in-game under **Options > Mod Management**
 ## Compatibility
 
 - Palworld 1.0 (buildid 24181527).
-- Singleplayer and co-op host. Dedicated servers are not officially supported yet (server-side support is in progress).
+- Singleplayer, co-op host and dedicated servers. On a dedicated server the mod (and its UE4SS + PalSchema companions) must be installed server-side as well - see the PalSchema/UE4SS guides for the server layout.
 - Requires **UE4SS Experimental (Palworld)** and **PalSchema** (see Installation).
+
+### Known limitations
+
+- **Dedicated servers:** the final reveal effects of the transformation (the target element bursts and the evolution flash) do not render on the client yet. The evolution itself completes correctly and the Pal keeps its full identity - only the closing visual flourish is missing. Singleplayer and co-op host play the full sequence.
 
 ## Before you uninstall
 
