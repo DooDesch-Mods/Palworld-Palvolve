@@ -7,7 +7,7 @@
 --   adaptation:         per-element adaptation stone + materials from the
 --                       TARGET form's drops
 -- Materials come from the runtime drop database when its out-param
--- marshaling works (probed once), otherwise from the baked drops_static.lua.
+-- marshaling works, otherwise from the baked drops_static.lua.
 -- Per-pair `materials` in the config override the derivation entirely.
 
 local Config = require("config")
@@ -45,7 +45,7 @@ function Costs.countItem(playerCtx, staticItemId)
     return n
 end
 
--- Consumes `need` items; success is verified via the count difference
+-- Consumes `need` items; success is determined from the count difference
 -- (RequestConsumeInventoryItem is the only BP-exposed consume path).
 local function tryConsumeItems(playerCtx, staticItemId, need)
     local ok = false
@@ -94,7 +94,7 @@ local function staticDropRow(charId, level)
     return chosen and chosen.drops or nil
 end
 
--- Runtime drop lookup. The out-struct marshaling is verified LAZILY on the
+-- Runtime drop lookup. The out-struct marshaling is checked on the
 -- first real use (never during savegame load - the call itself can crash
 -- natively while the world is still restoring): the first runtime result is
 -- compared against the baked table and a mismatch pins the fallback.
@@ -266,7 +266,8 @@ end
 
 -- ---------------------------------------------------------------- transaction
 
--- Consumes the cost list item by item (each verified); a partial failure
+-- Consumes the cost list item by item, each checked via the count
+-- difference; a partial failure
 -- refunds everything already taken (reverse order) and yields nil.
 -- txn:refund(reason) is idempotent; txn:commit() makes it a no-op.
 function Costs.beginTransaction(playerCtx, costList)

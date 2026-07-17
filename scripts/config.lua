@@ -17,8 +17,8 @@
 local Conditions = require("conditions")
 
 local Config = {
-    -- Dev mode: loads the probe suite (F3/F5-F10/INSERT cheats, requires
-    -- probes.lua) and enables the [diag] sequence telemetry in the log.
+    -- Dev mode: enables the diagnostic key bindings (probes.lua) and the
+    -- [diag] sequence telemetry in the log.
     devMode = false,
 
     -- Timings for the evolution staging
@@ -68,8 +68,8 @@ local Config = {
             Dark        = "Palvolve_AdaptationStone_Dark",
             Dragon      = "Palvolve_AdaptationStone_Dragon",
         },
-        -- legacy generic stone: no longer craftable, still accepted whenever
-        -- the target element cannot be resolved
+        -- legacy generic stone: kept for stones already in inventories,
+        -- accepted whenever the target element cannot be resolved
         adaptationFallback = "Palvolve_AdaptionStone",
     },
     stoneNames = {
@@ -89,7 +89,7 @@ local Config = {
         countScale = 4.0, -- count = ceil(avg(min,max) * countScale), clamped
         maxCount = 30,
         fallbackMaterials = {
-            -- species without a drop table row (none right now)
+            -- species without a drop table row
         },
     },
 
@@ -99,7 +99,7 @@ local Config = {
         enabled = true,
     },
 
-    -- Map schema version (for future migrations); 4 = per-pair conditions
+    -- Map schema version; 4 = per-pair conditions
     schemaVersion = 4,
     gameBuild = 24088745,
 

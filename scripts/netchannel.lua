@@ -103,8 +103,8 @@ end
 -- handler(senderCtx, pairIndex, holder) -> ok, message
 -- Runs entirely on the game thread inside the RPC's own hook frame: RPC
 -- handlers already execute on the game thread, and the holder reference from
--- `self` only stays valid within that frame (deferring it via LoopAsync let
--- it go stale - the earlier "holder=false" failure). The pre-hook validates
+-- `self` only stays valid within that frame (deferring it via LoopAsync lets
+-- it go stale). The pre-hook validates
 -- and stashes; the post-hook runs the evolve AFTER the vanilla body, so the
 -- native selection call completes cleanly first.
 function NetChannel.initHost(handler)

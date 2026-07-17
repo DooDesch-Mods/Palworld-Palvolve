@@ -88,7 +88,7 @@ end
 -- Visible in-game chat line to a specific player's own client (works for
 -- the local player and for a remote requester on the authority). Uses
 -- EnterChat_Receive, whose Message parameter is an FString - passing FText
--- userdata there kills the process natively (see UE4SS-LESSONS). Category 1
+-- userdata there kills the process natively. Category 1
 -- (Global) is what the retail chat UI renders.
 function Role.chat(playerCtx, msg)
     if not (playerCtx and playerCtx.pc and playerCtx.pc:IsValid()) then return false end
@@ -98,11 +98,10 @@ function Role.chat(playerCtx, msg)
     return ok
 end
 
--- Player-facing status text. Local player: plain log (same surface as
--- today, the dev loop greps for it). Remote requester: forwarded through
--- the per-player channels proven in the transport spike - a machine-
--- readable screen log line (hooked by the client mod, HUD-invisible) and
--- a human-readable private chat line.
+-- Player-facing status text. Local player: plain log. Remote requester:
+-- forwarded through the per-player channels - a machine-readable screen
+-- log line (hooked by the client mod, HUD-invisible) and a human-readable
+-- private chat line.
 function Role.notify(playerCtx, msg)
     Log(msg)
     if not playerCtx or playerCtx.isLocal then return end

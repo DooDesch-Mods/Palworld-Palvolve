@@ -58,7 +58,7 @@ local function toElementName(v)
     return nil
 end
 
--- Runtime lookup via the character database; verified LAZILY on first real
+-- Runtime lookup via the character database; checked on first real
 -- use against the baked table (never during savegame load - the call can
 -- crash natively while the world is still restoring).
 local runtimeBroken = false

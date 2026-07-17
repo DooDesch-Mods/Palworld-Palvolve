@@ -6,7 +6,7 @@ local function Log(msg)
     print(string.format("[%s] %s\n", MOD_NAME, msg))
 end
 
--- Required line for the dev loop: tail-ue4ss-log waits for "[Palvolve] loaded"
+-- Startup marker; external tooling waits for this exact line
 Log("loaded")
 
 -- Role detection: UI modules and their retry pollers must not run on a
@@ -70,7 +70,7 @@ if not okFilter then
     Log("bench filter failed to load: " .. tostring(errFilter))
 end
 
--- Dev probes (devMode only; set devMode=false before release and do not package probes.lua)
+-- Dev probes (loaded only while devMode is true)
 local okCfg, cfg = pcall(require, "config")
 if okCfg and cfg.devMode then
     local okProbes, errProbes = pcall(require, "probes")

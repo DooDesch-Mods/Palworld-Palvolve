@@ -7,7 +7,7 @@
 --   "inParty:Penguin"   (DT_PalMonsterParameter row name)
 --
 -- Evaluation is pull-based only: plain reads inside the existing game-thread
--- call frames of the gates. No hooks, no delegates, no timers (UE4SS-LESSONS).
+-- call frames of the gates. No hooks, no delegates, no timers.
 -- A known condition whose game API fails evaluates as NOT met (fail closed):
 -- a silently granted evolution would be an invisible correctness hole, a
 -- greyed option with a reason is visible and debuggable.
@@ -29,9 +29,7 @@ local function devMode()
 end
 
 -- ------------------------------------------------------------- game constants
--- Values below come from the object dump (buildid 24088745) and are frozen
--- only after the in-game probes confirmed them ([probe-loc], [probe-waterstatus],
--- [probe-wazaelem], [probe-hpscale], [probe-weather], [probe-ctx]).
+-- Values below come from the game data (object dump + DT_WorldMapAreaData).
 
 -- EPalStatusID (objectdump 99757-99836)
 local STATUS = {
@@ -54,9 +52,9 @@ local GENDER_MALE, GENDER_FEMALE = 1, 2
 
 -- LastInsideRegionNameID row-key patterns (DT_WorldMapAreaData). The live
 -- world reports the UNPREFIXED rows with mixed casing ("Grass_001",
--- "Desert_UndergroundCave_001", "Sakurajim_Mushroom" - probe-verified), the
--- REGION_* rows exist as well, so a condition matches when the lowercased
--- region CONTAINS any listed pattern. Side effect by design: a desert cave
+-- "Desert_UndergroundCave_001", "Sakurajim_Mushroom"), the REGION_* rows
+-- exist as well, so a condition matches when the lowercased region
+-- CONTAINS any listed pattern. Side effect by design: a desert cave
 -- counts as desert AND cave (conditions stay AND-able).
 local REGION_PATTERNS = {
     inCave = { "undergroundcave", "fixeddungeon" },
@@ -74,14 +72,14 @@ local REGION_PATTERNS = {
     inSanctuary = { "preserve" },
 }
 
--- Tier B tuning values (probe before trusting)
-local HP_FIXED_SCALE = 1000   -- FixedPoint64.Value per 1 HP ([probe-hpscale])
+-- threshold tuning for the value-based conditions
+local HP_FIXED_SCALE = 1000   -- FixedPoint64.Value per 1 HP
 local HP_LOW_RATE = 0.3
 local HP_FULL_RATE = 0.999
 local HUNGRY_RATE = 0.3
 local WELL_FED_RATE = 0.9
-local TRUST_RANK_MIN = 5      -- GetFriendshipRank threshold ([probe-ctx])
-local RAIN_MIN = 0.05         -- WeatherFXSettings thresholds ([probe-weather])
+local TRUST_RANK_MIN = 5      -- GetFriendshipRank threshold
+local RAIN_MIN = 0.05         -- WeatherFXSettings thresholds
 local SNOW_MIN = 0.05
 local FOG_MIN = 0.05
 
@@ -109,8 +107,8 @@ local function playerPawn(ctx)
 end
 
 -- UFunction-returned TArray: prefer ForEach, fall back to #/[] indexing.
--- Indexed access hands back RemoteUnrealParam wrappers (probe-verified), so
--- unwrap with :get() before passing the value on.
+-- Indexed access hands back RemoteUnrealParam wrappers, so unwrap with
+-- :get() before passing the value on.
 local function forEachInArray(arr, fn)
     if not arr then return end
     local ok = pcall(function()
@@ -307,7 +305,8 @@ BOOL_EVAL.inCombat = function(ctx)
     return met == true
 end
 
--- Tier B (implemented, hidden in the web editor until probes confirm)
+-- Conditions available to hand-written configs only; the web editor
+-- does not offer them.
 
 local function weatherFx(ctx)
     local sky = FindFirstOf("PalSkyCreator")
@@ -434,8 +433,8 @@ end
 
 -- ------------------------------------------------------------------ vocabulary
 
--- Canonical id order: display order in reasons/UI and the sync anchor for the
--- web editor vocabulary (pipeline check compares this list with conditions.ts).
+-- Canonical id order for reasons and UI; must stay identical to the web
+-- editor vocabulary in data/conditions.ts.
 Conditions.ORDER = {
     "day", "night",
     "inWater",
@@ -445,13 +444,9 @@ Conditions.ORDER = {
     "inSakura", "inDarkIsland", "onSkyIsland", "onMushroomIsland",
     "atWorldTree", "onOilrig", "inSanctuary",
     "isMale", "isFemale",
-    -- probe-confirmed 2026-07-17: HP fixed-point scale x1000, stomach rate
-    -- and friendship rank read correctly at runtime
     "hpLow", "hpFull", "hungry", "wellFed", "highTrust",
     "isGliding", "inOwnBase", "inCombat",
-    -- Tier B (probe-gated in the web editor, accepted by the mod): weather
-    -- values read but dynamic variance is unproven; riding vs the staged
-    -- transformation is untested
+    -- available to hand-written configs only
     "raining", "snowing", "thunderstorm", "foggy", "isRiding",
 }
 
@@ -587,8 +582,8 @@ function Conditions.describe(pair)
     return table.concat(labels, I18n.msg("andJoiner"))
 end
 
--- Prints every boolean condition and the key raw signals; the probe suite
--- calls this with the gate-shaped ctx (marker [cond]).
+-- Prints every boolean condition and the key raw signals for a
+-- gate-shaped ctx (marker [cond]).
 function Conditions.debugDump(ctx)
     for _, id in ipairs(Conditions.ORDER) do
         if BOOL_EVAL[id] then

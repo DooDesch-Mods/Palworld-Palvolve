@@ -2,8 +2,8 @@
 -- snapshots/rollback, IV bonus and the staged evolution sequence.
 -- Sequence design: direct manager teardown first (the holder recall animates
 -- a mesh clone that ignores a hidden actor and is therefore only a fallback),
--- species swap while despawned, two-phase activation pump with id-verified
--- respawn, staged reveal driven by the FX staging (fx.lua).
+-- species swap while despawned, two-phase activation pump with a
+-- species-id-checked respawn, staged reveal driven by the FX staging (fx.lua).
 
 local Config = require("config")
 local FX = require("fx")
@@ -147,8 +147,8 @@ end
 
 -- Warms the submenu labels while the MAIN wheel is still open: the localized
 -- name lookups cost ~30 ms each on first use, so doing them here means the
--- Evolve click later builds its options from the cache without a hitch.
--- Bounded one-shot loop per species (LESSONS: no idle ticks, terminates).
+-- Evolve click later builds its options from the cache without delay.
+-- The loop is bounded per species and ends after one pass over the list.
 local warmedNames = {}
 local function prewarmNames(id)
     if warmedNames[id] then return end
@@ -170,8 +170,8 @@ end
 -- Otomo holder of a SPECIFIC player (never FindFirstOf: on a host with
 -- connected clients that would return an arbitrary player's holder).
 --
--- The holder is a component of the player's CONTROLLER (verified: in the net
--- RPC hook holder:GetOwner() returns the PalPlayerController). The generic
+-- The holder is a component of the player's CONTROLLER (its GetOwner()
+-- is the PalPlayerController). The generic
 -- component getter resolves it from a stable controller reference and works
 -- for a REMOTE client on a dedicated server - unlike
 -- PalUtility:GetOtomoHolderComponent, which takes only a WorldContextObject
@@ -286,7 +286,7 @@ end
 -- the movement component's TICK (harder than SetMoveDisableFlag - stops nav,
 -- gravity, floor snap, facing-driven movement) plus AI + queued actions, while
 -- NEVER writing the actor transform, so the client-driven reveal spin holds.
--- All calls verified against the 1.0 object dump.
+-- Call surface per the 1.0 object dump.
 local REVEAL_FLAG = FName("PalvolveReveal")
 local function setRevealFrozen(actor, frozen)
     if not (actor and actor:IsValid()) then return end
@@ -368,7 +368,7 @@ local function applyIvBonus(param)
             table.insert(parts, string.format("%s +%d", TALENT_LABELS[field] or field, new - cur))
         end)
         if not ok then
-            Log("IV bonus for " .. field .. " could not be applied - a game update may have changed this field")
+            Log("IV bonus for " .. field .. " could not be applied - field unavailable on this build")
         end
     end
     if #parts > 0 then Log("Evolution bonus (IVs): " .. table.concat(parts, ", ")) end
@@ -640,7 +640,7 @@ local function performEvolution(p)
     end)
 
     -- Cost transaction: consumed upfront, refunded exactly once on any abort
-    -- that happens before the verified species swap; earned afterwards.
+    -- that happens before the species swap is confirmed; earned afterwards.
     local txn = nil
     local swapDone = false
     local function refundCost(reason)
@@ -1258,7 +1258,7 @@ local function performEvolution(p)
             end)
         end
 
-        -- Activation pump. Root cause of the old hover bug: the holder BP
+        -- Activation pump. The holder BP
         -- keeps every spawned-but-not-activated pal in ReservePalLocationList
         -- and per-tick K2_SetActorLocation-warps it to the trainer anchor
         -- (owner + Z offset); only the ActivateOtomo path removes it from the
@@ -1611,8 +1611,8 @@ return false, I18n.msg("selectionOutdated", palDisplayName(id), palDisplayName(f
             palDisplayName(id), level, palDisplayName(pair.to), Costs.describeMissing(missing))
     end
     -- ok = the sequence STARTED; asynchronous stage failures surface via
-    -- the sequence's own logging/abort handling (completion acks are a
-    -- network-layer concern of a later phase)
+    -- the sequence's own logging/abort handling (the network layer sends
+    -- no completion acknowledgements)
     local started, reason = performEvolution({ actor = actor, param = param, pair = pair,
         holder = holder, key = individualKey(param), isAlpha = isAlpha,
         playerCtx = playerCtx })
@@ -1656,8 +1656,8 @@ function Evolution.executeOption(opt)
     if not (opt and opt.pair) then return end
     local playerCtx = Role.localPlayerCtx()
     -- the option was greyed out in the wheel (missing materials, too low a
-    -- level, no Alpha form): tell the player IN CHAT what is missing, not
-    -- just in the log they never see
+    -- level, no Alpha form): the reason goes to the player chat, not
+    -- only to the log
     if opt.blocked then
         Log(opt.blocked)
         Role.chat(playerCtx, opt.blocked)
@@ -1786,7 +1786,7 @@ function Evolution.onNetSignal(kind)
         if not (a and a:IsValid()) then remoteRevealBusy = false; return end
         remoteCtx.worldCtx = holder
         -- The server now places the pal at the correct height (it reads the
-        -- absolute capsule half from the static parameter component), so just
+        -- absolute capsule half from the static parameter component), so
         -- anchor the finale to where the pal actually stands and size the beam
         -- spread to the species. Height comes from the same static source (also
         -- available on the client), falling back to the capsule accessor.
@@ -1827,7 +1827,7 @@ function Evolution.rollbackLast()
         Log("Rollback blocked: an evolution is currently running")
         return
     end
-    -- Remove the snapshot only AFTER a verified restore (no data loss on failure)
+    -- Remove the snapshot only after the restore succeeded (no data loss on failure)
     local last = snapshots[#snapshots]
     if not last then
         Log("Rollback: no snapshot available")
@@ -1982,7 +1982,7 @@ function Evolution.init()
                         notified[key] = true
                         playFanfare(actor)
                         -- conditions are transient, so the reached-level hint
-                        -- still fires and just names what else must hold
+                        -- still fires and lists the remaining conditions
                         local condHint = ""
                         local conds = Conditions.describe(pair)
                         if conds then condHint = I18n.msg("whenSuffix", conds) end

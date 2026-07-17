@@ -9,7 +9,7 @@ local Config = require("config")
 local BenchVisual = {}
 
 local ROW_ID = "Palvolve_ElementExtractor"
--- material probe: logs mesh/material names of our bench for tint debugging
+-- optional diagnostics: logs mesh/material names of our bench for tint debugging
 local PROBE = false
 -- teal accent, matches the mod's stone/branding palette
 local TINT = { R = 0.12, G = 0.55, B = 0.60, A = 1.0 }
@@ -144,8 +144,8 @@ end
 -- The model (and with it the row id) arrives via replication after the actor
 -- constructs, so candidates are queued and retried from a single LoopAsync.
 -- ExecuteWithDelay is avoided on purpose - its transient callback refs get
--- garbage collected under load ("Ref was not function"), which killed every
--- deferred callback of the mod in one session.
+-- garbage collected under load ("Ref was not function"), which can free
+-- every deferred callback of the mod at once.
 local MAX_TRIES = 8
 
 -- returns true when the entry is finished (tinted or not ours), false when

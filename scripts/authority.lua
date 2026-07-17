@@ -2,7 +2,7 @@
 -- The implementation lives in evolution.lua and is bound at init (a direct
 -- require in both directions would be circular). In-process callers
 -- (standalone/listen host) call requestEvolve directly; the network layer
--- of a later phase decodes transport requests, runs its security checks
+-- decodes transport requests, runs its security checks
 -- (sender-derived ownership, request-id replay cache, rate limit) and then
 -- calls the same entry.
 local Authority = {}

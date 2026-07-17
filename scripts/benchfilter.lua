@@ -10,14 +10,14 @@
 -- Timing: NotifyOnNewObject only ENQUEUES; a single LoopAsync drains the
 -- queue with retries. ExecuteWithDelay is avoided on purpose - its transient
 -- callback refs get garbage collected under load ("Ref was not function"),
--- which killed every deferred callback of the mod in one session.
+-- which can free every deferred callback of the mod at once.
 local Config = require("config")
 
 local BenchFilter = {}
 
 local OUR_ID = "Palvolve_ElementExtractor"
 local VANILLA_ID = "MedicineFacility_01"
--- probe: logs converter state before/after patching
+-- optional diagnostics: logs converter state before/after patching
 local PROBE = false
 local MAX_TRIES = 8
 

@@ -56,7 +56,7 @@ Subscribe to Palvolve, then enable it in-game under **Options > Mod Management**
 
 The easy way: open the **[Palvolve Configurator](https://palvolve.doodesch.de)**, explore every transformation in an interactive graph, toggle whole categories or build your own tree, then drop the downloaded `config_user.lua` into `%LocalAppData%\Pal\Saved\Palvolve\` (create the folder if it does not exist - the mod also creates it on its first launch). The file survives mod updates and works for Workshop installs; placing it next to `scripts\config.lua` works as well.
 
-Conditions are edited per pair in the configurator: all selected conditions must hold at once (AND). For an either/or branch, duplicate the pair and give each copy different conditions - the mod merges same-target variants into one menu entry that unlocks when any variant is satisfied. Hand-written configs use `conditions = { "night", "knowsMove:Dragon", "inParty:Penguin" }`; unknown ids are dropped at load with a log line, and older mod versions simply ignore the field.
+Conditions are edited per pair in the configurator: all selected conditions must hold at once (AND). For an either/or branch, duplicate the pair and give each copy different conditions - the mod merges same-target variants into one menu entry that unlocks when any variant is satisfied. Hand-written configs use `conditions = { "night", "knowsMove:Dragon", "inParty:Penguin" }`; unknown ids are dropped at load with a log line, and older mod versions ignore the field.
 
 For hand-tuning, everything lives in `scripts\config.lua`: individual pairs, level thresholds, cost scaling, the egg filter and the transformation timings.
 
