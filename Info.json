@@ -21,10 +21,24 @@
       ]
     },
     {
+      "Type": "Lua",
+      "Targets": [
+        "./Scripts"
+      ],
+      "IsServer": true
+    },
+    {
       "Type": "PalSchema",
       "Targets": [
         "./PalSchema/"
       ]
+    },
+    {
+      "Type": "PalSchema",
+      "Targets": [
+        "./PalSchema/"
+      ],
+      "IsServer": true
     }
   ]
 }
