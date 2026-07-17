@@ -16,7 +16,7 @@ Learned moves carry over, even when the new form could never learn them on its o
 
 Every pair can carry conditions that must hold at evolve time: day/night, standing in water, status effects, locations from caves to wildlife sanctuaries, gender, a known move element, a specific Pal in your party, gliding, your own base or mid-combat. Two pairs with the same target and different conditions form an either/or branch - same Pal, different evolution by day and night.
 
-Build your own tree in the [Palvolve Configurator](https://palvolve.doodesch.de): an interactive graph where you rewire pairs, set levels and conditions, share the result as a short link and download the finished config.
+Build your own tree in the [Palvolve Configurator](https://palvolve.doodesch.de/?utm_source=github&utm_medium=readme&utm_campaign=palvolve): an interactive graph where you rewire pairs, set levels and conditions, share the result as a short link and download the finished config.
 
 ## Evolution costs
 
