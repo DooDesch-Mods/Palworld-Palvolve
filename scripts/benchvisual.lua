@@ -176,6 +176,35 @@ function BenchVisual.init()
         pending[#pending + 1] = { actor = actor, tries = 0 }
     end)
 
+    -- Freshly BUILT benches: the construction-to-finished transition swaps the
+    -- meshes and their materials, which discards any tint applied during the
+    -- build phase. Re-queue the actor when the game signals completion; the
+    -- delay ticks let the swap and the completion animation settle before the
+    -- loop re-reads the (new) materials. Three hooks cover every role:
+    -- the multicast FX call (host + clients), the replicated state flip
+    -- (clients, in case the FX call is suppressed) and the server-internal
+    -- finish (host, same reason). The tint is idempotent, duplicates are fine.
+    local function queueRetint(actor)
+        if actor and actor:IsValid() then
+            pending[#pending + 1] = { actor = actor, tries = 0, delay = 3 }
+        end
+    end
+    local COMPLETION_HOOKS = {
+        "/Script/Pal.PalBuildObject:PlayBuildCompleteFX_ToALL",
+        "/Script/Pal.PalBuildObject:OnRep_CurrentState",
+        "/Script/Pal.PalBuildObject:OnFinishBuildWork_ServerInternal",
+    }
+    for _, path in ipairs(COMPLETION_HOOKS) do
+        local ok = pcall(RegisterHook, path, function(selfParam)
+            pcall(function()
+                queueRetint(selfParam:get())
+            end)
+        end)
+        if not ok and Config.devMode then
+            Log(string.format("[probe-bench] completion hook failed: %s", path))
+        end
+    end
+
     LoopAsync(1000, function()
         -- idle ticks must not enter the game thread: every ExecuteInGameThread
         -- call registers a transient callback ref, and UE4SS's callback GC
@@ -195,12 +224,19 @@ function BenchVisual.init()
                 local batch = pending
                 pending = {}
                 for _, entry in ipairs(batch) do
-                    local done = true
-                    pcall(function() done = handleActor(entry.actor) end)
-                    if not done then
-                        entry.tries = entry.tries + 1
-                        if entry.tries < MAX_TRIES then
-                            pending[#pending + 1] = entry
+                    if entry.delay and entry.delay > 0 then
+                        -- completion re-tints wait out the mesh swap and the
+                        -- build-complete animation before touching materials
+                        entry.delay = entry.delay - 1
+                        pending[#pending + 1] = entry
+                    else
+                        local done = true
+                        pcall(function() done = handleActor(entry.actor) end)
+                        if not done then
+                            entry.tries = entry.tries + 1
+                            if entry.tries < MAX_TRIES then
+                                pending[#pending + 1] = entry
+                            end
                         end
                     end
                 end
