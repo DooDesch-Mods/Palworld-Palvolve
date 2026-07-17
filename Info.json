@@ -1,12 +1,18 @@
 {
   "ModName": "Palvolve",
-  "PackageName": "DooDesch.Palvolve",
+  "PackageName": "Palvolve",
   "Thumbnail": "thumbnail.png",
   "Version": "1.1.0",
+  "DebugMode": false,
   "MinRevision": 24181527,
   "Author": "DooDesch",
-  "Dependencies": [3625223587],
-  "Tags": [],
+  "Dependencies": [3625223587, 3625280368],
+  "Tags": [
+    "PalSchema",
+    "UE4SS",
+    "Gameplay",
+    "User Interface"
+  ],
   "InstallRule": [
     {
       "Type": "Lua",

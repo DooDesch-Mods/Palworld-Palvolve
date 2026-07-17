@@ -27,7 +27,7 @@ Palvolve needs two companions: **UE4SS** (the script runtime) and **PalSchema** 
 
 ### Steam Workshop (recommended)
 
-Subscribe to Palvolve, then enable it in-game under **Options > Mod Management**. The correct **UE4SS** is pulled in automatically as a Workshop dependency. **PalSchema is not on the Workshop** - install it separately following its [installation guide](https://okaetsu.github.io/PalSchema/docs/installation) (which also confirms the matching UE4SS build).
+Subscribe to Palvolve, then enable it in-game under **Options > Mod Management**. Both companions are pulled in automatically as Workshop dependencies: **UE4SS Experimental (Palworld)** and **[PalSchema](https://steamcommunity.com/sharedfiles/filedetails/?id=3625280368)**.
 
 ### Manual (UE4SS + PalSchema)
 
