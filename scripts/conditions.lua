@@ -15,6 +15,8 @@
 -- This module must not require config.lua (config.lua requires this module
 -- for its sanitizer); devMode is read lazily via package.loaded.
 
+local I18n = require("i18n")
+
 local Conditions = {}
 
 local function Log(msg)
@@ -483,12 +485,31 @@ local function splitParamId(id)
     return nil
 end
 
+-- localized pal display name for parameterized labels (falls back to the id)
+local function palLabel(id)
+    local name = nil
+    pcall(function()
+        local mdt = StaticFindObject("/Script/Pal.Default__PalMasterDataTablesUtility")
+        local ctx = FindFirstOf("PalPlayerCharacter")
+        if not (mdt and mdt:IsValid() and ctx and ctx:IsValid()) then return end
+        -- EPalLocalizeTextCategory::PalMonsterName = 4
+        local txt = mdt:GetLocalizedText(ctx, 4, FName("PAL_NAME_" .. id))
+        if txt then
+            local s = txt:ToString()
+            if s and s ~= "" then name = s end
+        end
+    end)
+    return name or id
+end
+
 -- human label for any id (used in blocked reasons and the config drop log)
 function Conditions.label(id)
+    local localized = I18n.condition(id)
+    if localized then return localized end
     if Conditions.LABELS[id] then return Conditions.LABELS[id] end
     local prefix, value = splitParamId(id)
-    if prefix == "knowsMove" then return string.format("Knows a %s move", value) end
-    if prefix == "inParty" then return string.format("%s in party", value) end
+    if prefix == "knowsMove" then return I18n.msg("knowsMoveLabel", I18n.element(value)) end
+    if prefix == "inParty" then return I18n.msg("inPartyLabel", palLabel(value)) end
     return id
 end
 
@@ -552,7 +573,7 @@ function Conditions.evaluate(pair, ctx)
         end
     end
     if #unmet == 0 then return true end
-    return false, table.concat(unmet, " + ")
+    return false, table.concat(unmet, I18n.msg("andJoiner"))
 end
 
 -- "Night + In water" for a pair, nil when unconditional (UI/hint helper)
@@ -563,7 +584,7 @@ function Conditions.describe(pair)
     for _, id in ipairs(list) do
         table.insert(labels, Conditions.label(id))
     end
-    return table.concat(labels, " + ")
+    return table.concat(labels, I18n.msg("andJoiner"))
 end
 
 -- Prints every boolean condition and the key raw signals; the probe suite

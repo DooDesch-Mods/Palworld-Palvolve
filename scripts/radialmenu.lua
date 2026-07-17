@@ -32,6 +32,7 @@
 -- hovered option and commit the selected evolution on decide/close.
 
 local Config = require("config")
+local I18n = require("i18n")
 
 local RadialMenu = {}
 
@@ -127,20 +128,10 @@ local function isActionWheel(wheel)
     return ok and res == true
 end
 
-local function gameIsGerman()
-    local de = false
-    pcall(function()
-        local intl = StaticFindObject("/Script/Engine.Default__KismetInternationalizationLibrary")
-        if not (intl and intl:IsValid()) then return end
-        local lang = intl:GetCurrentLanguage()
-        local s = type(lang) == "string" and lang or lang:ToString()
-        de = s:sub(1, 2) == "de"
-    end)
-    return de
-end
+-- language detection and the localized entry label live in i18n.lua
 
 local function labelText()
-    return gameIsGerman() and "Entwickeln" or "Evolve"
+    return I18n.msg("evolve")
 end
 
 local function makeLabelWidget(owner, text)
@@ -491,7 +482,7 @@ function RadialMenu.init(evolutionApi)
                 -- is always visible and clickable
                 table.insert(opts, {
                     cancel = true,
-                    label = gameIsGerman() and "Abbrechen" or "Cancel",
+                    label = I18n.msg("cancel"),
                 })
                 subOptions = opts
                 subHoverIdx = nil

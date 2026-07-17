@@ -10,6 +10,7 @@ local FX = require("fx")
 local Costs = require("costs")
 local Elements = require("elements")
 local Conditions = require("conditions")
+local I18n = require("i18n")
 local Role = require("role")
 local Authority = require("authority")
 local NetChannel = require("netchannel")
@@ -112,6 +113,58 @@ local function paramOf(palActor)
     end)
     if param and param:IsValid() then return param end
     return nil
+end
+
+-- Localized pal display name via the game's own text system (returns the
+-- raw character id when the lookup fails). GetLocalizedText has a plain
+-- return value, which works from Lua - unlike out-params in this build.
+-- Used for radial labels AND every player-facing message, so the chat
+-- reasons show "Pengullet Lux", never "Penguin_Electric".
+local displayNameCache = {}
+local function palDisplayName(id)
+    local cached = displayNameCache[id]
+    if cached then return cached end
+    local name = nil
+    pcall(function()
+        local mdt = StaticFindObject("/Script/Pal.Default__PalMasterDataTablesUtility")
+        local ctx = FindFirstOf("PalPlayerCharacter")
+        if not (mdt and mdt:IsValid() and ctx and ctx:IsValid()) then return end
+        -- EPalLocalizeTextCategory::PalMonsterName = 4
+        local txt = mdt:GetLocalizedText(ctx, 4, FName("PAL_NAME_" .. id))
+        if txt then
+            local s = txt:ToString()
+            if s and s ~= "" then name = s end
+        end
+    end)
+    if Config.devMode then
+        Log(string.format("[radial] name lookup %s -> %s", id, name or "FAIL"))
+    end
+    -- only successful lookups are cached so an early call (no world yet)
+    -- retries later; the cache resets with the Lua state on restart
+    if name then displayNameCache[id] = name end
+    return name or id
+end
+
+-- Warms the submenu labels while the MAIN wheel is still open: the localized
+-- name lookups cost ~30 ms each on first use, so doing them here means the
+-- Evolve click later builds its options from the cache without a hitch.
+-- Bounded one-shot loop per species (LESSONS: no idle ticks, terminates).
+local warmedNames = {}
+local function prewarmNames(id)
+    if warmedNames[id] then return end
+    warmedNames[id] = true
+    local pairList = Config.findPairs(id)
+    if #pairList == 0 then return end
+    local i = 0
+    LoopAsync(100, function()
+        i = i + 1
+        local pair = pairList[i]
+        if not pair then return true end
+        ExecuteInGameThread(function()
+            pcall(function() palDisplayName(pair.to) end)
+        end)
+        return false
+    end)
 end
 
 -- Otomo holder of a SPECIFIC player (never FindFirstOf: on a host with
@@ -478,7 +531,7 @@ local function findEligibleFor(playerCtx)
     -- still reaches its other options
     local pairList = Config.findPairs(id)
     if not pairList or #pairList == 0 then
-        return nil, string.format("%s has no evolution", id)
+        return nil, I18n.msg("hasNoEvolution", palDisplayName(id))
     end
     local level = 0
     pcall(function() level = param:GetLevel() end)
@@ -488,8 +541,7 @@ local function findEligibleFor(playerCtx)
         if isAlpha and not swapTargetId(cand, true) then
             alphaBlockedTo = alphaBlockedTo or cand.to
         elseif level < cand.minLevel then
-            firstReason = firstReason or string.format(
-                "%s needs level %d to evolve (currently %d)", id, cand.minLevel, level)
+            firstReason = firstReason or I18n.msg("needsLevel", palDisplayName(id), cand.minLevel, level)
         else
             local condOk, unmet = Conditions.evaluate(cand, condCtx)
             if condOk then
@@ -497,12 +549,12 @@ local function findEligibleFor(playerCtx)
                 pairIndex = i
                 break
             end
-            firstReason = firstReason or string.format("%s needs: %s", cand.to, unmet)
+            firstReason = firstReason or I18n.msg("needsConditions", palDisplayName(cand.to), unmet)
         end
     end
     if not pair then
         return nil, firstReason
-            or string.format("%s has no Alpha form - the Alpha cannot evolve into it", alphaBlockedTo)
+            or I18n.msg("noAlphaForm", palDisplayName(alphaBlockedTo))
     end
     -- pairIndex is the position in Config.findPairs(id) - the token a
     -- connected client sends over the net channel
@@ -1336,12 +1388,12 @@ end
 
 function Evolution.check()
     if lockBusy() then
-        Log("An evolution is already running - please wait")
+        Log(I18n.msg("evolutionRunning"))
         return
     end
     local playerCtx = Role.localPlayerCtx()
     if not playerCtx then
-        Log("No local player")
+        Log(I18n.msg("noLocalPlayer"))
         return
     end
     -- drop an expired confirm: a stale pending otherwise suppresses the
@@ -1353,7 +1405,7 @@ function Evolution.check()
     if not actor then
         if not pending then
             -- second return value carries the reason message when present
-            local reason = param or "No own pal summoned"
+            local reason = param or I18n.msg("noPalSummoned")
             Log(reason)
             Role.chat(playerCtx, reason)
         end
@@ -1366,8 +1418,8 @@ function Evolution.check()
     local costList = Costs.resolve(pair, level, holder)
     local costOk, missing = Costs.check(playerCtx, costList)
     if not costOk then
-        local reason = string.format("%s (Lv %d) could evolve into %s, but missing: %s",
-            pair.from, level, pair.to, Costs.describeMissing(missing))
+        local reason = I18n.msg("couldEvolveMissing",
+            palDisplayName(pair.from), level, palDisplayName(pair.to), Costs.describeMissing(missing))
         Log(reason)
         Role.chat(playerCtx, reason)
         return
@@ -1389,46 +1441,25 @@ function Evolution.check()
             end
             return
         else
-            Log(string.format("Confirm target changed (was %s, now %s) - re-armed",
-                pending.pair and pending.pair.from or "?", pair.from))
+            Log(I18n.msg("confirmChanged",
+                pending.pair and palDisplayName(pending.pair.from) or "?", palDisplayName(pair.from)))
         end
     end
     pending = { armedAt = now, key = key, pair = pair }
     playFanfare(actor)
     local costHint = ""
     if #costList > 0 then
-        costHint = string.format(" [cost: %s]", Costs.describe(costList))
+        costHint = I18n.msg("costHint", Costs.describe(costList))
     end
-    Log(string.format("%s (Lv %d) can evolve into %s%s - press %s again to confirm (%ds)",
-        pair.from, level, pair.to, costHint, Config.confirmKey, Config.confirmWindowSeconds))
+    Log(I18n.msg("canEvolveConfirm",
+        palDisplayName(pair.from), level, palDisplayName(pair.to), costHint,
+        Config.confirmKey, Config.confirmWindowSeconds))
 end
 
 -- true while a confirm is armed; the radial menu label switches to
 -- "confirm" in that window
 function Evolution.isArmed()
     return pending ~= nil and (os.clock() - pending.armedAt) <= Config.confirmWindowSeconds
-end
-
--- Localized pal display name via the game's own text system (returns the
--- raw character id when the lookup fails). GetLocalizedText has a plain
--- return value, which works from Lua - unlike out-params in this build.
-local function palDisplayName(id)
-    local name = nil
-    pcall(function()
-        local mdt = StaticFindObject("/Script/Pal.Default__PalMasterDataTablesUtility")
-        local ctx = FindFirstOf("PalPlayerCharacter")
-        if not (mdt and mdt:IsValid() and ctx and ctx:IsValid()) then return end
-        -- EPalLocalizeTextCategory::PalMonsterName = 4
-        local txt = mdt:GetLocalizedText(ctx, 4, FName("PAL_NAME_" .. id))
-        if txt then
-            local s = txt:ToString()
-            if s and s ~= "" then name = s end
-        end
-    end)
-    if Config.devMode then
-        Log(string.format("[radial] name lookup %s -> %s", id, name or "FAIL"))
-    end
-    return name or id
 end
 
 -- Light-weight availability for the radial label: an owned pal is
@@ -1445,7 +1476,9 @@ function Evolution.canOffer()
         local param = paramOf(actor)
         if not (param and isOwnedBy(param, playerCtx and playerCtx.playerUId)) then return false end
         local id = baseCharacterId(param:GetCharacterID():ToString())
-        return #Config.findPairs(id) > 0
+        if #Config.findPairs(id) == 0 then return false end
+        prewarmNames(id)
+        return true
     end)
     return ok and res == true
 end
@@ -1454,18 +1487,18 @@ end
 -- affordability info - feeds the radial submenu. Returns nil, reason when
 -- nothing is available.
 function Evolution.listOptions()
-    if lockBusy() then return nil, "An evolution is already running - please wait" end
+    if lockBusy() then return nil, I18n.msg("evolutionRunning") end
     local playerCtx = Role.localPlayerCtx()
     local holder = findHolderFor(playerCtx, nil)
     local actor = nil
     if holder then pcall(function() actor = holder:TryGetSpawnedOtomo() end) end
-    if not (actor and actor:IsValid()) then return nil, "No own pal summoned" end
+    if not (actor and actor:IsValid()) then return nil, I18n.msg("noPalSummoned") end
     local param = paramOf(actor)
-    if not (param and isOwnedBy(param, playerCtx and playerCtx.playerUId)) then return nil, "No own pal summoned" end
+    if not (param and isOwnedBy(param, playerCtx and playerCtx.playerUId)) then return nil, I18n.msg("noPalSummoned") end
     local id, isAlpha = baseCharacterId(param:GetCharacterID():ToString())
     local pairList = Config.findPairs(id)
     if not pairList or #pairList == 0 then
-        return nil, string.format("%s has no evolution", id)
+        return nil, I18n.msg("hasNoEvolution", palDisplayName(id))
     end
     local level = 0
     pcall(function() level = param:GetLevel() end)
@@ -1478,20 +1511,19 @@ function Evolution.listOptions()
         -- re-derives the pair from its own config at this index)
         local opt = { pair = pair, index = i, label = palDisplayName(pair.to) }
         if isAlpha and not swapTargetId(pair, true) then
-            opt.blocked = string.format("%s has no Alpha form", pair.to)
+            opt.blocked = I18n.msg("noAlphaFormShort", opt.label)
         elseif level < pair.minLevel then
-            opt.blocked = string.format("%s needs level %d (currently %d)",
-                pair.to, pair.minLevel, level)
+opt.blocked = I18n.msg("needsLevelShort", opt.label, pair.minLevel, level)
         else
             local condOk, unmet = Conditions.evaluate(pair, condCtx)
             if not condOk then
-                opt.blocked = string.format("%s needs: %s", pair.to, unmet)
+                opt.blocked = I18n.msg("needsConditions", opt.label, unmet)
             else
                 local costList = Costs.resolve(pair, level, holder)
                 local costOk, missing = Costs.check(playerCtx, costList)
                 if not costOk then
-                    opt.blocked = string.format("%s missing: %s",
-                        pair.to, Costs.describeMissing(missing))
+                    opt.blocked = I18n.msg("missingItems",
+                        opt.label, Costs.describeMissing(missing))
                 end
             end
         end
@@ -1508,7 +1540,7 @@ function Evolution.listOptions()
             existing.index = opt.index
             existing.blocked = nil
         elseif existing.blocked and opt.blocked then
-            existing.blocked = existing.blocked .. " or " .. opt.blocked
+            existing.blocked = existing.blocked .. I18n.msg("orJoiner") .. opt.blocked
         end
     end
     return options
@@ -1520,7 +1552,7 @@ end
 -- and decoded network requests. Returns ok, message.
 local function handleEvolveRequest(playerCtx, fromId, toId)
     if lockBusy() then
-        return false, "An evolution is already running - please wait"
+        return false, I18n.msg("evolutionRunning")
     end
     if not (playerCtx and playerCtx.pc and playerCtx.pc:IsValid()) then
         return false, "Requesting player unavailable"
@@ -1528,15 +1560,14 @@ local function handleEvolveRequest(playerCtx, fromId, toId)
     local holder = findHolderFor(playerCtx, nil)
     local actor = nil
     if holder then pcall(function() actor = holder:TryGetSpawnedOtomo() end) end
-    if not (actor and actor:IsValid()) then return false, "No own pal summoned" end
+    if not (actor and actor:IsValid()) then return false, I18n.msg("noPalSummoned") end
     local param = paramOf(actor)
     if not (param and isOwnedBy(param, playerCtx.playerUId)) then
-        return false, "No own pal summoned"
+        return false, I18n.msg("noPalSummoned")
     end
     local id, isAlpha = baseCharacterId(param:GetCharacterID():ToString())
     if id ~= fromId then
-        return false, string.format("Selection outdated: summoned pal is %s, option was for %s",
-            id, fromId)
+return false, I18n.msg("selectionOutdated", palDisplayName(id), palDisplayName(fromId))
     end
     -- The pair is re-resolved from the mod config, never taken from the
     -- request. Several same-target variants may exist (either/or conditions):
@@ -1547,7 +1578,8 @@ local function handleEvolveRequest(playerCtx, fromId, toId)
         if cand.to == toId then table.insert(candidates, cand) end
     end
     if #candidates == 0 then
-        return false, string.format("%s has no configured evolution into %s", id, tostring(toId))
+        return false, I18n.msg("noConfiguredEvolution",
+            palDisplayName(id), palDisplayName(tostring(toId)))
     end
     local level = 0
     pcall(function() level = param:GetLevel() end)
@@ -1555,18 +1587,16 @@ local function handleEvolveRequest(playerCtx, fromId, toId)
     local pair, failReason = nil, nil
     for _, cand in ipairs(candidates) do
         if isAlpha and not swapTargetId(cand, true) then
-            failReason = failReason or string.format(
-                "%s has no Alpha form - the Alpha cannot evolve into it", cand.to)
+            failReason = failReason or I18n.msg("noAlphaForm", palDisplayName(cand.to))
         elseif level < cand.minLevel then
-            failReason = failReason or string.format(
-                "%s needs level %d to evolve (currently %d)", id, cand.minLevel, level)
+            failReason = failReason or I18n.msg("needsLevel", palDisplayName(id), cand.minLevel, level)
         else
             local condOk, unmet = Conditions.evaluate(cand, condCtx)
             if condOk then
                 pair = cand
                 break
             end
-            failReason = failReason or string.format("%s needs: %s", cand.to, unmet)
+            failReason = failReason or I18n.msg("needsConditions", palDisplayName(cand.to), unmet)
         end
     end
     if not pair then
@@ -1577,8 +1607,8 @@ local function handleEvolveRequest(playerCtx, fromId, toId)
     local costList = Costs.resolve(pair, level, holder)
     local costOk, missing = Costs.check(playerCtx, costList)
     if not costOk then
-        return false, string.format("%s (Lv %d) could evolve into %s, but missing: %s",
-            id, level, pair.to, Costs.describeMissing(missing))
+        return false, I18n.msg("couldEvolveMissing",
+            palDisplayName(id), level, palDisplayName(pair.to), Costs.describeMissing(missing))
     end
     -- ok = the sequence STARTED; asynchronous stage failures surface via
     -- the sequence's own logging/abort handling (completion acks are a
@@ -1601,20 +1631,20 @@ local function handleEvolveByIndex(playerCtx, pairIndex)
     local holder = findHolderFor(playerCtx, nil)
     local actor = nil
     if holder then pcall(function() actor = holder:TryGetSpawnedOtomo() end) end
-    if not (actor and actor:IsValid()) then return false, "No own pal summoned" end
+    if not (actor and actor:IsValid()) then return false, I18n.msg("noPalSummoned") end
     local param = paramOf(actor)
     if not (param and isOwnedBy(param, playerCtx and playerCtx.playerUId)) then
-        return false, "No own pal summoned"
+        return false, I18n.msg("noPalSummoned")
     end
     local baseId = baseCharacterId(param:GetCharacterID():ToString())
     local pairList = Config.findPairs(baseId)
     local pair = pairList and pairList[pairIndex]
     if not pair then
-        return false, "That evolution option is no longer available"
+        return false, I18n.msg("optionUnavailable")
     end
     local ok, msg = handleEvolveRequest(playerCtx, baseId, pair.to)
     if ok then
-        return true, string.format("Evolving into %s...", palDisplayName(pair.to))
+        return true, I18n.msg("evolvingInto", palDisplayName(pair.to))
     end
     return false, msg
 end
@@ -1634,7 +1664,7 @@ function Evolution.executeOption(opt)
         return
     end
     if not playerCtx then
-        Log("No local player")
+        Log(I18n.msg("noLocalPlayer"))
         return
     end
     if Role.hasWorldAuthority() then
@@ -1653,7 +1683,7 @@ function Evolution.executeOption(opt)
         lastRemotePair = opt.pair
         local sent = NetChannel.sendEvolve(playerCtx, opt.index or 0)
         if not sent then
-            local msg = "Could not reach the server - please try again"
+            local msg = I18n.msg("serverUnreachable")
             Log(msg)
             Role.chat(playerCtx, msg)
         end
@@ -1732,7 +1762,7 @@ function Evolution.onNetSignal(kind)
         remoteRevealStart = os.clock()
         remoteCtx = buildRemoteCtx(actor, holder, playerCtx, lastRemotePair)
         local toName = lastRemotePair and palDisplayName(lastRemotePair.to) or "its new form"
-        Role.chat(playerCtx, string.format("Evolving into %s...", toName))
+        Role.chat(playerCtx, I18n.msg("evolvingInto", toName))
         pcall(function() playFanfare(actor) end)
         pcall(function() FX.onDissolve(remoteCtx) end)
         -- after the dissolve, start the hold loop and recall the pal
@@ -1955,9 +1985,10 @@ function Evolution.init()
                         -- still fires and just names what else must hold
                         local condHint = ""
                         local conds = Conditions.describe(pair)
-                        if conds then condHint = string.format(" (when: %s)", conds) end
-                        Log(string.format("%s reached level %d and can evolve into %s!%s (press %s)",
-                            id, newLevel, pair.to, condHint, Config.confirmKey))
+                        if conds then condHint = I18n.msg("whenSuffix", conds) end
+                        Log(I18n.msg("reachedLevel",
+                            palDisplayName(id), newLevel, palDisplayName(pair.to), condHint,
+                            Config.confirmKey))
                     end
                 end)
             end)
