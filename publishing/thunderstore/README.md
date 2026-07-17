@@ -19,7 +19,7 @@ Evolution for Palworld as a moment you choose: pick the target in the radial men
 
 ## Notes
 
-- Tested with Palworld 1.0 build 24181527; singleplayer, co-op and dedicated servers.
+- Tested with Palworld 1.0 build 619; singleplayer, co-op and dedicated servers.
 - Known limitation: on dedicated servers the final reveal effects do not render on the client yet; the evolution itself completes correctly.
 - Demolish placed Pal Alchemy Workbenches before uninstalling (game-side limitation).
 - Never use mods on official servers. Source: [GitHub](https://github.com/DooDesch-Mods/Palworld-Palvolve)

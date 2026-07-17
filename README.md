@@ -53,7 +53,7 @@ Hand-written configs use `conditions = { "night", "knowsMove:Dragon", "inParty:P
 
 ## Notes
 
-- Tested with Palworld 1.0 build 24181527 - singleplayer, co-op and dedicated servers.
+- Tested with Palworld 1.0 build 619 - singleplayer, co-op and dedicated servers.
 - On a dedicated server, install the mod (and UE4SS + PalSchema) server-side as well.
 - Known limitation: on dedicated servers the final reveal effects do not render on the client yet. The evolution itself works.
 - Demolish placed Pal Alchemy Workbenches before removing the mod - worlds with placed modded buildings will not load without it (game-side limitation). Modded items in inventories are cleaned up by PalSchema.

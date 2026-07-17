@@ -101,7 +101,9 @@ local Config = {
 
     -- Map schema version; 4 = per-pair conditions
     schemaVersion = 4,
-    gameBuild = 24181527,
+    -- Palworld revision: the trailing digits of the title-screen version
+    -- (v1.0.1.100619 -> 619), the identifier the official mod loader uses
+    gameBuild = 619,
 
     map = {
     -- ==================== True evolutions (small -> big form) ====================
