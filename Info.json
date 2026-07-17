@@ -6,7 +6,7 @@
   "DebugMode": false,
   "MinRevision": 24181527,
   "Author": "DooDesch",
-  "Dependencies": [3625223587, 3625280368],
+  "Dependencies": null,
   "Tags": [
     "PalSchema",
     "UE4SS",
@@ -16,16 +16,14 @@
   "InstallRule": [
     {
       "Type": "Lua",
-      "IsServer": true,
       "Targets": [
-        "scripts"
+        "./Scripts"
       ]
     },
     {
       "Type": "PalSchema",
-      "IsServer": true,
       "Targets": [
-        "PalSchema"
+        "./PalSchema/"
       ]
     }
   ]
