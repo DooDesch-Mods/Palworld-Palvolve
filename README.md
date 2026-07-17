@@ -16,7 +16,7 @@ Evolve your captured Pals into stronger related forms and adapt them into their 
 - **Web configurator:** explore every transformation as an interactive graph at [palvolve.doodesch.de](https://palvolve.doodesch.de), toggle categories or build your own tree, and download a ready-to-use config.
 - **Conditional evolutions (X/Y branches):** any pair can require conditions that must hold at the moment of evolution - time of day, standing in water, active status effects (electrified, burning, frozen, ...), locations (cave, desert, volcano, snow, sakura, wildlife sanctuary, ...), gender, being in your own base, in combat, knowing a move of an element (e.g. a Dragon move) or having a specific Pal in your party. Give the same Pal two targets with different conditions and it evolves differently by day and night - the radial menu shows exactly what each option still needs.
 - **Identity preserved, and then some:** everything individual carries over, including moves the target species could never learn - builds vanilla cannot have. +5 to all IV talents per stage (capped at 100).
-- **Transactional and safe:** every evolution snapshots the Pal first and refunds all costs if anything aborts before the transformation completes.
+- **Transactional and safe:** every evolution snapshots the Pal first and refunds all costs if anything aborts before the transformation completes. Typing `/palvolve rollback` into the in-game chat restores your last evolved Pal to its previous form, IVs included.
 - Keyboard fallback: F2 checks and confirms the summoned Pal's next evolution without the radial menu.
 
 ## Installation

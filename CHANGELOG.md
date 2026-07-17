@@ -8,6 +8,8 @@
 - Conditional evolutions: every pair can carry `conditions = { ... }` (AND semantics) that must hold at evolve time - day/night, in water, status effects (burning, electrified, frozen, wet, poisoned, stunned, sleeping, muddy, blinded, toxic gas), locations (cave, desert, volcano, snow, grassland, forest, sakura, dark island, sky islands, mushroom island, World Tree, oil rig, wildlife sanctuary), gender, gliding, own base, in combat, plus parameterized `knowsMove:<Element>` and `inParty:<CharacterID>`. Either/or branches (X/Y evolutions) are two pairs with the same target and different conditions; the radial menu merges them into one entry that unlocks when any variant holds.
 - Configurator support: conditions are editable per pair (with a duplicate button for either/or branches), travel through share links (payload v2; old v1 links keep working) and the exported `config_user.lua`.
 - Blocked radial options now name the missing conditions ("Dynamoff needs: Electrified or In a wildlife sanctuary"); the level-up hint names conditions as "(when: ...)".
+- Chat command `/palvolve rollback`: typed into the normal in-game chat, it restores your last evolved Pal to its previous form (IVs included) from the automatic pre-evolution snapshot. Works in singleplayer, co-op and on dedicated servers, scoped to the requesting player.
+- All chat messages, blocked reasons and menu entries follow the game language (17 languages), including localized Pal names; on dedicated servers each client gets messages in its own language.
 
 ### Compatibility
 

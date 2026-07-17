@@ -1822,15 +1822,39 @@ function Evolution.onNetSignal(kind)
     end
 end
 
-function Evolution.rollbackLast()
+function Evolution.rollbackLast(playerCtx)
+    local function say(msg)
+        Log(msg)
+        if playerCtx then Role.chat(playerCtx, msg) end
+    end
     if lockBusy() then
-        Log("Rollback blocked: an evolution is currently running")
+        say("Rollback blocked: an evolution is currently running")
         return
     end
-    -- Remove the snapshot only after the restore succeeded (no data loss on failure)
-    local last = snapshots[#snapshots]
+    -- Remove the snapshot only after the restore succeeded (no data loss on
+    -- failure). A requester rolls back THEIR latest evolution: the stack is
+    -- searched from the top for a snapshot owned by them; entries without an
+    -- owner uid stay reachable from the authority console path only.
+    local snapIdx = nil
+    local requesterUid = nil
+    pcall(function()
+        local u = playerCtx and playerCtx.playerUId
+        if u then requesterUid = string.format("%08X-%08X-%08X-%08X", u.A, u.B, u.C, u.D) end
+    end)
+    for i = #snapshots, 1, -1 do
+        local s = snapshots[i]
+        if not requesterUid then
+            snapIdx = i
+            break
+        end
+        if s.uid and s.uid == requesterUid then
+            snapIdx = i
+            break
+        end
+    end
+    local last = snapIdx and snapshots[snapIdx]
     if not last then
-        Log("Rollback: no snapshot available")
+        say("Rollback: no snapshot available")
         return
     end
     local reverted = false
@@ -1883,13 +1907,13 @@ function Evolution.rollbackLast()
         end
     end
     if reverted then
-        table.remove(snapshots)
+        table.remove(snapshots, snapIdx)
         saveSnapshots()
-        Log(string.format("Rollback %s -> %s: restored including IVs (resummon to see the model)",
-            last.to, last.from))
+        say(string.format("Rollback %s -> %s: restored including IVs (resummon to see the model)",
+            palDisplayName(last.to), palDisplayName(last.from)))
     else
-        Log(string.format("Rollback %s -> %s: no matching pal found (snapshot kept; bring the pal nearby and retry)",
-            last.to, last.from))
+        say(string.format("Rollback %s -> %s: no matching pal found (snapshot kept; bring the pal nearby and retry)",
+            palDisplayName(last.to), palDisplayName(last.from)))
     end
 end
 
@@ -2015,7 +2039,7 @@ function Evolution.init()
             ExecuteInGameThread(function()
                 local ok, err = pcall(function()
                     if sub == "rollback" then
-                        Evolution.rollbackLast()
+                        Evolution.rollbackLast(Role.localPlayerCtx())
                     elseif sub == "radial" and Config.devMode then
                         require("probes").armRadialProbes()
                     else
@@ -2028,7 +2052,19 @@ function Evolution.init()
         end)
     end)
 
-    Log(string.format("Evolution core active: %s = check/confirm, console: palvolve check|rollback",
+    -- chat commands: the retail build ships without an in-game console
+    pcall(function()
+        local ChatCommands = require("chatcommands")
+        local okCmd = ChatCommands.init({
+            rollback = function(senderCtx) Evolution.rollbackLast(senderCtx) end,
+            help = function(senderCtx)
+                Role.chat(senderCtx, "Palvolve: /palvolve rollback restores your last evolved Pal")
+            end,
+        })
+        if okCmd then Log("Chat commands active: /palvolve rollback") end
+    end)
+
+    Log(string.format("Evolution core active: %s = check/confirm, chat: /palvolve rollback",
         Config.confirmKey))
 end
 
