@@ -33,16 +33,20 @@ Config (`publishing/publish-config.json`):
   file through the website, then read both ids from "API Info" on the Files tab
   and store them here. The workflow updates that file entry on every run.
 
-## Known blockers before the first Thunderstore publish
+## Publish policy
 
-- PalSchema is not available on Thunderstore's Palworld community (checked
-  17.07.2026), so the schema half of Palvolve (workbench, stones, recipes)
-  cannot be delivered through the mod manager. Do not publish there until
-  PalSchema is available on Thunderstore or shimloader compatibility with a
-  manually installed PalSchema is proven in a test profile.
-- unreal_shimloader virtualizes its own RE-UE4SS; whether that build works with
-  Palworld 1.0 (instead of the Okaetsu experimental-palworld build) is
-  unverified. Test with a shimloader profile before the first publish.
+Palvolve is only published to platforms where PalSchema is available as a
+dependency: Steam Workshop, GitHub and Nexus Mods. Without PalSchema on the
+platform, the schema half of the mod (workbench, stones, recipes) cannot reach
+the user.
+
+- Thunderstore: NOT published. PalSchema is missing from the Palworld community
+  (checked 17.07.2026) and unreal_shimloader virtualizes its own RE-UE4SS,
+  which is unverified against Palworld 1.0. The Thunderstore path in the
+  workflow stays dormant (checkbox off); revisit only if PalSchema appears on
+  Thunderstore AND a shimloader test profile proves compatibility.
+- CurseForge: NOT published for the same reason - PalSchema is not hosted
+  there (checked 17.07.2026).
 
 ## Listing texts
 
