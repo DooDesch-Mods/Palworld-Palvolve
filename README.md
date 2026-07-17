@@ -6,7 +6,7 @@ Evolve your captured Pals into stronger related forms and adapt them into their 
 
 ## Features
 
-- **99 curated transformations:** evolution chains (e.g. Pengullet -> Penking, Mau -> Sekhmet), fun chains and 87 element adaptations (e.g. Penking -> Penking Lux), all config-driven with per-pair level thresholds.
+- **143 curated transformations:** evolution chains (e.g. Pengullet -> Penking, Mau -> Sekhmet), fun chains and 87 element adaptations (e.g. Penking -> Penking Lux), all config-driven with per-pair level thresholds. Community-curated default tree; several pairs ship with conditions out of the box (Mau becomes Sekhmet only in the desert by day and Wispaw only at night or in caves, Relaxaurus turns Lux only while electrified).
 - **Radial menu integration:** hold 4, pick "Evolve" and choose from your Pal's options in a submenu - unaffordable options are greyed out with the reason, backing out is always one click away. Entries follow the game language.
 - **A transformation worth watching:** your Pal spins up, shrinks into a blinding light and re-emerges growing from a spark to full size, with the game's own element effects - the old element while it dissolves, the new one when it reveals. Dual-element Pals pulse in both.
 - **Alphas and Luckys stay special:** an Alpha evolves into the Alpha form of its target species, a Lucky stays Lucky - the status survives every transformation.

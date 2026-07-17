@@ -101,14 +101,15 @@ local Config = {
 
     -- Map schema version; 4 = per-pair conditions
     schemaVersion = 4,
-    gameBuild = 24088745,
+    gameBuild = 24181527,
 
-    map = { -- ==================== True evolutions (small -> big form) ====================
+    map = {
+    -- ==================== True evolutions (small -> big form) ====================
     {
         from = "Penguin",
         to = "CaptainPenguin",
         category = "evolution",
-        minLevel = 30,
+        minLevel = 21,
         stone = "evolution",
         enabled = true
     }, -- Pengullet -> Penking
@@ -118,37 +119,461 @@ local Config = {
         category = "evolution",
         minLevel = 25,
         stone = "evolution",
+        conditions = { "inParty:MopKing" },
         enabled = true
-    }, -- Swee -> Sweepa
+    }, -- Swee -> Sweepa (inParty:MopKing)
     {
         from = "Alpaca",
         to = "KingAlpaca",
         category = "evolution",
-        minLevel = 35,
+        minLevel = 28,
         stone = "evolution",
         enabled = true
-    }, {
+    }, -- Melpaca -> Kingpaca
+    {
         from = "SoldierBee",
         to = "QueenBee",
         category = "evolution",
         minLevel = 35,
         stone = "evolution",
         enabled = true
-    }, {
+    }, -- Beegarde -> Elizabee
+    {
         from = "MoonChild",
         to = "MoonQueen",
         category = "evolution",
-        minLevel = 40,
+        minLevel = 50,
         stone = "evolution",
         enabled = true
-    }, {
+    }, -- Wistella -> Selyne
+    {
         from = "SmallYeti",
         to = "Yeti",
+        category = "evolution",
+        minLevel = 22,
+        stone = "evolution",
+        enabled = true
+    }, -- Snugloo -> Wumpo
+    {
+        from = "Penguin_Electric",
+        to = "CaptainPenguin_Black",
+        category = "evolution",
+        minLevel = 21,
+        stone = "evolution",
+        enabled = true
+    }, -- Pengullet Lux -> Penking Lux
+    {
+        from = "Bastet",
+        to = "Sekhmet",
+        category = "evolution",
+        minLevel = 21,
+        stone = "evolution",
+        conditions = { "day", "inDesert" },
+        enabled = true
+    }, -- Mau -> Sekhmet (day + inDesert)
+    {
+        from = "Kelpie",
+        to = "Umihebi",
+        category = "evolution",
+        minLevel = 38,
+        stone = "evolution",
+        conditions = { "electrified" },
+        enabled = true
+    }, -- Kelpsea -> Jormuntide (electrified)
+    {
+        from = "Kelpie",
+        to = "Umihebi",
+        category = "evolution",
+        minLevel = 38,
+        stone = "evolution",
+        conditions = { "knowsMove:Dragon" },
+        enabled = true
+    }, -- Kelpsea -> Jormuntide (knowsMove:Dragon)
+    {
+        from = "Kelpie_Fire",
+        to = "Umihebi_Fire",
+        category = "evolution",
+        minLevel = 38,
+        stone = "evolution",
+        conditions = { "electrified" },
+        enabled = true
+    }, -- Kelpsea Ignis -> Jormuntide Ignis (electrified)
+    {
+        from = "Kelpie_Fire",
+        to = "Umihebi_Fire",
+        category = "evolution",
+        minLevel = 38,
+        stone = "evolution",
+        conditions = { "knowsMove:Dragon" },
+        enabled = true
+    }, -- Kelpsea Ignis -> Jormuntide Ignis (knowsMove:Dragon)
+    {
+        from = "Carbunclo",
+        to = "BerryGoat",
+        category = "evolution",
+        minLevel = 25,
+        stone = "evolution",
+        enabled = true
+    }, -- Lifmunk -> Caprity
+    {
+        from = "BerryGoat",
+        to = "SkyDragon_Grass",
+        category = "evolution",
+        minLevel = 42,
+        stone = "evolution",
+        enabled = true
+    }, -- Caprity -> Quivern Botan
+    {
+        from = "PinkRabbit_Grass",
+        to = "FlowerDoll",
+        category = "evolution",
+        minLevel = 30,
+        stone = "evolution",
+        enabled = true
+    }, -- Ribbuny Botan -> Petallia
+    {
+        from = "PinkRabbit",
+        to = "FlowerDoll_Fire",
+        category = "evolution",
+        minLevel = 30,
+        stone = "evolution",
+        enabled = true
+    }, -- Ribbuny -> Petallia Ignis
+    {
+        from = "FlowerRabbit",
+        to = "VenusFlytrap",
+        category = "evolution",
+        minLevel = 28,
+        stone = "evolution",
+        enabled = true
+    }, -- Flopie -> Carnibora
+    {
+        from = "LeafPrincess",
+        to = "LilyQueen",
         category = "evolution",
         minLevel = 40,
         stone = "evolution",
         enabled = true
-    }, -- ==================== Fun chains (across family lines) ====================
+    }, -- Lullu -> Lyleen
+    {
+        from = "LeafMomonga",
+        to = "GrassPanda",
+        category = "evolution",
+        minLevel = 32,
+        stone = "evolution",
+        enabled = true
+    }, -- Herbil -> Mossanda
+    {
+        from = "CloverFairy",
+        to = "GrassMinotaur",
+        category = "evolution",
+        minLevel = 30,
+        stone = "evolution",
+        enabled = true
+    }, -- Clovee -> Elgrove
+    {
+        from = "LittleBriarRose",
+        to = "SakuraSaurus",
+        category = "evolution",
+        minLevel = 28,
+        stone = "evolution",
+        enabled = true
+    }, -- Bristla -> Broncherry
+    {
+        from = "SakuraSaurus",
+        to = "Plesiosaur",
+        category = "evolution",
+        minLevel = 48,
+        stone = "evolution",
+        enabled = true
+    }, -- Broncherry -> Braloha
+    {
+        from = "NegativeKoala",
+        to = "BadCatgirl",
+        category = "evolution",
+        minLevel = 36,
+        stone = "evolution",
+        enabled = true
+    }, -- Depresso -> Nyafia
+    {
+        from = "OctopusGirl",
+        to = "SnakeGirl",
+        category = "evolution",
+        minLevel = 40,
+        stone = "evolution",
+        enabled = true
+    }, -- Gloopie -> Venusa
+    {
+        from = "WizardOwl",
+        to = "BlackGriffon",
+        category = "evolution",
+        minLevel = 48,
+        stone = "evolution",
+        enabled = true
+    }, -- Hoocrates -> Shadowbeak
+    {
+        from = "Bastet",
+        to = "GhostBlackCat",
+        category = "evolution",
+        minLevel = 21,
+        stone = "evolution",
+        conditions = { "night" },
+        enabled = true
+    }, -- Mau -> Wispaw (night)
+    {
+        from = "Bastet",
+        to = "GhostBlackCat",
+        category = "evolution",
+        minLevel = 21,
+        stone = "evolution",
+        conditions = { "inCave" },
+        enabled = true
+    }, -- Mau -> Wispaw (inCave)
+    {
+        from = "NightFox",
+        to = "AmaterasuWolf_Dark",
+        category = "evolution",
+        minLevel = 36,
+        stone = "evolution",
+        enabled = true
+    }, -- Nox -> Kitsun Noct
+    {
+        from = "CatBat",
+        to = "CatVampire",
+        category = "evolution",
+        minLevel = 35,
+        stone = "evolution",
+        enabled = true
+    }, -- Tombat -> Felbat
+    {
+        from = "ElecCat",
+        to = "ElecPanda",
+        category = "evolution",
+        minLevel = 38,
+        stone = "evolution",
+        enabled = true
+    }, -- Sparkit -> Grizzbolt
+    {
+        from = "ElecLizard",
+        to = "KingSunfish_Thunder",
+        category = "evolution",
+        minLevel = 25,
+        stone = "evolution",
+        enabled = true
+    }, -- Slowatt -> Solmora Lux
+    {
+        from = "ElecPomeranian",
+        to = "ThunderDog",
+        category = "evolution",
+        minLevel = 25,
+        stone = "evolution",
+        enabled = true
+    }, -- Puffolt -> Rayhound
+    {
+        from = "ThunderDog",
+        to = "ThunderDragonMan",
+        category = "evolution",
+        minLevel = 42,
+        stone = "evolution",
+        enabled = true
+    }, -- Rayhound -> Orserk
+    {
+        from = "Penguin_Electric",
+        to = "ThunderFluffyBird",
+        category = "evolution",
+        minLevel = 31,
+        stone = "evolution",
+        conditions = { "electrified" },
+        enabled = true
+    }, -- Pengullet Lux -> Dynamoff (electrified)
+    {
+        from = "Penguin_Electric",
+        to = "ThunderFluffyBird",
+        category = "evolution",
+        minLevel = 31,
+        stone = "evolution",
+        conditions = { "inSanctuary" },
+        enabled = true
+    }, -- Pengullet Lux -> Dynamoff (inSanctuary)
+    {
+        from = "Kitsunebi",
+        to = "FlameBuffalo",
+        category = "evolution",
+        minLevel = 32,
+        stone = "evolution",
+        enabled = true
+    }, -- Foxparks -> Arsox
+    {
+        from = "SharkKid_Fire",
+        to = "StuffedShark_Fire",
+        category = "evolution",
+        minLevel = 36,
+        stone = "evolution",
+        enabled = true
+    }, -- Gobfin Ignis -> Finsider Ignis
+    {
+        from = "Kelpie_Fire",
+        to = "Suzaku",
+        category = "evolution",
+        minLevel = 38,
+        stone = "evolution",
+        conditions = { "inWater" },
+        enabled = true
+    }, -- Kelpsea Ignis -> Suzaku (inWater)
+    {
+        from = "Kelpie",
+        to = "Suzaku_Water",
+        category = "evolution",
+        minLevel = 38,
+        stone = "evolution",
+        conditions = { "inWater" },
+        enabled = true
+    }, -- Kelpsea -> Suzaku Aqua (inWater)
+    {
+        from = "LavaGirl",
+        to = "FoxMage",
+        category = "evolution",
+        minLevel = 32,
+        stone = "evolution",
+        enabled = true
+    }, -- Flambelle -> Wixen
+    {
+        from = "FoxMage",
+        to = "KabukiMan",
+        category = "evolution",
+        minLevel = 42,
+        stone = "evolution",
+        enabled = true
+    }, -- Wixen -> Renjishi
+    {
+        from = "FireKirin",
+        to = "Manticore",
+        category = "evolution",
+        minLevel = 35,
+        stone = "evolution",
+        enabled = true
+    }, -- Pyrin -> Blazehowl
+    {
+        from = "FireKirin_Dark",
+        to = "Manticore_Dark",
+        category = "evolution",
+        minLevel = 35,
+        stone = "evolution",
+        enabled = true
+    }, -- Pyrin Noct -> Blazehowl Noct
+    {
+        from = "IceSeal_Ground",
+        to = "SumoDog",
+        category = "evolution",
+        minLevel = 36,
+        stone = "evolution",
+        enabled = true
+    }, -- Polapup Terra -> Bulldosu
+    {
+        from = "SamuraiDog",
+        to = "BrownRabbit",
+        category = "evolution",
+        minLevel = 28,
+        stone = "evolution",
+        enabled = true
+    }, -- Pupperai -> Lapiron
+    {
+        from = "TentacleTurtle_Ground",
+        to = "DrillGame",
+        category = "evolution",
+        minLevel = 25,
+        stone = "evolution",
+        enabled = true
+    }, -- Turtacle Terra -> Digtoise
+    {
+        from = "DrillGame",
+        to = "CubeTurtle",
+        category = "evolution",
+        minLevel = 42,
+        stone = "evolution",
+        enabled = true
+    }, -- Digtoise -> Tetroise 
+    {
+        from = "Kitsunebi_Ice",
+        to = "IceFox",
+        category = "evolution",
+        minLevel = 32,
+        stone = "evolution",
+        enabled = true
+    }, -- Foxparks Cryst -> Foxcicle
+    {
+        from = "BirdDragon_Ice",
+        to = "ThunderBird_Ice",
+        category = "evolution",
+        minLevel = 38,
+        stone = "evolution",
+        enabled = true
+    }, -- Vanwyrm Cryst -> Beakon Cryst
+    {
+        from = "Hedgehog_Ice",
+        to = "WhiteTiger",
+        category = "evolution",
+        minLevel = 36,
+        stone = "evolution",
+        enabled = true
+    }, -- Jolthog Cryst -> Cryolinx
+    {
+        from = "FluffyBird",
+        to = "WhiteMoth",
+        category = "evolution",
+        minLevel = 28,
+        stone = "evolution",
+        enabled = true
+    }, -- Muffly -> Sibelyx
+    {
+        from = "Bastet_Ice",
+        to = "BlackPuppy_Ice",
+        category = "evolution",
+        minLevel = 21,
+        stone = "evolution",
+        enabled = true
+    }, -- Mau Cryst -> Smokie Cryst
+    {
+        from = "PinkCat",
+        to = "LongCat",
+        category = "evolution",
+        minLevel = 28,
+        stone = "evolution",
+        enabled = true
+    }, -- Cattiva -> Valentail
+    {
+        from = "SweetsSheep",
+        to = "PinkLizard",
+        category = "evolution",
+        minLevel = 21,
+        stone = "evolution",
+        enabled = true
+    }, -- Woolipop -> Lovander
+    {
+        from = "CuteFox",
+        to = "SifuDog",
+        category = "evolution",
+        minLevel = 30,
+        stone = "evolution",
+        enabled = true
+    }, -- Vixy -> Dogen
+    {
+        from = "NightBlueHorse_Neutral",
+        to = "LegendDeer",
+        category = "evolution",
+        minLevel = 50,
+        stone = "evolution",
+        enabled = true
+    }, -- Starryon Primo -> Hartalis
+    {
+        from = "NegativeOctopus_Neutral",
+        to = "OctopusGirl_Neutral",
+        category = "evolution",
+        minLevel = 25,
+        stone = "evolution",
+        enabled = true
+    }, -- Killamari Primo -> Gloopie Primo
+    -- ==================== Fun chains (deliberate jokes) ====================
     {
         from = "MopKing",
         to = "SmallYeti",
@@ -157,37 +582,31 @@ local Config = {
         stone = "evolution",
         enabled = true
     }, -- Sweepa -> Snugloo
-    -- Thematic candidates (curation decisions, disabled by default):
     {
-        from = "Bastet",
-        to = "Sekhmet",
-        category = "funchain",
-        minLevel = 45,
-        stone = "evolution",
-        enabled = true
-    }, {
         from = "PinkCat",
         to = "BadCatgirl",
         category = "funchain",
         minLevel = 35,
         stone = "evolution",
-        enabled = true
-    }, {
+        enabled = false
+    }, -- Cattiva -> Nyafia
+    {
         from = "SmallArmadillo",
         to = "DrillGame",
         category = "funchain",
-        minLevel = 30,
+        minLevel = 16,
         stone = "evolution",
         enabled = true
-    }, {
-        from = "LeafPrincess",
-        to = "LilyQueen",
+    }, -- Kikit -> Digtoise
+    {
+        from = "Ganesha",
+        to = "GrassMammoth_Ice",
         category = "funchain",
-        minLevel = 45,
+        minLevel = 40,
         stone = "evolution",
         enabled = true
-    }, -- ==================== Element adaptations (base -> variant) ====================
-    -- Default threshold 30; both DataTable rows exist for every pair.
+    }, -- Teafant -> Mammorest Cryst
+    -- ==================== Element adaptations (same species) ====================
     {
         from = "AmaterasuWolf",
         to = "AmaterasuWolf_Dark",
@@ -195,112 +614,127 @@ local Config = {
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Kitsun -> Kitsun Noct
+    {
         from = "Baphomet",
         to = "Baphomet_Dark",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Incineram -> Incineram Noct
+    {
         from = "Bastet",
         to = "Bastet_Ice",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Mau -> Mau Cryst
+    {
         from = "BerryGoat",
         to = "BerryGoat_Dark",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Caprity -> Caprity Noct
+    {
         from = "BirdDragon",
         to = "BirdDragon_Ice",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Vanwyrm -> Vanwyrm Cryst
+    {
         from = "BlackPuppy",
         to = "BlackPuppy_Ice",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Smokie -> Smokie Cryst
+    {
         from = "BlueDragon",
         to = "BlueDragon_Ice",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Azurobe -> Azurobe Cryst
+    {
         from = "BluePlatypus",
         to = "BluePlatypus_Fire",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Fuack -> Fuack Ignis
+    {
         from = "CactusDoll",
         to = "CactusDoll_Dark",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Needoll -> Needoll Noct
+    {
         from = "CaptainPenguin",
         to = "CaptainPenguin_Black",
         category = "adaptation",
         minLevel = 35,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Penking -> Penking Lux
+    {
         from = "CatMage",
         to = "CatMage_Fire",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Katress -> Katress Ignis
+    {
         from = "CubeTurtle",
         to = "CubeTurtle_Neutral",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Tetroise  -> Tetroise Primo
+    {
         from = "DarkScorpion",
         to = "DarkScorpion_Ground",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Menasting -> Menasting Terra
+    {
         from = "Deer",
         to = "Deer_Ground",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Eikthyrdeer -> Eikthyrdeer Terra
+    {
         from = "ElecSnail",
         to = "ElecSnail_Fire",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Snock -> Snock Ignis
+    {
         from = "ElecSnail",
         to = "ElecSnail_Ground",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, -- Snock Lux, alongside _Fire
+    }, -- Snock -> Snock Lux
     {
         from = "FairyDragon",
         to = "FairyDragon_Water",
@@ -308,252 +742,288 @@ local Config = {
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Elphidran -> Elphidran Aqua
+    {
         from = "FengyunDeeper",
         to = "FengyunDeeper_Electric",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Fenglope -> Fenglope Lux
+    {
         from = "FireKirin",
         to = "FireKirin_Dark",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Pyrin -> Pyrin Noct
+    {
         from = "FlowerDinosaur",
         to = "FlowerDinosaur_Electric",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Dinossom -> Dinossom Lux
+    {
         from = "FlowerDoll",
         to = "FlowerDoll_Fire",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Petallia -> Petallia Ignis
+    {
         from = "FlyingManta",
         to = "FlyingManta_Thunder",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Celaray -> Celaray Lux
+    {
         from = "FoxMage",
         to = "FoxMage_Dark",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Wixen -> Wixen Noct
+    {
         from = "GhostAnglerfish",
         to = "GhostAnglerfish_Fire",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Ghangler -> Ghangler Ignis
+    {
         from = "GhostDragon",
         to = "GhostDragon_Fire",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Eidrolon -> Eidrolon Ignis
+    {
         from = "GhostRabbit",
         to = "GhostRabbit_Grass",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Nitemary -> Nitemary Botan
+    {
         from = "Gorilla",
         to = "Gorilla_Ground",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Gorirat -> Gorirat Terra
+    {
         from = "GrassGolem",
         to = "GrassGolem_Dark",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Dualith -> Dualith Noct
+    {
         from = "GrassMammoth",
         to = "GrassMammoth_Ice",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Mammorest -> Mammorest Cryst
+    {
         from = "GrassMinotaur",
         to = "GrassMinotaur_Ice",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Elgrove -> Elgrove Cryst
+    {
         from = "GrassPanda",
         to = "GrassPanda_Electric",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Mossanda -> Mossanda Lux
+    {
         from = "HadesBird",
         to = "HadesBird_Electric",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Helzephyr -> Helzephyr Lux
+    {
         from = "Hedgehog",
         to = "Hedgehog_Ice",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Jolthog -> Jolthog Cryst
+    {
         from = "HerculesBeetle",
         to = "HerculesBeetle_Ground",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Warsect -> Warsect Terra
+    {
         from = "Horus",
         to = "Horus_Water",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Faleris -> Faleris Aqua
+    {
         from = "IceHorse",
         to = "IceHorse_Dark",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Frostallion -> Frostallion Noct
+    {
         from = "IceNarwhal",
         to = "IceNarwhal_Fire",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Whalaska -> Whalaska Ignis
+    {
         from = "IceSeal",
         to = "IceSeal_Ground",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Polapup -> Polapup Terra
+    {
         from = "Kelpie",
         to = "Kelpie_Fire",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Kelpsea -> Kelpsea Ignis
+    {
         from = "KendoFrog",
         to = "KendoFrog_Dark",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Croajiro -> Croajiro Noct
+    {
         from = "KingAlpaca",
         to = "KingAlpaca_Ice",
         category = "adaptation",
         minLevel = 35,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Kingpaca -> Kingpaca Cryst
+    {
         from = "KingBahamut",
         to = "KingBahamut_Dragon",
         category = "adaptation",
         minLevel = 40,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Blazamut -> Blazamut Ryu
+    {
         from = "KingSunfish",
         to = "KingSunfish_Thunder",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Solmora -> Solmora Lux
+    {
         from = "Kirin",
         to = "Kirin_Ice",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Univolt -> Univolt Cryst
+    {
         from = "Kitsunebi",
         to = "Kitsunebi_Ice",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Foxparks -> Foxparks Cryst
+    {
         from = "LazyCatfish",
         to = "LazyCatfish_Gold",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Dumud -> Dumud Gild
+    {
         from = "LazyDragon",
         to = "LazyDragon_Electric",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
+        conditions = { "electrified" },
         enabled = true
-    }, {
+    }, -- Relaxaurus -> Relaxaurus Lux (electrified)
+    {
         from = "LilyQueen",
         to = "LilyQueen_Dark",
         category = "adaptation",
         minLevel = 35,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Lyleen -> Lyleen Noct
+    {
         from = "LizardMan",
         to = "LizardMan_Fire",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Leezpunk -> Leezpunk Ignis
+    {
         from = "Manticore",
         to = "Manticore_Dark",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Blazehowl -> Blazehowl Noct
+    {
         from = "Monkey",
         to = "Monkey_Fire",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Tanzee -> Tanzee Ignis
+    {
         from = "Monkey",
         to = "Monkey_Ice",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, -- Tanzee Cryst, alongside _Fire
+    }, -- Tanzee -> Tanzee Cryst
     {
         from = "MushroomDragon",
         to = "MushroomDragon_Dark",
@@ -561,50 +1031,47 @@ local Config = {
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Shroomer -> Shroomer Noct
+    {
         from = "NegativeOctopus",
         to = "NegativeOctopus_Neutral",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Killamari -> Killamari Primo
+    {
         from = "NightBlueHorse",
         to = "NightBlueHorse_Neutral",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Starryon -> Starryon Primo
+    {
         from = "NightLady",
         to = "NightLady_Dark",
         category = "adaptation",
         minLevel = 35,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Bellanoir -> Bellanoir Libero
+    {
         from = "OctopusGirl",
         to = "OctopusGirl_Neutral",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Gloopie -> Gloopie Primo
+    {
         from = "Penguin",
         to = "Penguin_Electric",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, -- Pengullet Lux, alongside the Penking evolution
-    {
-        from = "Penguin_Electric",
-        to = "CaptainPenguin_Black",
-        category = "evolution",
-        minLevel = 30,
-        stone = "evolution",
-        enabled = true
-    }, -- Pengullet Lux -> Penking Lux
+    }, -- Pengullet -> Pengullet Lux
     {
         from = "PinkRabbit",
         to = "PinkRabbit_Grass",
@@ -612,204 +1079,233 @@ local Config = {
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Ribbuny -> Ribbuny Botan
+    {
         from = "PlantSlime",
         to = "PlantSlime_Flower",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Gumoss -> Gumoss Botan
+    {
         from = "RaijinDaughter",
         to = "RaijinDaughter_Water",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Dazzi -> Dazzi Noct
+    {
         from = "RobinHood",
         to = "RobinHood_Ground",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Robinquill -> Robinquill Terra
+    {
         from = "RockBeast",
         to = "RockBeast_Ice",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Pierdon -> Pierdon Cryst
+    {
         from = "Ronin",
         to = "Ronin_Dark",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Bushi -> Bushi Noct
+    {
         from = "SakuraSaurus",
         to = "SakuraSaurus_Water",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Broncherry -> Broncherry Aqua
+    {
         from = "ScorpionMan",
         to = "ScorpionMan_Electric",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Prixter -> Prixter Lux
+    {
         from = "Serpent",
         to = "Serpent_Ground",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Surfent -> Surfent Terra
+    {
         from = "SharkKid",
         to = "SharkKid_Fire",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Gobfin -> Gobfin Ignis
+    {
         from = "SkyDragon",
         to = "SkyDragon_Grass",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Quivern -> Quivern Botan
+    {
         from = "StuffedShark",
         to = "StuffedShark_Fire",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Finsider -> Finsider Ignis
+    {
         from = "Suzaku",
         to = "Suzaku_Water",
         category = "adaptation",
         minLevel = 40,
         stone = "adaptation",
+        conditions = { "inWater" },
         enabled = true
-    }, {
+    }, -- Suzaku -> Suzaku Aqua (inWater)
+    {
         from = "SweetsSheep",
         to = "SweetsSheep_Ground",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Woolipop -> Woolipop Terra
+    {
         from = "SwordCutlassfish",
         to = "SwordCutlassfish_Fire",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Skutlass -> Skutlass Ignis
+    {
         from = "TentacleTurtle",
         to = "TentacleTurtle_Ground",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Turtacle -> Turtacle Terra
+    {
         from = "ThunderBird",
         to = "ThunderBird_Ice",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Beakon -> Beakon Cryst
+    {
         from = "ThunderDog",
         to = "ThunderDog_Ice",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Rayhound -> Rayhound Cryst
+    {
         from = "Umihebi",
         to = "Umihebi_Fire",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Jormuntide -> Jormuntide Ignis
+    {
         from = "VolcanicMonster",
         to = "VolcanicMonster_Ice",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Reptyro -> Reptyro Cryst
+    {
         from = "VolcanoDragon",
         to = "VolcanoDragon_Ice",
         category = "adaptation",
         minLevel = 40,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Moldron -> Moldron Cryst
+    {
         from = "WeaselDragon",
         to = "WeaselDragon_Fire",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Chillet -> Chillet Ignis
+    {
         from = "Werewolf",
         to = "Werewolf_Ice",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Loupmoon -> Loupmoon Cryst
+    {
         from = "WhiteDeer",
         to = "WhiteDeer_Dark",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Celesdir -> Celesdir Noct
+    {
         from = "WhiteMoth",
         to = "WhiteMoth_Neutral",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Sibelyx -> Sibelyx Primo
+    {
         from = "WhiteTiger",
         to = "WhiteTiger_Ground",
         category = "adaptation",
         minLevel = 35,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Cryolinx -> Cryolinx Terra
+    {
         from = "WindChimes",
         to = "WindChimes_Ice",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Hangyu -> Hangyu Cryst
+    {
         from = "WingGolem",
         to = "WingGolem_Fire",
         category = "adaptation",
         minLevel = 30,
         stone = "adaptation",
         enabled = true
-    }, {
+    }, -- Knocklem -> Knocklem Ignis
+    {
         from = "Yeti",
         to = "Yeti_Grass",
         category = "adaptation",
         minLevel = 45,
         stone = "adaptation",
         enabled = true
-    } -- Wumpo -> Wumpo Botan
-    }
+    }, -- Wumpo -> Wumpo Botan
+    },
 }
 
 function Config.findPair(characterId)

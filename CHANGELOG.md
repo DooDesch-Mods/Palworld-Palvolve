@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.0] - 2026-07-17
+
+### Changed
+
+- New default evolution map, curated by the community (DooDesch + Patman): 143 transformations, up from 99. Every v1.1.0 pair is kept; 45 pairs join, including full crossover families (Kelpsea to Jormuntide/Suzaku Aqua, Ribbuny to Petallia, Hoocrates to Shadowbeak, Depresso to Nyafia).
+- The default map now uses conditions: Mau becomes Sekhmet only in the desert by day and Wispaw only at night or in caves; Pengullet Lux branches into Penking Lux or - while electrified or in a wildlife sanctuary - Dynamoff; Kelpsea reaches Suzaku Aqua in water and Jormuntide while electrified or knowing a Dragon move; Relaxaurus turns Lux only while electrified (just like the Paldeck tells it); Suzaku needs water for Aqua; a Swee is only promoted to Sweepa with a Sweepa in the party.
+- Balance pass on the new pairs: Petallia routes 21 -> 30, Lyleen 28 -> 40, Shadowbeak 44 -> 48, Cryolinx 28 -> 36, Grizzbolt 35 -> 38, Kelpsea crossovers 33 -> 38; Teafant -> Mammorest Cryst is labeled the fun chain it is (level 40).
+
+### Compatibility
+
+- Existing config_user.lua files and share links keep working unchanged - a user config fully replaces the default map, and material costs stay opt-in.
+
 ## [1.1.0] - 2026-07-17
 
 ### Added
