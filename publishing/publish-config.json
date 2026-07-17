@@ -1,0 +1,13 @@
+{
+  "thunderstore": {
+    "team": "DooDesch-Mods",
+    "package": "Palvolve",
+    "community": "palworld",
+    "shimloaderDependency": "Thunderstore-unreal_shimloader-1.0.2"
+  },
+  "nexus": {
+    "game": "palworld",
+    "modId": null,
+    "fileId": null
+  }
+}

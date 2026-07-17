@@ -1,0 +1,77 @@
+name: Publish release
+
+# Manually triggered: publishing to external platforms always requires an
+# explicit run. Both targets default to off, so a plain run only builds the
+# packages and stores them as a workflow artifact for inspection.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version of an existing GitHub release (without the v prefix), e.g. 1.1.0"
+        required: true
+      publish_thunderstore:
+        description: "Publish to Thunderstore (needs TCLI_AUTH_TOKEN secret)"
+        type: boolean
+        default: false
+      publish_nexus:
+        description: "Upload to Nexus Mods (needs NEXUSMODS_API_KEY secret and nexus ids in publishing/publish-config.json)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "v${{ inputs.version }}" --pattern "Palvolve-v${{ inputs.version }}.zip" --dir dist --repo "${{ github.repository }}"
+
+      - name: Build Thunderstore package
+        run: bash publishing/build-thunderstore.sh "${{ inputs.version }}"
+
+      - name: Keep packages as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages-v${{ inputs.version }}
+          path: |
+            dist/Palvolve-v${{ inputs.version }}.zip
+            dist/thunderstore/*.zip
+            dist/thunderstore/thunderstore.toml
+
+      - name: Publish to Thunderstore
+        if: ${{ inputs.publish_thunderstore }}
+        env:
+          TCLI_AUTH_TOKEN: ${{ secrets.TCLI_AUTH_TOKEN }}
+        run: |
+          dotnet tool install --global tcli
+          tcli publish \
+            --config-path dist/thunderstore/thunderstore.toml \
+            --file "dist/thunderstore/DooDesch-Mods-Palvolve-${{ inputs.version }}.zip"
+
+      - name: Read Nexus file id
+        if: ${{ inputs.publish_nexus }}
+        id: nexus
+        run: |
+          FILE_ID=$(jq -r '.nexus.fileId // empty' publishing/publish-config.json)
+          if [ -z "$FILE_ID" ]; then
+            echo "::error::nexus.fileId is not set in publishing/publish-config.json - create the mod page and first file manually, then store its ids"
+            exit 1
+          fi
+          echo "file_id=$FILE_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to Nexus Mods
+        if: ${{ inputs.publish_nexus }}
+        uses: Nexus-Mods/upload-action@v1.0.0-beta.9
+        with:
+          api_key: ${{ secrets.NEXUSMODS_API_KEY }}
+          file_id: ${{ steps.nexus.outputs.file_id }}
+          filename: dist/Palvolve-v${{ inputs.version }}.zip
+          version: ${{ inputs.version }}
+          description: "Changelog: https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md"
+          update_mod_version: true
