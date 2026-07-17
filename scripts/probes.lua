@@ -69,13 +69,19 @@ RegisterKeyBind(Key.F5, Debounced("overlay", function()
             if not glow or not glow:IsValid() then Log("[probe-overlay] M_Glow not found") return end
             local mesh = pal:GetMainMesh()
             mesh:SetOverlayMaterial(glow)
-            ExecuteWithDelay(2000, function()
+            -- one-shot LoopAsync instead of ExecuteWithDelay (callback GC
+            -- trap, see UE4SS-LESSONS section 1)
+            local restored = false
+            LoopAsync(2000, function()
+                if restored then return true end
+                restored = true
                 ExecuteInGameThread(function()
                     if pal:IsValid() and mesh:IsValid() then
                         mesh:SetOverlayMaterial(nil)
                         Log("[probe-overlay] restored")
                     end
                 end)
+                return true
             end)
             Log("[probe-overlay] set on " .. pal:GetFullName())
         end)
@@ -331,8 +337,9 @@ RegisterKeyBind(KIT_KEY, Debounced("testkit", function()
     end)
 end))
 
--- F10: EXP lever to trigger level-ups reproducibly
-RegisterKeyBind(Key.F10, Debounced("giveexp", function()
+-- F10 + NUM9: EXP lever to trigger level-ups reproducibly (NUM9 added since
+-- F10 gets swallowed on some setups; numpad keys reliably reach the handlers)
+local function giveExpAround()
     ExecuteInGameThread(function()
         local suc, e = pcall(function()
             local player = FindFirstOf("PalPlayerCharacter")
@@ -343,12 +350,24 @@ RegisterKeyBind(Key.F10, Debounced("giveexp", function()
             -- (WorldContext, Center, Radius, Exp, CharacterClass, bCallDelegate)
             local center = player:K2_GetActorLocation()
             local palClass = StaticFindObject("/Script/Pal.PalCharacter")
-            util:GiveExpToAroundCharacter(player, center, 3000.0, 50000.0, palClass, true)
-            Log("[probe-giveexp] 50000 EXP given to pals around")
+            local okCall, err = pcall(function()
+                util:GiveExpToAroundCharacter(player, center, 3000.0, 50000.0, palClass, true)
+            end)
+            if okCall then
+                Log("[probe-giveexp] 50000 EXP given to pals around")
+            else
+                -- verbatim error: the game update may have changed the
+                -- signature (AddStatus did exactly that)
+                Log("[probe-giveexp] call FAIL: " .. tostring(err))
+            end
         end)
         if not suc then Log("[probe-giveexp] FAIL: " .. tostring(e)) end
     end)
-end))
+end
+RegisterKeyBind(Key.F10, Debounced("giveexp", giveExpAround))
+if Key.NUM_NINE then
+    RegisterKeyBind(Key.NUM_NINE, Debounced("giveexp9", giveExpAround))
+end
 
 -- Radial menu dispatch probes ([probe-radial], wave E stage R1): log which
 -- native functions fire while the hold-4 wheel is used, to map entries to
@@ -657,7 +676,84 @@ bindProbeKey("PAGE_DOWN", "probe-pal", function()
     end)
 end)
 
-Log(string.format("Probes active: F3 revert(own), F4 arm radial probes, F5 overlay, F6 VFX, F7 morph FX bases, F8 fanfare, F9 freeze, F10 give EXP, END free mode, test kit on %s, conditions on HOME/PAGE_UP/PAGE_DOWN",
+-- NUM_SEVEN: toggle day/night (authoritative in SP; night window is 23..3).
+-- Replaces the PalDefender /settime dependency for condition tests.
+bindProbeKey("NUM_SEVEN", "probe-settime", function()
+    local util = StaticFindObject("/Script/Pal.Default__PalUtility")
+    local playerCtx = Role.localPlayerCtx()
+    local wc = playerCtx and playerCtx.pawn
+    if not (util and util:IsValid() and wc and wc:IsValid()) then
+        Log("[probe-settime] no world context")
+        return
+    end
+    local tm = util:GetTimeManager(wc)
+    if not (tm and tm:IsValid()) then
+        Log("[probe-settime] no time manager")
+        return
+    end
+    local isNight = util:IsNight(wc)
+    local targetHour = isNight and 12 or 1
+    tm:SetGameTime_FixDay(targetHour)
+    Log(string.format("[probe-settime] was %s -> set hour %d, now IsNight=%s",
+        isNight and "night" or "day", targetHour, tostring(util:IsNight(wc))))
+end)
+
+-- NUM_EIGHT: cycle a status effect on the summoned pal (burn -> electrical ->
+-- freeze -> poison -> clear). Authoritative in SP; replaces hunting wild pals
+-- for the status condition tests.
+local statusCycle = {
+    { id = 19, name = "burn" },
+    { id = 22, name = "electrical" },
+    { id = 21, name = "freeze" },
+    { id = 5, name = "poison" },
+}
+local statusCycleIdx = 0
+bindProbeKey("NUM_EIGHT", "probe-status", function()
+    local ctx, why = conditionCtx()
+    if not ctx then
+        Log("[probe-status] no ctx: " .. tostring(why))
+        return
+    end
+    local sc = ctx.actor.StatusComponent
+    if not (sc and sc:IsValid()) then
+        Log("[probe-status] no status component")
+        return
+    end
+    local function cycleActive(id)
+        local active = false
+        pcall(function()
+            local s = sc:GetExecutionStatus(id)
+            active = (s ~= nil) and s:IsValid()
+        end)
+        return active
+    end
+    statusCycleIdx = statusCycleIdx + 1
+    if statusCycleIdx > #statusCycle then
+        statusCycleIdx = 0
+        local okClear = pcall(function() sc:RemoveAll() end)
+        local remaining = {}
+        for _, e in ipairs(statusCycle) do
+            if cycleActive(e.id) then table.insert(remaining, e.name) end
+        end
+        Log(string.format("[probe-status] clear ok=%s remaining=%s",
+            tostring(okClear), #remaining > 0 and table.concat(remaining, ",") or "none"))
+        return
+    end
+    local entry = statusCycle[statusCycleIdx]
+    -- isolate the tested status: drop the previously injected one first so
+    -- the conditions never see two probe statuses at once
+    local prev = statusCycle[statusCycleIdx - 1]
+    if prev then pcall(function() sc:RemoveStatus(prev.id) end) end
+    -- build 24181527 dropped the FStatusDynamicParameter argument: the live
+    -- UFunction takes only the status id
+    local okAdd, err = pcall(function() sc:AddStatus(entry.id) end)
+    local prevGone = (prev == nil) or not cycleActive(prev.id)
+    Log(string.format("[probe-status] AddStatus %s(%d) ok=%s active=%s prevCleared=%s err=%s (after %s a clear step follows)",
+        entry.name, entry.id, tostring(okAdd), tostring(cycleActive(entry.id)),
+        tostring(prevGone), okAdd and "-" or tostring(err), statusCycle[#statusCycle].name))
+end)
+
+Log(string.format("Probes active: F3 revert(own), F4 arm radial probes, F5 overlay, F6 VFX, F7 morph FX bases, F8 fanfare, F9 freeze, F10 give EXP, END free mode, test kit on %s, conditions on HOME/PAGE_UP/PAGE_DOWN, NUM7 day/night, NUM8 status cycle",
     Key.INS and "INSERT" or "POS1"))
 
 return M
