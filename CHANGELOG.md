@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1] - 2026-07-17
+
+### Fixed
+
+- Steam Workshop installs were missing the entire PalSchema half of the mod (Pal Alchemy Workbench, stones, technology entry): the official mod loader copies the contents of the PalSchema install target into `PalSchema\mods\Palvolve\`, and the package carried an extra inner folder, so everything landed one level too deep and PalSchema loaded nothing. The Workshop package now ships the schema content directly under its install target. Manual installs from the GitHub zip were never affected.
+- Info.json `MinRevision` now follows the official revision convention (trailing digits of the title-screen version, currently 619) instead of the Steam buildid, which the loader could reject as an impossible requirement.
+
 ## [1.2.0] - 2026-07-17
 
 ### Changed
