@@ -77,15 +77,19 @@ jobs:
             --config-path dist/thunderstore/thunderstore.toml \
             --file "dist/thunderstore/DooDesch-Mods-Palvolve-${{ steps.ver.outputs.version }}.zip"
 
+      # Nexus wiring follows the ScheduleOne pipeline convention: the file
+      # group id lives in the repo/org variable NEXUS_FILE_GROUP_ID (read it
+      # from "API Info" on the mod page's Files tab), the API key in the org
+      # secret NEXUSMODS_API_KEY.
       - name: Read Nexus config
         id: nexus
         if: ${{ github.event_name == 'release' || inputs.publish_nexus }}
         env:
           NEXUS_KEY: ${{ secrets.NEXUSMODS_API_KEY }}
+          FILE_ID: ${{ vars.NEXUS_FILE_GROUP_ID }}
         run: |
-          FILE_ID=$(jq -r '.nexus.fileId // empty' publishing/publish-config.json)
           MISSING=""
-          [ -z "$FILE_ID" ] && MISSING="nexus.fileId in publishing/publish-config.json"
+          [ -z "$FILE_ID" ] && MISSING="the NEXUS_FILE_GROUP_ID repo variable"
           [ -z "$NEXUS_KEY" ] && MISSING="${MISSING:+$MISSING and }the NEXUSMODS_API_KEY secret"
           if [ -n "$MISSING" ]; then
             if [ "${{ github.event_name }}" = "release" ]; then
@@ -99,7 +103,7 @@ jobs:
           echo "configured=true" >> "$GITHUB_OUTPUT"
           echo "file_id=$FILE_ID" >> "$GITHUB_OUTPUT"
 
-      - name: Extract changelog for this version
+      - name: Extract changelog for this version as BBCode
         id: changelog
         if: ${{ steps.nexus.outputs.configured == 'true' }}
         run: |
@@ -107,13 +111,27 @@ jobs:
           SECTION=$(awk -v ver="$VERSION" '
             index($0, "## [" ver "]") == 1 { flag = 1; next }
             /^## / { flag = 0 }
-            flag' CHANGELOG.md | sed 's/^### \(.*\)$/\1:/' | sed '/^$/N;/^\n$/D')
+            flag' CHANGELOG.md)
           if [ -z "$SECTION" ]; then
             echo "::warning::no CHANGELOG.md section found for $VERSION - uploading with a link only"
           fi
+          # Nexus file descriptions use BBCode, not Markdown. Convert "### Heading"
+          # to [b]Heading[/b], "- item" bullets to [list]/[*], drop inline-code
+          # backticks, and join wrapped bullet lines.
+          BBCODE=$(printf '%s\n' "$SECTION" | awk '
+            function flush(){ if(buf!=""){ printf "[*]%s\n", buf; buf="" } }
+            BEGIN{ inlist=0; buf="" }
+            {
+              line=$0; gsub(/`/,"",line); sub(/[ \t]+$/,"",line)
+              if (line ~ /^### /){ flush(); if(inlist){print "[/list]"; inlist=0} h=line; sub(/^### /,"",h); printf "[b]%s[/b]\n", h; next }
+              if (line ~ /^- /){ flush(); if(!inlist){print "[list]"; inlist=1} buf=line; sub(/^- /,"",buf); next }
+              if (line ~ /^[ \t]*$/){ next }
+              sub(/^[ \t]+/,"",line); if(buf!="") buf=buf " " line; else printf "%s\n", line
+            }
+            END{ flush(); if(inlist) print "[/list]" }')
           {
             echo "notes<<CHANGELOG_EOF"
-            [ -n "$SECTION" ] && echo "$SECTION" && echo ""
+            [ -n "$BBCODE" ] && echo "$BBCODE"
             echo "Full changelog: https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md"
             echo "CHANGELOG_EOF"
           } >> "$GITHUB_OUTPUT"
@@ -126,7 +144,7 @@ jobs:
           file_id: ${{ steps.nexus.outputs.file_id }}
           filename: dist/Palvolve-v${{ steps.ver.outputs.version }}.zip
           version: ${{ steps.ver.outputs.version }}
-          display_name: Palvolve
+          display_name: Palvolve ${{ steps.ver.outputs.version }}
           description: ${{ steps.changelog.outputs.notes }}
           category: main
           primary_mod_manager_download: true

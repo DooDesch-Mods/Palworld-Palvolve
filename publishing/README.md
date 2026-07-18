@@ -29,20 +29,28 @@ Release flow: tag + GitHub release with asset `Palvolve-v<version>.zip` - done.
 
 ## One-time setup
 
-Repository (or org) secrets:
+Same conventions as the ScheduleOne pipelines: the API key is the org secret,
+the file group id is an Actions variable, the changelog section is converted
+to BBCode for the Nexus file description.
 
-- `TCLI_AUTH_TOKEN`: Thunderstore service account token. Create the team on
-  thunderstore.io, then Team > Service Accounts > Add Service Account.
+Org secrets (already set on DooDesch-Mods):
+
+- `TCLI_AUTH_TOKEN`: Thunderstore service account token.
 - `NEXUSMODS_API_KEY`: personal API key from the Nexus Mods account settings
   (the Upload API is in open beta).
+
+Repo/org variable:
+
+- `NEXUS_FILE_GROUP_ID`: create the mod page on Nexus manually once
+  (description: `Workspace/releases/Palvolve/nexus/`), upload the first file
+  through the website, then read the file id from "API Info" on the Files tab
+  and store it as this variable. The Nexus steps skip with a notice until it
+  is set.
 
 Config (`publishing/publish-config.json`):
 
 - `thunderstore.team`: must match the Thunderstore team/namespace exactly.
-- `nexus.modId` / `nexus.fileId`: create the Palvolve mod page on Nexus manually
-  once (description: `Workspace/releases/Palvolve/nexus/`), upload the first
-  file through the website, then read both ids from "API Info" on the Files tab
-  and store them here. The workflow updates that file entry on every run.
+- `nexus.modId`: page reference (nexusmods.com/palworld/mods/7680216).
 
 ## Publish policy
 
