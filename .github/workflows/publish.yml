@@ -1,9 +1,13 @@
 name: Publish release
 
-# Manually triggered: publishing to external platforms always requires an
-# explicit run. Both targets default to off, so a plain run only builds the
-# packages and stores them as a workflow artifact for inspection.
+# Nexus Mods publishing runs automatically whenever a GitHub release is
+# published - creating the release is the explicit go. Until the Nexus ids are
+# configured in publishing/publish-config.json the Nexus steps skip with a
+# notice, so releases never fail on an unconfigured platform.
+# Thunderstore stays manual-only and dormant (see publishing/README.md).
 on:
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       version:
@@ -27,51 +31,105 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Resolve version
+        id: ver
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
+          else
+            VERSION="${RELEASE_TAG#v}"
+          fi
+          if [ -z "$VERSION" ]; then
+            echo "::error::could not resolve a version from the release tag or the workflow input"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Download the release asset
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release download "v${{ inputs.version }}" --pattern "Palvolve-v${{ inputs.version }}.zip" --dir dist --repo "${{ github.repository }}"
+        run: gh release download "v${{ steps.ver.outputs.version }}" --pattern "Palvolve-v${{ steps.ver.outputs.version }}.zip" --dir dist --repo "${{ github.repository }}"
 
       - name: Build Thunderstore package
-        run: bash publishing/build-thunderstore.sh "${{ inputs.version }}"
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: bash publishing/build-thunderstore.sh "${{ steps.ver.outputs.version }}"
 
       - name: Keep packages as workflow artifact
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/upload-artifact@v4
         with:
-          name: packages-v${{ inputs.version }}
+          name: packages-v${{ steps.ver.outputs.version }}
           path: |
-            dist/Palvolve-v${{ inputs.version }}.zip
+            dist/Palvolve-v${{ steps.ver.outputs.version }}.zip
             dist/thunderstore/*.zip
             dist/thunderstore/thunderstore.toml
 
       - name: Publish to Thunderstore
-        if: ${{ inputs.publish_thunderstore }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_thunderstore }}
         env:
           TCLI_AUTH_TOKEN: ${{ secrets.TCLI_AUTH_TOKEN }}
         run: |
           dotnet tool install --global tcli
           tcli publish \
             --config-path dist/thunderstore/thunderstore.toml \
-            --file "dist/thunderstore/DooDesch-Mods-Palvolve-${{ inputs.version }}.zip"
+            --file "dist/thunderstore/DooDesch-Mods-Palvolve-${{ steps.ver.outputs.version }}.zip"
 
-      - name: Read Nexus file id
-        if: ${{ inputs.publish_nexus }}
+      - name: Read Nexus config
         id: nexus
+        if: ${{ github.event_name == 'release' || inputs.publish_nexus }}
+        env:
+          NEXUS_KEY: ${{ secrets.NEXUSMODS_API_KEY }}
         run: |
           FILE_ID=$(jq -r '.nexus.fileId // empty' publishing/publish-config.json)
-          if [ -z "$FILE_ID" ]; then
-            echo "::error::nexus.fileId is not set in publishing/publish-config.json - create the mod page and first file manually, then store its ids"
+          MISSING=""
+          [ -z "$FILE_ID" ] && MISSING="nexus.fileId in publishing/publish-config.json"
+          [ -z "$NEXUS_KEY" ] && MISSING="${MISSING:+$MISSING and }the NEXUSMODS_API_KEY secret"
+          if [ -n "$MISSING" ]; then
+            if [ "${{ github.event_name }}" = "release" ]; then
+              echo "::notice::Nexus upload skipped - still missing: $MISSING"
+              echo "configured=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::error::Nexus upload requested but missing: $MISSING - create the mod page and first file manually, then store its ids"
             exit 1
           fi
+          echo "configured=true" >> "$GITHUB_OUTPUT"
           echo "file_id=$FILE_ID" >> "$GITHUB_OUTPUT"
 
+      - name: Extract changelog for this version
+        id: changelog
+        if: ${{ steps.nexus.outputs.configured == 'true' }}
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          SECTION=$(awk -v ver="$VERSION" '
+            index($0, "## [" ver "]") == 1 { flag = 1; next }
+            /^## / { flag = 0 }
+            flag' CHANGELOG.md | sed 's/^### \(.*\)$/\1:/' | sed '/^$/N;/^\n$/D')
+          if [ -z "$SECTION" ]; then
+            echo "::warning::no CHANGELOG.md section found for $VERSION - uploading with a link only"
+          fi
+          {
+            echo "notes<<CHANGELOG_EOF"
+            [ -n "$SECTION" ] && echo "$SECTION" && echo ""
+            echo "Full changelog: https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Upload to Nexus Mods
-        if: ${{ inputs.publish_nexus }}
+        if: ${{ steps.nexus.outputs.configured == 'true' }}
         uses: Nexus-Mods/upload-action@v1.0.0-beta.9
         with:
           api_key: ${{ secrets.NEXUSMODS_API_KEY }}
           file_id: ${{ steps.nexus.outputs.file_id }}
-          filename: dist/Palvolve-v${{ inputs.version }}.zip
-          version: ${{ inputs.version }}
-          description: "Changelog: https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md"
+          filename: dist/Palvolve-v${{ steps.ver.outputs.version }}.zip
+          version: ${{ steps.ver.outputs.version }}
+          display_name: Palvolve
+          description: ${{ steps.changelog.outputs.notes }}
+          category: main
+          primary_mod_manager_download: true
+          allow_mod_manager_download: true
+          archive_existing_version: true
           update_mod_version: true

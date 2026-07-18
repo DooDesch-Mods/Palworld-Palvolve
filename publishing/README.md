@@ -6,15 +6,26 @@ NOT covered here - it stays with the official PalworldModUploader.
 
 ## How it works
 
-The workflow is manual only (workflow_dispatch). It downloads the zip asset of an
-existing GitHub release, repacks it into a Thunderstore package
-(`publishing/build-thunderstore.sh`, unreal-shimloader layout with the required
-`enabled.txt`) and stores everything as a workflow artifact. Publishing to a
-platform only happens when its checkbox is ticked for that run, so a plain run is
-a dry run.
+Nexus Mods: publishing a GitHub release triggers the workflow automatically.
+It downloads the release zip, extracts this version's section from CHANGELOG.md
+and uploads the file via the official Nexus-Mods/upload-action - the changelog
+text becomes the file version's release notes and the mod version is bumped to
+match. Creating the release is the explicit go; there is no separate publish
+step anymore. While `nexus.fileId` or the API key secret are missing, the Nexus
+steps skip with a notice instead of failing the release.
 
-Release flow: tag + GitHub release first (asset `Palvolve-v<version>.zip`), then
-run the workflow with the version number.
+Known platform limit: the mod page's separate "Changelogs" tab has no write
+endpoint in the Upload API yet (authors are waiting for it). Until Nexus ships
+that, the per-file release notes carry the changelog; extend the workflow when
+the endpoint appears.
+
+Thunderstore: manual only (workflow_dispatch). A dispatch run downloads the
+release zip, repacks it into a Thunderstore package
+(`publishing/build-thunderstore.sh`, unreal-shimloader layout with the required
+`enabled.txt`) and stores everything as a workflow artifact. Publishing only
+happens when its checkbox is ticked for that run, so a plain run is a dry run.
+
+Release flow: tag + GitHub release with asset `Palvolve-v<version>.zip` - done.
 
 ## One-time setup
 
