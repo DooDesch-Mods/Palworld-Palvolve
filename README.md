@@ -47,16 +47,16 @@ Never mix a Workshop UE4SS and a manual UE4SS in the same install - that double-
 
 ### Dedicated servers
 
-The technology unlock is validated by the server, so the server needs the mod running too - subscribing on the client alone is not enough. Symptom of a missing server half: the workbench relocks every time you reopen the technology tree.
+The server validates the technology unlock. If the mod is not running on the server, the workbench relocks every time you reopen the technology tree.
 
-1. Install **UE4SS Experimental (Palworld)** manually on the server. The server does not start UE4SS through the Workshop mod loader - it needs the manual install (proxy dll next to the server binary).
-2. Install **PalSchema** on the server, following its [installation guide](https://okaetsu.github.io/PalSchema/docs/installation).
-3. Install Palvolve from the [GitHub release zip](https://github.com/DooDesch-Mods/Palworld-Palvolve/releases): both folders inside the zip go into `Pal\Binaries\Win64\ue4ss\Mods\`. Do not copy the Workshop item folder onto a server - its layout is for the game's own loader.
+1. Install **UE4SS Experimental (Palworld)** manually on the server (proxy dll next to the server binary) - the Workshop mod loader does not start UE4SS on servers.
+2. Install **PalSchema** on the server ([installation guide](https://okaetsu.github.io/PalSchema/docs/installation)).
+3. Install Palvolve from the [GitHub release zip](https://github.com/DooDesch-Mods/Palworld-Palvolve/releases): both folders inside the zip go into `Pal\Binaries\Win64\ue4ss\Mods\`. Do not copy the Workshop item folder - its layout is for the game's own loader.
 4. Add `Palvolve : 1` to `ue4ss\Mods\mods.txt` and restart the server.
 5. Check the server's `UE4SS.log` for the line: `[PalSchema] Added building 'Palvolve_ElementExtractor'`
 6. Profit.
 
-Players keep using the normal Workshop version - nothing extra is needed client-side.
+Players keep using the normal Workshop version.
 
 ## Configuration
 
