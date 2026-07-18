@@ -54,7 +54,8 @@ The server validates the technology unlock. If the mod is not running on the ser
 3. Install Palvolve from the [GitHub release zip](https://github.com/DooDesch-Mods/Palworld-Palvolve/releases): both folders inside the zip go into `Pal\Binaries\Win64\ue4ss\Mods\`. Do not copy the Workshop item folder - its layout is for the game's own loader.
 4. Add `Palvolve : 1` to `ue4ss\Mods\mods.txt` and restart the server.
 5. Check the server's `UE4SS.log` for the line: `[PalSchema] Added building 'Palvolve_ElementExtractor'`
-6. Profit.
+6. ???
+7. Profit.
 
 Players keep using the normal Workshop version.
 
