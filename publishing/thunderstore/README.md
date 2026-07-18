@@ -23,3 +23,16 @@ Evolution for Palworld as a moment you choose: pick the target in the radial men
 - Known limitation: on dedicated servers the final reveal effects do not render on the client yet; the evolution itself completes correctly.
 - Demolish placed Pal Alchemy Workbenches before uninstalling (game-side limitation).
 - Never use mods on official servers. Source: [GitHub](https://github.com/DooDesch-Mods/Palworld-Palvolve)
+
+## Dedicated servers
+
+The technology unlock is validated by the server, so the server needs the mod running too - subscribing on the client alone is not enough. Symptom of a missing server half: the workbench relocks every time you reopen the technology tree.
+
+1. Install UE4SS Experimental (Palworld) manually on the server (proxy dll next to the server binary) - the server does not start UE4SS through the Workshop mod loader.
+2. Install PalSchema on the server, following its [installation guide](https://okaetsu.github.io/PalSchema/docs/installation).
+3. Install Palvolve from the GitHub release zip: both folders inside the zip go into `Pal\Binaries\Win64\ue4ss\Mods\`. Do not copy the Workshop item folder onto a server - its layout is for the game's own loader.
+4. Add `Palvolve : 1` to `ue4ss\Mods\mods.txt` and restart the server.
+5. Check the server's UE4SS.log for: `[PalSchema] Added building 'Palvolve_ElementExtractor'`
+6. Profit.
+
+Players keep using the normal Workshop version - nothing extra is needed client-side.

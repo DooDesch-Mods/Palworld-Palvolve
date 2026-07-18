@@ -45,6 +45,19 @@ Subscribe to [Palvolve](https://steamcommunity.com/sharedfiles/filedetails/?id=3
 
 Never mix a Workshop UE4SS and a manual UE4SS in the same install - that double-loads UE4SS and crashes the game.
 
+### Dedicated servers
+
+The technology unlock is validated by the server, so the server needs the mod running too - subscribing on the client alone is not enough. Symptom of a missing server half: the workbench relocks every time you reopen the technology tree.
+
+1. Install **UE4SS Experimental (Palworld)** manually on the server. The server does not start UE4SS through the Workshop mod loader - it needs the manual install (proxy dll next to the server binary).
+2. Install **PalSchema** on the server, following its [installation guide](https://okaetsu.github.io/PalSchema/docs/installation).
+3. Install Palvolve from the [GitHub release zip](https://github.com/DooDesch-Mods/Palworld-Palvolve/releases): both folders inside the zip go into `Pal\Binaries\Win64\ue4ss\Mods\`. Do not copy the Workshop item folder onto a server - its layout is for the game's own loader.
+4. Add `Palvolve : 1` to `ue4ss\Mods\mods.txt` and restart the server.
+5. Check the server's `UE4SS.log` for the line: `[PalSchema] Added building 'Palvolve_ElementExtractor'`
+6. Profit.
+
+Players keep using the normal Workshop version - nothing extra is needed client-side.
+
 ## Configuration
 
 The configurator's `config_user.lua` goes into `%LocalAppData%\Pal\Saved\Palvolve\` (the mod creates the folder on first launch; placing it next to `scripts\config.lua` works too). It fully replaces the default tree and survives mod updates.
@@ -54,7 +67,6 @@ Hand-written configs use `conditions = { "night", "knowsMove:Dragon", "inParty:P
 ## Notes
 
 - Tested with Palworld 1.0 build 619 - singleplayer, co-op and dedicated servers.
-- On a dedicated server, install the mod (and UE4SS + PalSchema) server-side as well - use the GitHub release zip for that, not a copy of the Workshop item folder (the item layout is built for the game's own mod loader and places the PalSchema content differently). The server's UE4SS.log should show `[PalSchema] Added building 'Palvolve_ElementExtractor'`; without that line the technology unlock will not persist.
 - Known limitation: on dedicated servers the final reveal effects do not render on the client yet. The evolution itself works.
 - Demolish placed Pal Alchemy Workbenches before removing the mod - worlds with placed modded buildings will not load without it (game-side limitation). Modded items in inventories are cleaned up by PalSchema.
 - Never use mods on official servers.
