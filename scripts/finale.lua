@@ -27,8 +27,9 @@ end
 
 -- Whether SpawnSystemAtLocation's returned NiagaraComponent marshals into a
 -- usable Lua handle in this UE4SS build. nil = unknown (assume yes, kills
--- stay best effort); set by the capture check in probeAll. looping specs
--- are dropped entirely while this is false.
+-- stay best effort); set by the capture check in probeAll. While this is
+-- false, looping candidates are skipped in favor of the first non-looping
+-- one in the chain.
 Finale.captureOk = nil
 
 -- ---------------------------------------------------------------- asset resolve
@@ -39,8 +40,8 @@ local missing = {}
 
 -- Hot-path hygiene: these run per spawn/per driver tick, so they use NAMED
 -- functions with pcall(fn, args) instead of per-call anonymous closures -
--- closure churn in per-tick callbacks feeds UE4SS's callback GC ("Ref was
--- not function" was observed right after a finale ring salvo, 18.07.2026).
+-- closure churn in per-tick callbacks feeds UE4SS's callback GC and can
+-- corrupt scheduled refs ("Ref was not function").
 local niagaraSystemClass = nil
 local function findSystemRaw(path)
     local obj = StaticFindObject(path)
@@ -254,7 +255,8 @@ local function byTime(a, b) return a.t < b.t end
 -- Builds the schedule for one reveal. Returns nil (caller falls back to the
 -- legacy climax) when the layered style is off or nothing scheduled.
 -- Game thread; ctx as assembled by evolution.lua (worldCtx, oldX/Y/Z,
--- elemsTo, optional finaleRadius/finaleZa/finaleZb MP overrides).
+-- elemsTo, groundZ, collision halves, meshHalfTo, centerAnchored on the MP
+-- client, optional finaleRadius/finaleZa/finaleZb overrides).
 function Finale.build(ctx)
     local fc = finaleCfg()
     if fc.style ~= "layered" then return nil end
@@ -284,9 +286,9 @@ function Finale.build(ctx)
         local env = {
             cx = ctx.oldX or 0, cy = ctx.oldY or 0,
             groundZ = groundZ, grownCenterZ = groundZ + meshHalf,
-            -- hard ceiling: NOTHING plays above the grown pal's head
-            -- (live feedback 18.07.2026: the reveal beam overshot tall
-            -- targets and read as detached lights)
+            -- hard ceiling: NOTHING plays above the grown pal's head (an
+            -- uncapped reveal beam overshoots tall targets and reads as
+            -- detached lights)
             headZ = groundZ + 2 * meshHalf,
             sizeScale = sizeScale,
             fr = ctx.finaleRadius or (80 * sizeScale), fzA = fzA, fzB = fzB,

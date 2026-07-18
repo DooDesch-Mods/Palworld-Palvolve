@@ -24,10 +24,13 @@
 --                               keeps the sequence lock held until then
 --
 -- ctx: { actor, worldCtx, oldX, oldY, oldZ, oldYaw, oldHalf, newHalf?,
---        freeze(a), unfreeze(a), completeOk(), completeAbort(), fx = {} }
+--        groundZ?, meshHalfTo?, freeze(a), unfreeze(a), completeOk(),
+--        completeAbort(), fx = {} }
 -- worldCtx is the pal's otomo holder (world context for Niagara spawns, also
--- exposes TryGetSpawnedOtomo); newHalf is the new form's capsule half height
--- when it could be measured; run-private state lives inside ctx.fx.
+-- exposes TryGetSpawnedOtomo). oldHalf/newHalf are SCALED COLLISION capsule
+-- halves (the engine's grounding measure), groundZ the engine-measured floor
+-- at the spot, meshHalfTo the target's mesh-space body half (FX framing
+-- only). Run-private state lives inside ctx.fx.
 
 local Config = require("config")
 local Recipes = require("finale_recipes")

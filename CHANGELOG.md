@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.3.0] - 2026-07-18
+
+### Changed
+
+- The transformation finale is rebuilt around the target form's elements. A light beam wraps the growing Pal while element bursts climb around it; the moment it snaps to full size, its primary element fires a centerpiece - a flame explosion, a lightning strike, a water geyser, ice blades or a dark pillar wrapped in a darkness shroud - while the second element rings the body. Dual types alternate both elements through the accents, adaptations reveal in the element they change into, and every effect scales with the size of the target species.
+- Transformations now sit exactly on the ground. Placement follows the engine's own collision capsule and floor measurements instead of species table values, which used to sink large evolutions into the floor, float effects far above small ones and let the growing Pal jitter against gravity.
+- On dedicated servers the full transformation cinematic plays for the evolving player, correct heights included. Bystanders see the regular recall and resummon.
+- No effect ever plays above the new form's head, and the finale goes quiet right before the Pal lands facing you.
+
+### Fixed
+
+- Aborted transformations no longer leave effect systems running or the Pal hovering at the wrong height.
+- If a game update removes one of the effect assets, the finale falls back to simpler bursts for that element instead of failing.
+
 ## [1.2.1] - 2026-07-17
 
 ### Fixed

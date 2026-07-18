@@ -68,7 +68,7 @@ Hand-written configs use `conditions = { "night", "knowsMove:Dragon", "inParty:P
 ## Notes
 
 - Tested with Palworld 1.0 build 619 - singleplayer, co-op and dedicated servers.
-- Known limitation: on dedicated servers the final reveal effects do not render on the client yet. The evolution itself works.
+- On servers the full transformation cinematic plays for the player who evolves. Bystanders see the regular recall and resummon.
 - Demolish placed Pal Alchemy Workbenches before removing the mod - worlds with placed modded buildings will not load without it (game-side limitation). Modded items in inventories are cleaned up by PalSchema.
 - Never use mods on official servers.
 

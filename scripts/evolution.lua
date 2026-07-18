@@ -595,9 +595,9 @@ local function performEvolution(p)
     end)
     pcall(function() oldYaw = actor:K2_GetActorRotation().Yaw end)
     -- The engine grounds pals with the SCALED COLLISION capsule (~30 for
-    -- most species, live-verified 18.07.2026), NOT with the much larger
-    -- MeshCapsuleHalfHeight from the static parameter component (a
-    -- mesh-space body measure - LilyQueen: mesh 150 vs collision ~29).
+    -- most species), NOT with the much larger MeshCapsuleHalfHeight from
+    -- the static parameter component (a mesh-space body measure -
+    -- LilyQueen: mesh 150 vs collision ~29).
     -- Deriving ground from the mesh value sank targets up to 235 units
     -- into the floor. Collision capsule first; mesh value only as the
     -- last-resort fallback. (GetSimpleCollisionHalfHeight is NOT a
@@ -958,8 +958,8 @@ local function performEvolution(p)
                         pcall(function() cand = handle:TryGetIndividualActor() end)
                         if not (cand and cand:IsValid()) then watcherDone = true return end
                         -- Read the new pal's SCALED COLLISION capsule - the
-                        -- engine's grounding measure (~30 for most species,
-                        -- live-verified 18.07.2026). The mesh-space
+                        -- engine's grounding measure (~30 for most
+                        -- species). The mesh-space
                         -- MeshCapsuleHalfHeight must never feed physics Z
                         -- (deriving ground from it sank targets into the
                         -- floor); it stays only as the last resort when no

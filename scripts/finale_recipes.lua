@@ -61,8 +61,8 @@ R.hitBursts = {
     Electricity = "/Game/Pal/Effect/Common/Hit/Hit01Thunder/NS_Hit01Thunder_M.NS_Hit01Thunder_M",
     Ice         = "/Game/Pal/Effect/Common/Hit/Hit01Ice/NS_Hit01Ice.NS_Hit01Ice",
     Earth       = "/Game/Pal/Effect/Common/Hit/Hit01_earth/NS_Hit01earth.NS_Hit01earth",
-    -- NS_Hit01dark is practically invisible (live test 18.07.2026); the
-    -- Dark Ball skill impact is the visible dark burst tier instead
+    -- NS_Hit01dark is practically invisible in the field; the Dark Ball
+    -- skill impact is the visible dark burst tier instead
     Dark        = "/Game/Pal/Effect/Skill/DarkBall/NS_CommonSkill_DarkBall_Hit.NS_CommonSkill_DarkBall_Hit",
     Dragon      = "/Game/Pal/Effect/Common/Hit/Hit01_dragon/NS_Hit01_dragon.NS_Hit01_dragon",
 }
@@ -90,8 +90,8 @@ R.base = {
     { at = { anchor = "grown", plus = 0 },    pattern = "center",
       candidates = { R.RETURN_NS } },
     -- NO generic events after the grown moment: a delayed base-layer echo
-    -- read as effects "running once more" after the pal had fully appeared
-    -- (live feedback 18.07.2026) - the element layer owns the ending
+    -- reads as effects running once more after the pal has fully appeared -
+    -- the element layer owns the ending
 }
 
 -- Shared element-layer geometry. Accents climb around the growing pal
@@ -115,9 +115,8 @@ R.elements = {
         accents = ACCENTS, ring = RING,
     },
     -- The LegendDeer BarrierRelease explosions were tried here and removed
-    -- again (18.07.2026 live test): they are building-sized boss domes that
-    -- drown the whole finale, and Niagara scale is not reliable enough to
-    -- shrink them.
+    -- again: they are building-sized boss domes that drown the whole
+    -- finale, and Niagara scale is not reliable enough to shrink them.
     Water = {
         centerpiece = { at = { anchor = "grown" }, pattern = "center", candidates = {
             { path = "/Game/Pal/Effect/Skill/WaterGun/NS_WaterGun.NS_WaterGun",
@@ -144,11 +143,10 @@ R.elements = {
     -- Leaf centerpiece: cluster tier until a right-sized leaf skill VFX is
     -- found (BarrierRelease_Grass removed, see the Water note above).
     Leaf = { centerpiece = CLUSTER, accents = ACCENTS, ring = RING },
-    -- Dark, tuned across three live rounds (18.07.2026): Hit01dark is
-    -- invisible (globally replaced by DarkBall_Hit above), the Baphomet
-    -- shield reads as a fire-pal bubble, and the Darkness mist works as
-    -- AMBIENCE but not as the money shot. Composition: dark pillar
-    -- explosion centerpiece (pak-listed skill tree), DarkBall_Hit accents
+    -- Dark: Hit01dark is invisible (globally replaced by DarkBall_Hit
+    -- above), the Baphomet shield reads as a fire-pal bubble, and the
+    -- Darkness mist works as AMBIENCE but not as the money shot.
+    -- Composition: dark pillar explosion centerpiece, DarkBall_Hit accents
     -- via the burst tier, mist-plume ring on kill deadlines.
     Dark = {
         centerpiece = { at = { anchor = "grown" }, pattern = "center", candidates = {
