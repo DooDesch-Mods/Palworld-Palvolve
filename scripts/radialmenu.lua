@@ -134,6 +134,29 @@ local function labelText()
     return I18n.msg("evolve")
 end
 
+-- FText from a Lua string. UE4SS resolves the engine converter behind FText()
+-- once per session; when that first lookup ran before UE4SS finished
+-- initializing it stays broken for the whole session, so fall back to calling
+-- the engine's own converter through reflection, which does a fresh lookup.
+local fallbackAnnounced = false
+local function toText(s)
+    local okDirect, text = pcall(FText, s)
+    if okDirect and text then return text end
+    local okFallback, converted = pcall(function()
+        local ktl = StaticFindObject("/Script/Engine.Default__KismetTextLibrary")
+        if not (ktl and ktl:IsValid()) then return nil end
+        return ktl:Conv_StringToText(s)
+    end)
+    if okFallback and converted then
+        if not fallbackAnnounced then
+            fallbackAnnounced = true
+            Log("[radial] FText broken this session - using engine text converter")
+        end
+        return converted
+    end
+    return nil
+end
+
 local function makeLabelWidget(owner, text)
     local widget = nil
     pcall(function()
@@ -146,7 +169,9 @@ local function makeLabelWidget(owner, text)
         widget = lib:Create(owner, cls, pc)
     end)
     if widget and widget:IsValid() then
-        local okText = pcall(function() widget:SetText(FText(text)) end)
+        local label = toText(text)
+        local okText = false
+        if label then okText = pcall(function() widget:SetText(label) end) end
         if not okText and Config.devMode then
             Log("[radial] SetText failed - entry stays unlabeled")
         end
@@ -296,7 +321,8 @@ local function injectMainEntry(menu)
         if Config.devMode then Log("[radial] label widget creation failed") end
         return
     end
-    pcall(function() ourWidget:SetText(FText(labelText())) end)
+    local relabel = toText(labelText())
+    if relabel then pcall(function() ourWidget:SetText(relabel) end) end
     if not offered and not ourWidgetGreyed then
         local flat = readGrey(menu)
         ourWidgetGreyed = applyGrey(ourWidget, flat)
