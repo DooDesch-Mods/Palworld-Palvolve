@@ -1,7 +1,5 @@
 {
     "Palvolve_ElementExtractor": {
-        "Name": "Pal Alchemy Workbench",
-        "Description": "Breaks skill fruits and elemental materials down into pure essences and forges Evolution and Adaptation Stones.",
         "BlueprintClassName": "BP_BuildObject_MedicineFacility_01",
         "BlueprintClassSoft": "/Game/Pal/Blueprint/MapObject/BuildObject/BP_BuildObject_MedicineFacility_01.BP_BuildObject_MedicineFacility_01_C",
         "IconTexture": "$resource/Palvolve/extractor_bench",
@@ -38,11 +36,11 @@
             }
         ],
         "Technology": {
-            "UnlockBuildObjects": ["Palvolve_ElementExtractor"],
+            "UnlockBuildObjects": [
+                "Palvolve_ElementExtractor"
+            ],
             "IconName": "Palvolve_ElementExtractor",
             "IsBossTechnology": false,
-            "Name": "Pal Alchemy Workbench",
-            "Description": "Unlocks the Pal Alchemy Workbench - the home of essence extraction, Evolution Stones and Adaptation Stones.",
             "LevelCap": 10,
             "Tier": 1,
             "Cost": 2

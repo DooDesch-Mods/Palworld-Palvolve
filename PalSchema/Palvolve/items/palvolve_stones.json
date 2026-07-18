@@ -1,8 +1,6 @@
 {
     "Palvolve_EvolutionStone": {
         "Type": "Generic",
-        "Name": "Evolution Stone",
-        "Description": "A mysterious stone humming with life energy. Lets a bonded Pal evolve into a stronger related form once it has reached the required level.",
         "IconTexture": "$resource/Palvolve/evolutionstone",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
@@ -15,8 +13,6 @@
     },
     "Palvolve_AdaptionStone": {
         "Type": "Generic",
-        "Name": "Adaptation Stone (Legacy)",
-        "Description": "A shimmering stone attuned to elemental forces. No longer craftable - element-specific Adaptation Stones replace it, but existing stones still work as a wildcard.",
         "IconTexture": "$resource/Palvolve/adaptionstone",
         "TypeA": "Material",
         "TypeB": "MaterialProccessing",

@@ -1,8 +1,6 @@
 {
     "Palvolve_AdaptationStone_Normal": {
         "Type": "Generic",
-        "Name": "Adaptation Stone (Neutral)",
-        "Description": "A shimmering stone attuned to neutral energy. Lets a bonded Pal adapt into its neutral form once it has reached the required level.",
         "IconTexture": "$resource/Palvolve/adaptionstone_normal",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
@@ -15,8 +13,6 @@
     },
     "Palvolve_AdaptationStone_Fire": {
         "Type": "Generic",
-        "Name": "Adaptation Stone (Fire)",
-        "Description": "A shimmering stone attuned to fire energy. Lets a bonded Pal adapt into its fire form once it has reached the required level.",
         "IconTexture": "$resource/Palvolve/adaptionstone_fire",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
@@ -29,8 +25,6 @@
     },
     "Palvolve_AdaptationStone_Water": {
         "Type": "Generic",
-        "Name": "Adaptation Stone (Water)",
-        "Description": "A shimmering stone attuned to water energy. Lets a bonded Pal adapt into its water form once it has reached the required level.",
         "IconTexture": "$resource/Palvolve/adaptionstone_water",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
@@ -43,8 +37,6 @@
     },
     "Palvolve_AdaptationStone_Leaf": {
         "Type": "Generic",
-        "Name": "Adaptation Stone (Grass)",
-        "Description": "A shimmering stone attuned to grass energy. Lets a bonded Pal adapt into its grass form once it has reached the required level.",
         "IconTexture": "$resource/Palvolve/adaptionstone_leaf",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
@@ -57,8 +49,6 @@
     },
     "Palvolve_AdaptationStone_Electricity": {
         "Type": "Generic",
-        "Name": "Adaptation Stone (Electric)",
-        "Description": "A shimmering stone attuned to electric energy. Lets a bonded Pal adapt into its electric form once it has reached the required level.",
         "IconTexture": "$resource/Palvolve/adaptionstone_electricity",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
@@ -71,8 +61,6 @@
     },
     "Palvolve_AdaptationStone_Ice": {
         "Type": "Generic",
-        "Name": "Adaptation Stone (Ice)",
-        "Description": "A shimmering stone attuned to ice energy. Lets a bonded Pal adapt into its ice form once it has reached the required level.",
         "IconTexture": "$resource/Palvolve/adaptionstone_ice",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
@@ -85,8 +73,6 @@
     },
     "Palvolve_AdaptationStone_Earth": {
         "Type": "Generic",
-        "Name": "Adaptation Stone (Ground)",
-        "Description": "A shimmering stone attuned to ground energy. Lets a bonded Pal adapt into its ground form once it has reached the required level.",
         "IconTexture": "$resource/Palvolve/adaptionstone_earth",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
@@ -99,8 +85,6 @@
     },
     "Palvolve_AdaptationStone_Dark": {
         "Type": "Generic",
-        "Name": "Adaptation Stone (Dark)",
-        "Description": "A shimmering stone attuned to dark energy. Lets a bonded Pal adapt into its dark form once it has reached the required level.",
         "IconTexture": "$resource/Palvolve/adaptionstone_dark",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
@@ -113,8 +97,6 @@
     },
     "Palvolve_AdaptationStone_Dragon": {
         "Type": "Generic",
-        "Name": "Adaptation Stone (Dragon)",
-        "Description": "A shimmering stone attuned to dragon energy. Lets a bonded Pal adapt into its dragon form once it has reached the required level.",
         "IconTexture": "$resource/Palvolve/adaptionstone_dragon",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",

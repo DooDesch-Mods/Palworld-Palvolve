@@ -1,8 +1,6 @@
 {
     "Palvolve_Essence_Normal": {
         "Type": "Generic",
-        "Name": "Neutral Essence",
-        "Description": "Concentrated neutral energy, extracted from skill fruits or elemental materials. Used to craft the matching Adaptation Stone.",
         "IconTexture": "$resource/Palvolve/essence_normal",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
@@ -15,8 +13,6 @@
     },
     "Palvolve_Essence_Fire": {
         "Type": "Generic",
-        "Name": "Fire Essence",
-        "Description": "Concentrated fire energy, extracted from skill fruits or elemental materials. Used to craft the matching Adaptation Stone.",
         "IconTexture": "$resource/Palvolve/essence_fire",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
@@ -29,8 +25,6 @@
     },
     "Palvolve_Essence_Water": {
         "Type": "Generic",
-        "Name": "Water Essence",
-        "Description": "Concentrated water energy, extracted from skill fruits or elemental materials. Used to craft the matching Adaptation Stone.",
         "IconTexture": "$resource/Palvolve/essence_water",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
@@ -43,8 +37,6 @@
     },
     "Palvolve_Essence_Leaf": {
         "Type": "Generic",
-        "Name": "Grass Essence",
-        "Description": "Concentrated grass energy, extracted from skill fruits or elemental materials. Used to craft the matching Adaptation Stone.",
         "IconTexture": "$resource/Palvolve/essence_leaf",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
@@ -57,8 +49,6 @@
     },
     "Palvolve_Essence_Electricity": {
         "Type": "Generic",
-        "Name": "Electric Essence",
-        "Description": "Concentrated electric energy, extracted from skill fruits or elemental materials. Used to craft the matching Adaptation Stone.",
         "IconTexture": "$resource/Palvolve/essence_electricity",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
@@ -71,8 +61,6 @@
     },
     "Palvolve_Essence_Ice": {
         "Type": "Generic",
-        "Name": "Ice Essence",
-        "Description": "Concentrated ice energy, extracted from skill fruits or elemental materials. Used to craft the matching Adaptation Stone.",
         "IconTexture": "$resource/Palvolve/essence_ice",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
@@ -85,8 +73,6 @@
     },
     "Palvolve_Essence_Earth": {
         "Type": "Generic",
-        "Name": "Ground Essence",
-        "Description": "Concentrated ground energy, extracted from skill fruits or elemental materials. Used to craft the matching Adaptation Stone.",
         "IconTexture": "$resource/Palvolve/essence_earth",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
@@ -99,8 +85,6 @@
     },
     "Palvolve_Essence_Dark": {
         "Type": "Generic",
-        "Name": "Dark Essence",
-        "Description": "Concentrated dark energy, extracted from skill fruits or elemental materials. Used to craft the matching Adaptation Stone.",
         "IconTexture": "$resource/Palvolve/essence_dark",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
@@ -113,8 +97,6 @@
     },
     "Palvolve_Essence_Dragon": {
         "Type": "Generic",
-        "Name": "Dragon Essence",
-        "Description": "Concentrated dragon energy, extracted from skill fruits or elemental materials. Used to craft the matching Adaptation Stone.",
         "IconTexture": "$resource/Palvolve/essence_dragon",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
