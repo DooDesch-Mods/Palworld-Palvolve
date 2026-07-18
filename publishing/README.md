@@ -50,7 +50,10 @@ Repo/org variable:
 Config (`publishing/publish-config.json`):
 
 - `thunderstore.team`: must match the Thunderstore team/namespace exactly.
-- `nexus.modId`: page reference (nexusmods.com/palworld/mods/7680216).
+- `nexus.modId`: page reference (nexusmods.com/palworld/mods/3976). Note the
+  id spaces: the page has the classic mod id (3976), the v1 API lists file ids
+  like 17389, and the Upload API's file GROUP id (the NEXUS_FILE_GROUP_ID
+  variable, shown in "API Info" on the Files tab) is a 7-digit global id.
 
 ## Publish policy
 
