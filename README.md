@@ -12,7 +12,7 @@ Learned moves carry over, even when the new form could never learn them on its o
 
 ## Make it yours
 
-143 curated transformations ship as the starting point, curated together with the community: evolution chains like Pengullet to Penking, fun chains like Sweepa to Snugloo and 87 element adaptations. Some default pairs are already conditioned - Mau becomes Sekhmet only in the desert by day and Wispaw only at night or in a cave, and Relaxaurus turns Lux only while electrified.
+143 transformations ship as the starting point, curated together with the community: evolution chains like Pengullet to Penking, fun chains like Sweepa to Snugloo and 87 element adaptations. Some default pairs are already conditioned - Mau becomes Sekhmet only in the desert by day and Wispaw only at night or in a cave, and Relaxaurus turns Lux only while electrified.
 
 Every pair can carry conditions that must hold at evolve time: day/night, standing in water, status effects, locations from caves to wildlife sanctuaries, gender, a known move element, a specific Pal in your party, gliding, your own base or mid-combat. Two pairs with the same target and different conditions form an either/or branch - same Pal, different evolution by day and night.
 
@@ -25,7 +25,7 @@ Evolutions cost stones from the buildable Pal Alchemy Workbench (unlocked in the
 ## In case of an emergency
 
 - Every evolution snapshots your Pal first. Typing `/palvolve rollback` into the normal in-game chat restores the previous form from that snapshot, IVs included.
-- Costs are transactional: anything consumed is refunded automatically if a transformation aborts.
+- If a transformation aborts, everything it consumed is refunded automatically.
 - Multiplayer and dedicated servers are fully supported - the server validates ownership, level, costs and conditions before anything changes.
 
 ## Installation
@@ -36,7 +36,7 @@ Subscribe to [Palvolve](https://steamcommunity.com/sharedfiles/filedetails/?id=3
 
 ### Manual
 
-> ⚠️ Use **UE4SS Experimental (Palworld)** ([Workshop 3625223587](https://steamcommunity.com/sharedfiles/filedetails/?id=3625223587)), not the generic upstream RE-UE4SS - the upstream build breaks on Palworld 1.0 (Steam-ID mismatch, mods silently stop loading).
+> ⚠️ Use **UE4SS Experimental (Palworld)** ([Workshop 3625223587](https://steamcommunity.com/sharedfiles/filedetails/?id=3625223587)), not the generic upstream RE-UE4SS - it breaks on Palworld 1.0 (Steam-ID mismatch, mods silently stop loading).
 
 1. Install UE4SS Experimental (Palworld) and PalSchema following the [PalSchema installation guide](https://okaetsu.github.io/PalSchema/docs/installation).
 2. Copy `Mods\Palvolve` into `<Palworld>\Pal\Binaries\Win64\ue4ss\Mods\`.
