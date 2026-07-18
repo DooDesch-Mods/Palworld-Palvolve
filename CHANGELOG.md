@@ -4,8 +4,8 @@
 
 ### Fixed
 
-- Some installs lost the Pal Alchemy Workbench, the level 10 technology entry and every stone: when the game boots faster than UE4SS finishes initializing, the first text conversion of the session fails and stays failed (a lookup cache in the UE4SS library), and PalSchema then drops the whole schema half of the mod. Item and building names now live in the translation files alone, so those loaders run without the fragile conversion.
-- On sessions with that broken text conversion, the Evolve entry in the hold-4 wheel showed Japanese template text. The label now falls back to the engine's own text converter.
+- Fix attempt for installs that lost the Pal Alchemy Workbench, the level 10 technology entry and every stone. Affected logs point to a load-order problem in the modding frameworks: when the game boots faster than UE4SS finishes initializing, the session's first text conversion fails and stays failed (a one-time lookup cache in the UE4SS library), and PalSchema then drops the whole schema half of the mod. This could not be reproduced locally, so it is the best-supported theory from the reports rather than a proven diagnosis. Item and building names now live in the translation files alone, so those loaders run without the fragile conversion; unaffected setups behave exactly as before (verified).
+- On sessions with that broken text conversion the Evolve entry in the hold-4 wheel showed Japanese template text. The label now falls back to the engine's own text converter.
 
 ## [1.3.0] - 2026-07-18
 
