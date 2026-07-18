@@ -30,6 +30,8 @@
 -- when it could be measured; run-private state lives inside ctx.fx.
 
 local Config = require("config")
+local Recipes = require("finale_recipes")
+local Finale = require("finale")
 
 -- ---------------------------------------------------------------- shared helpers
 
@@ -62,18 +64,10 @@ local function spawnLight(worldCtx, x, y, z)
 end
 
 -- Vanilla element hit effects used as element-colored bursts during the
--- staging; keys match the element names from elements.lua.
-local ELEMENT_BURSTS = {
-    Normal      = "/Game/Pal/Effect/Common/Hit/Hit01/NS_Hit01Max.NS_Hit01Max",
-    Fire        = "/Game/Pal/Effect/Common/Hit/Hit01Fire/NS_Hit01Fire.NS_Hit01Fire",
-    Water       = "/Game/Pal/Effect/Common/Hit/Hit01Water/NS_Hit01Water.NS_Hit01Water",
-    Leaf        = "/Game/Pal/Effect/Common/Hit/Hit01_grass/NS_Hit01_grass.NS_Hit01_grass",
-    Electricity = "/Game/Pal/Effect/Common/Hit/Hit01Thunder/NS_Hit01Thunder_M.NS_Hit01Thunder_M",
-    Ice         = "/Game/Pal/Effect/Common/Hit/Hit01Ice/NS_Hit01Ice.NS_Hit01Ice",
-    Earth       = "/Game/Pal/Effect/Common/Hit/Hit01_earth/NS_Hit01earth.NS_Hit01earth",
-    Dark        = "/Game/Pal/Effect/Common/Hit/Hit01_dark/NS_Hit01dark.NS_Hit01dark",
-    Dragon      = "/Game/Pal/Effect/Common/Hit/Hit01_dragon/NS_Hit01_dragon.NS_Hit01_dragon",
-}
+-- staging; the table lives in finale_recipes.lua (shared with the layered
+-- finale as its fallback tier), keys match the element names from
+-- elements.lua.
+local ELEMENT_BURSTS = Recipes.hitBursts
 
 -- Hit effects stream in with combat and are usually NOT resident during a
 -- calm evolution - load them once at sequence start so the bursts never
@@ -115,6 +109,24 @@ local function spawnBurst(worldCtx, x, y, z, elem)
                 { Pitch = 0, Yaw = 0, Roll = 0 }, { X = 1, Y = 1, Z = 1 }, true, true, 0, false)
         end
     end)
+end
+
+-- Pre-redesign climax, kept as the whole-feature fallback for the layered
+-- finale: simultaneous bursts around the spot in the TARGET form's
+-- element(s) - dual-element targets alternate. Offsets are ctx-overridable
+-- so the MP client can widen them to frame the full-size target species (a
+-- big pal dwarfs the default 80-unit spread and all bursts cluster inside
+-- its body); the singleplayer path leaves them nil and keeps the original
+-- tight look.
+local function legacyClimax(ctx)
+    local fr = ctx.finaleRadius or 80
+    local fzA = ctx.finaleZa; if fzA == nil then fzA = 40 end
+    local fzB = ctx.finaleZb; if fzB == nil then fzB = 100 end
+    spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ, elemAt(ctx.elemsTo, 1))
+    spawnBurst(ctx.worldCtx, ctx.oldX + fr, ctx.oldY, ctx.oldZ + fzA, elemAt(ctx.elemsTo, 2))
+    spawnBurst(ctx.worldCtx, ctx.oldX - fr, ctx.oldY, ctx.oldZ + fzA, elemAt(ctx.elemsTo, 3))
+    spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY + fr, ctx.oldZ + fzB, elemAt(ctx.elemsTo, 4))
+    spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY - fr, ctx.oldZ + fzB, elemAt(ctx.elemsTo, 5))
 end
 
 -- ---------------------------------------------------------------- staging
@@ -183,6 +195,7 @@ local M = {
         activeYawFn = ctx.setYaw
         local c = digimonCfg()
         preloadBursts(ctx.elemsFrom, ctx.elemsTo)
+        Finale.prepare(ctx.elemsFrom, ctx.elemsTo)
         local faceYaw = yawTowardsPlayer(ctx, ctx.oldX, ctx.oldY) or ctx.oldYaw or 0
         ctx.fx.faceYaw = faceYaw
         setYaw(ctx.actor, faceYaw)
@@ -233,6 +246,9 @@ local M = {
                         pcall(function() a:GetMainMesh():SetOverlayMaterial(glow) end)
                     end
                 end
+                -- spread the finale prewarm across the dissolve: at most
+                -- one sync load per tick of this already-running driver
+                Finale.prepareStep()
                 -- bursts with rising frequency (0.8s -> 0.25s)
                 local interval = 0.8 - 0.55 * progress
                 if (now - state.lastBurst) >= interval then
@@ -250,12 +266,21 @@ local M = {
 
     onHide = function(ctx)
         if ctx.fx.dissolveState then ctx.fx.dissolveState.stopped = true end
-        -- peak hold: repeatable burst state until the new model is ready
+        -- idempotent: a second onHide must never orphan an earlier peak
+        -- loop (an overwritten stopPeak would leave it spawning forever)
+        if ctx.fx.stopPeak then ctx.fx.stopPeak() end
+        -- peak hold: repeatable burst state until the new model is ready;
+        -- hard time bound so a lost stop signal can never leak the loop
         local stopped = false
+        local startedAt = os.clock()
         ctx.fx.stopPeak = function() stopped = true end
         local i = 0
         LoopAsync(300, function()
             if stopped then return true end
+            if os.clock() - startedAt > 30 then
+                stopped = true
+                return true
+            end
             ExecuteInGameThread(function()
                 if stopped then return end
                 i = i + 1
@@ -282,21 +307,13 @@ local M = {
     onReveal = function(ctx, newActor)
         if ctx.fx.stopPeak then ctx.fx.stopPeak() end
         ctx.fx.revealActor = newActor
-        -- explosion finale: simultaneous bursts around the spot in the
-        -- TARGET form's element(s) - dual-element targets alternate
-        -- Finale spread. Offsets are ctx-overridable so the MP client can widen
-        -- them to frame the full-size target species (a big pal dwarfs the
-        -- default 80-unit spread and all bursts cluster inside its body); the
-        -- singleplayer path leaves them nil and keeps the original tight look.
-        local fr = ctx.finaleRadius or 80
-        local fzA = ctx.finaleZa; if fzA == nil then fzA = 40 end
-        local fzB = ctx.finaleZb; if fzB == nil then fzB = 100 end
+        -- grand finale: reveal anchor flash, then the layered element
+        -- schedule (base layer + target-element centerpiece/accents/ring,
+        -- pumped by the driver below). Falls back to the legacy burst
+        -- rosette when no schedule could be built.
         spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ)
-        spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ, elemAt(ctx.elemsTo, 1))
-        spawnBurst(ctx.worldCtx, ctx.oldX + fr, ctx.oldY, ctx.oldZ + fzA, elemAt(ctx.elemsTo, 2))
-        spawnBurst(ctx.worldCtx, ctx.oldX - fr, ctx.oldY, ctx.oldZ + fzA, elemAt(ctx.elemsTo, 3))
-        spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY + fr, ctx.oldZ + fzB, elemAt(ctx.elemsTo, 4))
-        spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY - fr, ctx.oldZ + fzB, elemAt(ctx.elemsTo, 5))
+        ctx.fx.finale = Finale.build(ctx)
+        if not ctx.fx.finale then legacyClimax(ctx) end
         playEffect(newActor, 2)
 
         -- One continuous driver from reveal to the end of the finale hold:
@@ -350,6 +367,7 @@ local M = {
                     -- now, then end the sequence as an abort (we own the lock)
                     state.stopped = true
                     state.finished = true
+                    Finale.stopAll(ctx.fx.finale)
                     pcall(function()
                         local h = ctx.worldCtx
                         local re = (h and h:IsValid()) and h:TryGetSpawnedOtomo() or nil
@@ -365,6 +383,7 @@ local M = {
                 local dt = now - state.lastTick
                 state.lastTick = now
                 local t = now - startedAt
+                Finale.pump(ctx, ctx.fx.finale, t)
                 local speed
                 if t < growS then
                     -- reveal: fast spin winding down to a steady rate while
@@ -402,6 +421,10 @@ local M = {
                 local sNow = state.scale or 1
                 local oldH = (ctx.oldHalf and ctx.oldHalf > 0) and ctx.oldHalf or 30
                 local newH = (ctx.newHalf and ctx.newHalf > 0) and ctx.newHalf or oldH
+                -- feet on the measured ground: center = ground + scaled
+                -- collision half (ctx.groundZ from the engine floor query;
+                -- capsule-difference formula only as legacy fallback)
+                local baseZ = ctx.groundZ or ((ctx.oldZ or 0) - oldH)
                 -- SP re-anchors the actor location so the feet stay grounded
                 -- while growing. On MP the actor location is server-authoritative
                 -- (the host already teleported + froze it), so a client write
@@ -410,15 +433,18 @@ local M = {
                     ctx.placeForScale(newActor, sNow, oldH, newH)
                 else
                     pcall(function()
+                        -- bTeleport=true: an intentional warp must not feed
+                        -- velocity into the (frozen) physics state
                         newActor:K2_SetActorLocation({
                             X = ctx.oldX or 0, Y = ctx.oldY or 0,
-                            Z = (ctx.oldZ or 0) - oldH + newH * sNow,
-                        }, false, {}, false)
+                            Z = baseZ + newH * sNow,
+                        }, false, {}, true)
                     end)
                 end
                 if t >= totalS then
                     state.stopped = true
                     state.finished = true
+                    Finale.stopAll(ctx.fx.finale)
                     restoreSpin()
                     pcall(function() newActor:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
                     if ctx.unfreeze then pcall(ctx.unfreeze, newActor) end
@@ -434,6 +460,7 @@ local M = {
     cleanup = function(ctx)
         if ctx.fx.dissolveState then ctx.fx.dissolveState.stopped = true end
         if ctx.fx.stopPeak then ctx.fx.stopPeak() end
+        Finale.stopAll(ctx.fx.finale)
         local grow = ctx.fx.growState
         -- "not finished" covers both a running grow AND the finale hold (both
         -- run in the same LoopAsync driver); stopped halts that driver, and
@@ -448,6 +475,17 @@ local M = {
         local a = ctx.fx.revealActor
         if a and a:IsValid() and growUnfinished then
             pcall(function() a:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
+            -- restore the FULL-SCALE center too: an abort mid-grow left the
+            -- actor at a shrunken-scale height, intersecting the floor once
+            -- rescaled
+            if ctx.groundZ and ctx.newHalf and ctx.newHalf > 0 then
+                pcall(function()
+                    a:K2_SetActorLocation({
+                        X = ctx.oldX or 0, Y = ctx.oldY or 0,
+                        Z = ctx.groundZ + ctx.newHalf,
+                    }, false, {}, true)
+                end)
+            end
             if grow and grow.restoreSpin then pcall(grow.restoreSpin) end
             if ctx.unfreeze then pcall(ctx.unfreeze, a) end
         end

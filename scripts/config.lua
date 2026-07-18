@@ -19,7 +19,7 @@ local Conditions = require("conditions")
 local Config = {
     -- Dev mode: enables the diagnostic key bindings (probes.lua) and the
     -- [diag] sequence telemetry in the log.
-    devMode = false,
+    devMode = true,
 
     -- Timings for the evolution staging
     -- (spin-up -> shrink -> peak hold -> grow -> finale hold)
@@ -32,7 +32,18 @@ local Config = {
                                -- effects fade, steering into the face-player
                                -- yaw at the very end
         elementColors = true   -- tint bursts/glow with the pals' elements
-                               -- (dissolve = old form, reveal = target form)
+                               -- (dissolve = old form, reveal = target form);
+                               -- false also disables the layered finale's
+                               -- element layer (its base layer still runs)
+    },
+
+    -- Layered grand finale at the reveal (finale_recipes.lua + finale.lua)
+    finale = {
+        style = "layered",     -- "layered" | "legacy" (legacy = the old
+                               -- 5-point burst rosette)
+        maxLiveSystems = 14,   -- cap on simultaneously tracked live systems
+        debugLog = true,       -- per-event spawn + anchor logging for the
+                               -- probe passes (dev phase; false for release)
     },
 
     -- Two-stage confirm: first press checks and announces, second press confirms.

@@ -3,6 +3,7 @@
 --          [probe-freeze] [probe-giveexp] [probe-testkit] [probe-revert]
 --          [probe-daynight] [probe-weather] [probe-loc] [probe-ctx]
 --          [probe-waterstatus] [probe-wazaelem] [probe-hpscale] [cond]
+--          [probe-finale-assets] [probe-finale-play] [probe-finale-duo]
 --
 -- Keybinds (test world "ModDev", own pal summoned):
 --   F5 = overlay glow on/off (M_Glow)     F6 = cycle visual effects
@@ -13,6 +14,12 @@
 --   END = free-evolution toggle (no stone/material costs)
 --   HOME = time/weather + evaluated conditions   PAGE_UP = location/context
 --   PAGE_DOWN = pal raw readings (water, status sweep, waza elements, HP)
+--   F1 = finale asset probe (verdicts + component capture check)
+--   BACKSPACE = FULL evolution run, one press per element stage: the
+--               summoned pal evolves into a random stage target
+--   Chat commands for compact keyboards (devMode only): /palvolve free
+--   (= END), /palvolve kit (= INSERT), /palvolve fx (standalone finale
+--   cycle at the summoned pal)
 --
 local M = {}
 
@@ -129,6 +136,9 @@ local MORPH_CYCLE = {
     { id = "FlowerDinosaur", note = "Leaf -> Electric adaptation" },
     { id = "Gorilla",        note = "-> Earth adaptation" },
     { id = "CaptainPenguin", note = "-> Electric adaptation (Black)" },
+    { id = "PinkRabbit",     note = "Normal -> Leaf adaptation (Grass)" },
+    { id = "KingBahamut",    note = "Fire -> Dragon adaptation (Ryu)" },
+    { id = "NegativeOctopus", note = "Dark -> Normal adaptation (Primo)" },
 }
 local morphIndex = 0
 RegisterKeyBind(Key.F7, Debounced("speciesswap", function()
@@ -152,31 +162,39 @@ RegisterKeyBind(Key.F7, Debounced("speciesswap", function()
     end)
 end))
 
--- END: free-evolution toggle for FX test sessions - disables stone AND
--- material costs at runtime (the resolve cache is dropped so armed pairs
--- reprice immediately)
+-- END or chat "/palvolve free": free-evolution toggle for FX test sessions -
+-- disables stone AND material costs at runtime (the resolve cache is
+-- dropped so armed pairs reprice immediately). Exposed on M for the chat
+-- command path: compact keyboards have no END key.
 local savedCosts = nil
-RegisterKeyBind(Key.END, Debounced("costtoggle", function()
-    ExecuteInGameThread(function()
-        local suc, e = pcall(function()
-            local cfg = require("config")
-            local Costs = require("costs")
-            if savedCosts == nil then
-                savedCosts = { stone = cfg.requireStone, costs = cfg.costs.enabled }
-                cfg.requireStone = false
-                cfg.costs.enabled = false
-                Log("[probe-costs] FREE MODE ON - evolutions cost nothing (END toggles back)")
-            else
-                cfg.requireStone = savedCosts.stone
-                cfg.costs.enabled = savedCosts.costs
-                savedCosts = nil
-                Log("[probe-costs] free mode off - normal costs apply again")
-            end
-            Costs.clearCache()
-        end)
-        if not suc then Log("[probe-costs] FAIL: " .. tostring(e)) end
+function M.toggleFreeMode()
+    local suc, e = pcall(function()
+        local cfg = require("config")
+        local Costs = require("costs")
+        if savedCosts == nil then
+            savedCosts = { stone = cfg.requireStone, costs = cfg.costs.enabled }
+            cfg.requireStone = false
+            cfg.costs.enabled = false
+            Log("[probe-costs] FREE MODE ON - evolutions cost nothing (END or /palvolve free toggles back)")
+        else
+            cfg.requireStone = savedCosts.stone
+            cfg.costs.enabled = savedCosts.costs
+            savedCosts = nil
+            Log("[probe-costs] free mode off - normal costs apply again")
+        end
+        Costs.clearCache()
     end)
+    if not suc then Log("[probe-costs] FAIL: " .. tostring(e)) end
+end
+RegisterKeyBind(Key.END, Debounced("costtoggle", function()
+    ExecuteInGameThread(M.toggleFreeMode)
 end))
+
+-- Free mode ON regardless of current state (the full-run probe needs the
+-- gates open, never closed).
+function M.ensureFreeMode()
+    if savedCosts == nil then M.toggleFreeMode() end
+end
 
 -- F3: revert for testing - takes all OWNED candidates and logs the raw owner
 -- guid. The local host player's uid lives in the D component (...-0001).
@@ -317,24 +335,27 @@ local function givePalsV2(pc)
     end
 end
 
+-- Exposed on M for the chat command path ("/palvolve kit"): compact
+-- keyboards have no INSERT key.
+function M.giveTestKit()
+    local suc, e = pcall(function()
+        local pc = FindFirstOf("PalPlayerController")
+        if not pc or not pc:IsValid() then Log("[probe-testkit] no PalPlayerController") return end
+        local ps = pc:GetPalPlayerState()
+        if not ps or not ps:IsValid() then Log("[probe-testkit] no PalPlayerState") return end
+        local inv = ps:GetInventoryData()
+        if inv and inv:IsValid() then
+            giveItemsV2(inv)
+        else
+            Log("[probe-testkit] no InventoryData")
+        end
+        givePalsV2(pc)
+    end)
+    if not suc then Log("[probe-testkit] FAIL: " .. tostring(e)) end
+end
 local KIT_KEY = Key.INS or Key.F4
 RegisterKeyBind(KIT_KEY, Debounced("testkit", function()
-    ExecuteInGameThread(function()
-        local suc, e = pcall(function()
-            local pc = FindFirstOf("PalPlayerController")
-            if not pc or not pc:IsValid() then Log("[probe-testkit] no PalPlayerController") return end
-            local ps = pc:GetPalPlayerState()
-            if not ps or not ps:IsValid() then Log("[probe-testkit] no PalPlayerState") return end
-            local inv = ps:GetInventoryData()
-            if inv and inv:IsValid() then
-                giveItemsV2(inv)
-            else
-                Log("[probe-testkit] no InventoryData")
-            end
-            givePalsV2(pc)
-        end)
-        if not suc then Log("[probe-testkit] FAIL: " .. tostring(e)) end
-    end)
+    ExecuteInGameThread(M.giveTestKit)
 end))
 
 -- F10 + NUM9: EXP lever to trigger level-ups reproducibly (NUM9 added since
@@ -753,7 +774,134 @@ bindProbeKey("NUM_EIGHT", "probe-status", function()
         tostring(prevGone), okAdd and "-" or tostring(err), statusCycle[#statusCycle].name))
 end)
 
-Log(string.format("Probes active: F3 revert(own), F4 arm radial probes, F5 overlay, F6 VFX, F7 morph FX bases, F8 fanfare, F9 freeze, F10 give EXP, END free mode, test kit on %s, conditions on HOME/PAGE_UP/PAGE_DOWN, NUM7 day/night, NUM8 status cycle",
+-- F1: resolve every finale recipe slot for all elements and log a per-slot
+-- verdict (OK / FALLBACK / MISSING), then check whether
+-- SpawnSystemAtLocation's returned component marshals into a usable handle
+-- (decides if looping specs are allowed at all). Save the log block right
+-- away - UE4SS.log truncates on every process start.
+-- (F1/BACKSPACE instead of numpad or nav-cluster keys: compact keyboards
+-- have neither numpad nor DEL/HOME/END; F2-F10 are taken, F11 is the
+-- game's fullscreen toggle, F12 fires the Steam screenshot.)
+bindProbeKey("F1", "probe-finale-assets", function()
+    local ctx, why = conditionCtx()
+    if not ctx then
+        Log("[probe-finale-assets] no ctx: " .. tostring(why))
+        return
+    end
+    local loc = ctx.actor:K2_GetActorLocation()
+    local r = require("finale").probeAll(ctx.holder, loc.X, loc.Y, loc.Z + 100)
+    if r then
+        Role.chat(ctx.playerCtx, string.format(
+            "Palvolve finale assets: %d showy OK, %d fallback, %d candidate(s) missing, capture %s (details: UE4SS.log)",
+            r.showyOk, r.fallback, r.missing, r.captureOk and "OK" or "FAIL"))
+    end
+end)
+
+-- Chat "/palvolve fx": play the layered finale standalone at the summoned
+-- pal - one call per stage, cycling the nine single elements and then
+-- three dual-element samples. Quick per-element tuning without running an
+-- evolution; the sample pal's capsule half feeds the same anchoring and
+-- species scaling as a real sequence.
+local FINALE_CYCLE = {
+    { "Normal" }, { "Fire" }, { "Water" }, { "Leaf" }, { "Electricity" },
+    { "Ice" }, { "Earth" }, { "Dark" }, { "Dragon" },
+    { "Water", "Ice" }, { "Fire", "Dark" }, { "Dragon", "Leaf" },
+}
+local finaleCycleIdx = 0
+function M.playFinaleSample()
+    local ctx, why = conditionCtx()
+    if not ctx then
+        Log("[probe-finale-play] no ctx: " .. tostring(why))
+        return
+    end
+    finaleCycleIdx = (finaleCycleIdx % #FINALE_CYCLE) + 1
+    local elems = FINALE_CYCLE[finaleCycleIdx]
+    local loc = ctx.actor:K2_GetActorLocation()
+    -- scaled collision capsule = grounding measure; mesh half = body
+    -- framing measure (GetSimpleCollisionHalfHeight is not a UFunction)
+    local half, meshHalf = nil, nil
+    pcall(function()
+        local cap = ctx.actor.CapsuleComponent
+        if cap and cap:IsValid() then half = cap:GetScaledCapsuleHalfHeight() end
+    end)
+    pcall(function()
+        local spc = ctx.actor.StaticCharacterParameterComponent
+        if spc and spc:IsValid() and spc.MeshCapsuleHalfHeight > 0 then
+            meshHalf = spc.MeshCapsuleHalfHeight
+        end
+    end)
+    Log(string.format("[probe-finale-play] %s (%d/%d, collHalf=%s meshHalf=%s)",
+        table.concat(elems, "+"), finaleCycleIdx, #FINALE_CYCLE,
+        tostring(half), tostring(meshHalf)))
+    -- echo the stage into the in-game chat so the tester sees what plays
+    -- without tailing the log
+    local Finale = require("finale")
+    Role.chat(ctx.playerCtx, string.format("Palvolve finale test %d/%d: %s (coll %.0f, mesh %.0f)",
+        finaleCycleIdx, #FINALE_CYCLE, table.concat(elems, "+"), half or 0, meshHalf or 0))
+    Role.chat(ctx.playerCtx, Finale.describeSchedule(elems))
+    Finale.playStandalone(ctx.holder, loc.X, loc.Y, loc.Z, elems, half, meshHalf)
+end
+
+-- BACKSPACE: FULL evolution run with ONE press - the currently summoned
+-- pal evolves into a RANDOM target of the next element stage via
+-- Evolution.debugEvolveTo (dev entry, NO gates: level, alpha, conditions
+-- and configured pairs are all bypassed; free mode is forced so costs stay
+-- zero). The real sequence runs from dissolve to finale on the pal as it
+-- stands - no morphing, no resummon. Stages cover all nine reveal elements
+-- plus three true dual-element targets (verified against
+-- elements_static.lua); a failed start keeps the stage for a retry.
+local FULL_CYCLE = {
+    { note = "Normal",           targets = { "CubeTurtle_Neutral", "WhiteMoth_Neutral" } },
+    { note = "Fire",             targets = { "Suzaku", "KingBahamut" } },
+    { note = "Water",            targets = { "Suzaku_Water", "Horus_Water" } },
+    { note = "Leaf",             targets = { "LilyQueen", "GrassPanda" } },
+    { note = "Electricity",      targets = { "ElecPanda", "ThunderDog" } },
+    { note = "Ice",              targets = { "WhiteTiger", "IceHorse" } },
+    { note = "Earth",            targets = { "Gorilla_Ground", "DrillGame" } },
+    { note = "Dark",             targets = { "BlackGriffon", "CatVampire" } },
+    { note = "Dragon",           targets = { "FairyDragon", "SkyDragon" } },
+    { note = "Water+Ice dual",   targets = { "CaptainPenguin" } },
+    { note = "Dragon+Leaf dual", targets = { "SkyDragon_Grass" } },
+    { note = "Fire+Dark dual",   targets = { "Manticore_Dark" } },
+}
+local fullRunIdx = 0
+bindProbeKey("BACKSPACE", "probe-finale-run", function()
+    local ctx, why = conditionCtx()
+    if not ctx then
+        Log("[probe-finale-run] no ctx: " .. tostring(why))
+        return
+    end
+    local Evolution = require("evolution")
+    local rawId = ctx.param:GetCharacterID():ToString()
+    local nextIdx = (fullRunIdx % #FULL_CYCLE) + 1
+    local st = FULL_CYCLE[nextIdx]
+    local pool = {}
+    for _, t in ipairs(st.targets) do
+        if t ~= rawId then pool[#pool + 1] = t end
+    end
+    if #pool == 0 then pool = st.targets end
+    local target = pool[math.random(#pool)]
+    M.ensureFreeMode()
+    Log(string.format("[probe-finale-run] %d/%d %s: %s -> %s",
+        nextIdx, #FULL_CYCLE, st.note, rawId, target))
+    Role.chat(ctx.playerCtx, string.format("Palvolve full run %d/%d (%s): evolving %s -> %s",
+        nextIdx, #FULL_CYCLE, st.note, rawId, target))
+    pcall(function()
+        local elemsTo = require("elements").of(target, ctx.holder)
+        if elemsTo then
+            Role.chat(ctx.playerCtx, require("finale").describeSchedule(elemsTo))
+        end
+    end)
+    local ok, msg = Evolution.debugEvolveTo(target)
+    if ok then
+        fullRunIdx = nextIdx
+    else
+        Role.chat(ctx.playerCtx, "Palvolve full run: " .. tostring(msg))
+        Log(string.format("[probe-finale-run] FAIL: %s", tostring(msg)))
+    end
+end)
+
+Log(string.format("Probes active: F3 revert(own), F4 arm radial probes, F5 overlay, F6 VFX, F7 morph FX bases, F8 fanfare, F9 freeze, F10 give EXP, END free mode, test kit on %s, conditions on HOME/PAGE_UP/PAGE_DOWN, NUM7 day/night, NUM8 status cycle, F1 finale assets, BACKSPACE full evolution run (random target, 12 stages), chat /palvolve free|kit|fx",
     Key.INS and "INSERT" or "POS1"))
 
 return M

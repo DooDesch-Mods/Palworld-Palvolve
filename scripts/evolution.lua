@@ -594,23 +594,57 @@ local function performEvolution(p)
         oldX, oldY, oldZ = loc.X, loc.Y, loc.Z
     end)
     pcall(function() oldYaw = actor:K2_GetActorRotation().Yaw end)
-    oldHalf = staticCapsuleHalf(actor)
+    -- The engine grounds pals with the SCALED COLLISION capsule (~30 for
+    -- most species, live-verified 18.07.2026), NOT with the much larger
+    -- MeshCapsuleHalfHeight from the static parameter component (a
+    -- mesh-space body measure - LilyQueen: mesh 150 vs collision ~29).
+    -- Deriving ground from the mesh value sank targets up to 235 units
+    -- into the floor. Collision capsule first; mesh value only as the
+    -- last-resort fallback. (GetSimpleCollisionHalfHeight is NOT a
+    -- UFunction in this build - never call it.)
+    pcall(function()
+        local cap = actor.CapsuleComponent
+        if cap and cap:IsValid() then
+            local h = cap:GetScaledCapsuleHalfHeight()
+            if h and h > 0 then oldHalf = h end
+        end
+    end)
     if not oldHalf or oldHalf <= 0 then
-        pcall(function() oldHalf = actor:GetSimpleCollisionHalfHeight() end)
+        oldHalf = staticCapsuleHalf(actor)
     end
-    if not oldHalf or oldHalf <= 0 then
-        pcall(function() oldHalf = actor.CapsuleComponent:GetScaledCapsuleHalfHeight() end)
+    -- Ground truth at the evolution spot: the standing old pal's feet
+    -- (center minus scaled collision capsule), refined by the engine's own
+    -- floor query when it returns a plausible value (handles hovering
+    -- pals). Everything downstream (teleport, grow driver, FX anchors)
+    -- hangs off this instead of capsule guesswork.
+    local groundZ = nil
+    if oldZ and oldHalf and oldHalf > 0 then
+        groundZ = oldZ - oldHalf
     end
+    pcall(function()
+        local u = palUtility()
+        if not u then return end
+        local floorLoc = u:GetFloorHitLocationByActor(actor)
+        if floorLoc and floorLoc.Z and groundZ
+            and math.abs(floorLoc.Z - groundZ) <= 300 then
+            groundZ = floorLoc.Z
+        end
+    end)
 
     local fx = FX
     local ctx = {
         actor = actor, worldCtx = holder,
         playerPawn = playerCtx and playerCtx.pawn or nil,
         oldX = oldX, oldY = oldY, oldZ = oldZ, oldYaw = oldYaw, oldHalf = oldHalf,
+        groundZ = groundZ,
         unfreeze = function(a) setFrozen(a, false) end,
         freeze = function(a) setFrozen(a, true) end,
         fx = {},
     }
+    if Config.devMode then
+        Log(string.format("[diag ground] oldZ=%s oldHalfColl=%.0f groundZ=%s",
+            tostring(oldZ), oldHalf or 0, tostring(groundZ)))
+    end
     -- element staging: dissolve/peak cycle through ALL of the old form's
     -- elements, the reveal uses the target's - for adaptations only the
     -- ADAPTED element (Penking Lux reveals electric, not its water
@@ -923,38 +957,37 @@ local function performEvolution(p)
                         local cand = nil
                         pcall(function() cand = handle:TryGetIndividualActor() end)
                         if not (cand and cand:IsValid()) then watcherDone = true return end
-                        -- Read the new pal's capsule half-height. A freshly
-                        -- spawned actor's capsule is NOT yet sized to the target
-                        -- species for the first frames - it reports a small
-                        -- default (~30) that put destZ far too low and sank a big
-                        -- pal (Penking) into the ground. Poll until the capsule
-                        -- has grown past the old pal's half (evolutions are
-                        -- bigger) or a short budget elapses, keeping the best
-                        -- value seen. This also gives the client's own capsule
-                        -- read time to settle before the reveal signal.
-                        -- Absolute capsule half from the static parameter
-                        -- component (correct without a mesh, headless-safe). Fall
-                        -- back to the collision accessors + a short settle poll
-                        -- only if that source is unavailable.
-                        local nh = staticCapsuleHalf(cand)
+                        -- Read the new pal's SCALED COLLISION capsule - the
+                        -- engine's grounding measure (~30 for most species,
+                        -- live-verified 18.07.2026). The mesh-space
+                        -- MeshCapsuleHalfHeight must never feed physics Z
+                        -- (deriving ground from it sank targets into the
+                        -- floor); it stays only as the last resort when no
+                        -- capsule is readable. Poll a few frames only while
+                        -- the capsule is not readable yet.
+                        local nh = nil
+                        pcall(function()
+                            local cap = cand.CapsuleComponent
+                            if cap and cap:IsValid() then
+                                nh = cap:GetScaledCapsuleHalfHeight()
+                            end
+                        end)
                         if not (nh and nh > 0) then
-                            pcall(function() nh = cand:GetSimpleCollisionHalfHeight() end)
-                        end
-                        if not (nh and nh > 0) then
-                            pcall(function() nh = cand.CapsuleComponent:GetScaledCapsuleHalfHeight() end)
+                            nh = staticCapsuleHalf(cand)
                         end
                         nh = nh or 0
                         if nh > nhBest then nhBest = nh end
-                        local grew = nhBest > ((savedHalf or 0) * 1.1)
-                        if (not grew) and nhTries < 8 then
+                        if nhBest <= 0 and nhTries < 8 then
                             nhTries = nhTries + 1
-                            return -- stay in "activate"; let the value settle
+                            return -- stay in "activate"; capsule not readable yet
                         end
                         nh = (nhBest > 0) and nhBest or nh
-                        -- feet-on-ground for the taller new species, plus a
-                        -- small lift so it never spawns sunk into the ground
+                        -- feet-on-ground plus a small lift so the new pal
+                        -- never spawns sunk into the ground
                         local destZ = (savedZ or 0) + 40
-                        if savedZ and savedHalf and savedHalf > 0 and nh and nh > 0 then
+                        if groundZ and nh > 0 then
+                            destZ = groundZ + nh + 40
+                        elseif savedZ and savedHalf and savedHalf > 0 and nh > 0 then
                             destZ = savedZ - savedHalf + nh + 40
                         end
                         Log(string.format("[mpseq] place nh=%.0f destZ=%.0f", nh or 0, destZ))
@@ -970,12 +1003,23 @@ local function performEvolution(p)
                             local newActor = nil
                             pcall(function() newActor = holder:TryGetSpawnedOtomo() end)
                             if newActor and newActor:IsValid() and newActor ~= oldActor then
-                                -- Re-read the absolute half from the activated
-                                -- actor's static parameter component and recompute
-                                -- destZ from the best value (belt and braces).
-                                local nh2 = staticCapsuleHalf(newActor) or 0
+                                -- Re-read the scaled collision half from the
+                                -- activated actor and recompute destZ from the
+                                -- best value (belt and braces).
+                                local nh2 = nil
+                                pcall(function()
+                                    local cap = newActor.CapsuleComponent
+                                    if cap and cap:IsValid() then
+                                        nh2 = cap:GetScaledCapsuleHalfHeight()
+                                    end
+                                end)
+                                if not (nh2 and nh2 > 0) then
+                                    nh2 = staticCapsuleHalf(newActor) or 0
+                                end
                                 local nhUse = math.max(nhBest or 0, nh2 or 0)
-                                if savedZ and savedHalf and savedHalf > 0 and nhUse > 0 then
+                                if groundZ and nhUse > 0 then
+                                    destZ = groundZ + nhUse + 40
+                                elseif savedZ and savedHalf and savedHalf > 0 and nhUse > 0 then
                                     destZ = savedZ - savedHalf + nhUse + 40
                                 end
                                 -- hard transform-safe freeze (suppresses the
@@ -1128,16 +1172,28 @@ local function performEvolution(p)
                     pcall(function()
                         pcall(function() newActor:K2_DetachFromActor(1, 1, 1) end)
                         pcall(function() newActor:SetActorEnableCollision(false) end)
-                        -- Anchor the new capsule so its feet end up where the
-                        -- old pal stood; with unknown capsule sizes lift a bit
-                        -- instead and let gravity settle it after the unfreeze.
+                        -- Anchor the new COLLISION capsule so its feet end up
+                        -- on the measured ground; with unknown capsule sizes
+                        -- lift a bit instead and let gravity settle it after
+                        -- the unfreeze.
                         local newHalf = 0
-                        pcall(function() newHalf = newActor:GetSimpleCollisionHalfHeight() end)
-                        if not newHalf or newHalf <= 0 then
-                            pcall(function() newHalf = newActor.CapsuleComponent:GetScaledCapsuleHalfHeight() end)
-                        end
+                        pcall(function()
+                            local cap = newActor.CapsuleComponent
+                            if cap and cap:IsValid() then
+                                newHalf = cap:GetScaledCapsuleHalfHeight()
+                            end
+                        end)
+                        -- mesh-space body half of the TARGET species: the FX
+                        -- framing measure (NEVER used for physics Z)
+                        pcall(function()
+                            local mh = staticCapsuleHalf(newActor)
+                            if mh and mh > 0 then ctx.meshHalfTo = mh end
+                        end)
                         local targetZ = oldZ + 40
-                        if (oldHalf or 0) > 0 and newHalf > 0 then
+                        if ctx.groundZ and newHalf > 0 then
+                            targetZ = ctx.groundZ + newHalf + 10
+                            ctx.newHalf = newHalf
+                        elseif (oldHalf or 0) > 0 and newHalf > 0 then
                             targetZ = oldZ - oldHalf + newHalf + 10
                             ctx.newHalf = newHalf
                         end
@@ -1690,6 +1746,39 @@ function Evolution.executeOption(opt)
     end
 end
 
+-- Dev-only entry for the probes' full-run cycle: evolve the summoned pal
+-- into toId with NO gates - no level/alpha/condition/cost checks and no
+-- configured pair needed. The synthetic pair exists only inside this call;
+-- costs still resolve, so the probe keeps free mode forced.
+function Evolution.debugEvolveTo(toId)
+    if not Config.devMode then return false, "devMode off" end
+    -- HARD authority gate: performEvolution manipulates the actor
+    -- (freeze, collision, despawn/respawn). On a client connected to a
+    -- server the pal is a replicated proxy - local writes are ghosts at
+    -- best and native crashes at worst (see fx.lua remoteBurst). The dev
+    -- full-run is therefore ModDev/host only.
+    if not Role.hasWorldAuthority() then
+        return false, "debug evolve needs world authority - use the ModDev world (SP), not a server connection"
+    end
+    if lockBusy() then return false, I18n.msg("evolutionRunning") end
+    local playerCtx = Role.localPlayerCtx()
+    if not playerCtx then return false, I18n.msg("noLocalPlayer") end
+    local holder = findHolderFor(playerCtx, nil)
+    local actor = nil
+    if holder then pcall(function() actor = holder:TryGetSpawnedOtomo() end) end
+    if not (actor and actor:IsValid()) then return false, I18n.msg("noPalSummoned") end
+    local param = paramOf(actor)
+    if not (param and isOwnedBy(param, playerCtx.playerUId)) then
+        return false, I18n.msg("noPalSummoned")
+    end
+    local id = baseCharacterId(param:GetCharacterID():ToString())
+    local pair = { from = id, to = toId, category = "evolution",
+        minLevel = 1, stone = "evolution", enabled = true }
+    return performEvolution({ actor = actor, param = param, pair = pair,
+        holder = holder, key = individualKey(param), isAlpha = false,
+        playerCtx = playerCtx })
+end
+
 -- Build the fx ctx for the CLIENT re-play. Same shape as the singleplayer ctx,
 -- but the transform backend is swapped for MP: yaw goes on the MESH (client-
 -- local, smooth), position is owned by the server (placeForScale no-op), and
@@ -1703,10 +1792,12 @@ local function buildRemoteCtx(actor, holder, playerCtx, pair)
     local ox, oy, oz, oyaw, ohalf = nil, nil, nil, 0, 0
     pcall(function() local l = actor:K2_GetActorLocation(); ox, oy, oz = l.X, l.Y, l.Z end)
     pcall(function() oyaw = actor:K2_GetActorRotation().Yaw end)
-    pcall(function() ohalf = actor:GetSimpleCollisionHalfHeight() end)
-    if not ohalf or ohalf <= 0 then
-        pcall(function() ohalf = actor.CapsuleComponent:GetScaledCapsuleHalfHeight() end)
-    end
+    -- scaled COLLISION capsule = the engine's grounding measure
+    -- (GetSimpleCollisionHalfHeight is not a UFunction in this build)
+    pcall(function()
+        local cap = actor.CapsuleComponent
+        if cap and cap:IsValid() then ohalf = cap:GetScaledCapsuleHalfHeight() end
+    end)
     local ctx = {
         actor = actor, worldCtx = holder,
         playerPawn = playerCtx and playerCtx.pawn or nil,
@@ -1790,15 +1881,27 @@ function Evolution.onNetSignal(kind)
         -- anchor the finale to where the pal actually stands and size the beam
         -- spread to the species. Height comes from the same static source (also
         -- available on the client), falling back to the capsule accessor.
-        local nh = staticCapsuleHalf(a)
-        if not (nh and nh > 0) then pcall(function() nh = a:GetSimpleCollisionHalfHeight() end) end
-        if not (nh and nh > 0) then nh = 60 end
+        -- scaled COLLISION capsule for the physics anchor; the mesh-space
+        -- body half goes to the FX framing separately
+        local nh = nil
+        pcall(function()
+            local cap = a.CapsuleComponent
+            if cap and cap:IsValid() then nh = cap:GetScaledCapsuleHalfHeight() end
+        end)
+        if not (nh and nh > 0) then nh = 30 end
+        pcall(function()
+            local mh = staticCapsuleHalf(a)
+            if mh and mh > 0 then remoteCtx.meshHalfTo = mh end
+        end)
         -- Anchor the finale to where the pal actually stands; leaving
         -- finaleRadius/Za/Zb unset keeps the tight singleplayer default spread.
         pcall(function()
             local loc = a:K2_GetActorLocation()
             remoteCtx.newHalf = nh
             remoteCtx.oldX, remoteCtx.oldY, remoteCtx.oldZ = loc.X, loc.Y, loc.Z
+            -- oldZ is now the NEW pal's center - the finale derives its
+            -- ground/grown-center anchors from that instead of old-half math
+            remoteCtx.centerAnchored = true
         end)
         pcall(function() FX.onPreReveal(remoteCtx, a) end)
         local rd = false
@@ -2057,6 +2160,23 @@ function Evolution.init()
         local ChatCommands = require("chatcommands")
         local okCmd = ChatCommands.init({
             rollback = function(senderCtx) Evolution.rollbackLast(senderCtx) end,
+            -- dev-only aliases for probe keys that compact keyboards lack
+            -- (END/INSERT); silent no-ops outside devMode
+            free = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if okProbes and probes.toggleFreeMode then probes.toggleFreeMode() end
+            end,
+            kit = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if okProbes and probes.giveTestKit then probes.giveTestKit() end
+            end,
+            fx = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if okProbes and probes.playFinaleSample then probes.playFinaleSample() end
+            end,
             help = function(senderCtx)
                 Role.chat(senderCtx, "Palvolve: /palvolve rollback restores your last evolved Pal")
             end,
