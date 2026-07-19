@@ -81,4 +81,6 @@ Hand-written configs use `conditions = { "night", "knowsMove:Dragon", "inParty:P
 
 ## License
 
-MIT - see [LICENSE](LICENSE).
+GPL-3.0 - see [LICENSE](LICENSE). Copyright (C) 2026 DooDesch.
+
+You may use and modify this code, including in your own mods - but derived work must be released under the GPL-3.0 as well, with source available and credit kept. Versions up to v1.3.2 were published under MIT and remain so.

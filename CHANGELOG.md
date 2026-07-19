@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- License changed from MIT to GPL-3.0. Derived mods must be released under the GPL-3.0 as well, with source available and credit kept. Releases up to v1.3.2 remain MIT.
+
 ## [1.3.2] - 2026-07-19
 
 ### Fixed
