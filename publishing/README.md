@@ -4,6 +4,8 @@ Automated distribution to Thunderstore and Nexus Mods via the "Publish release"
 GitHub Actions workflow (`.github/workflows/publish.yml`). The Steam Workshop is
 NOT covered here - it stays with the official PalworldModUploader.
 
+> 🛟 **Need help or found a bug?** Get support at [support.doodesch.de](https://support.doodesch.de).
+
 ## How it works
 
 Nexus Mods: publishing a GitHub release triggers the workflow automatically.

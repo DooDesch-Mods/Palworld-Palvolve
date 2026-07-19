@@ -1,13 +1,21 @@
--- Palvolve egg filter: eggs only ever hatch BASE forms. Evolved/adapted
--- species inside an egg are normalized back to their base species right
--- before the hatched character is obtained (server-side pre-hook), so the
--- mod-exclusive forms stay exclusive to the evolution flow.
+-- Palvolve egg filter: eggs only ever hatch BASE forms, following EVOLUTION
+-- chains only. Element adaptations are never gated - an egg of a pure element
+-- variant hatches unchanged, and a normalized egg may hatch the base in any of
+-- its element variants (see Config.baseFormsOf).
 --
--- Mechanism: the hatching model carries the hatched pal's save parameter;
--- rewriting its CharacterID (the same FName property write the evolution
--- swap uses) makes the game create the base form while every other rolled
--- stat (talents, passives, gender) stays untouched. Both the single-egg
--- incubator model and the multi-slot base variant are covered.
+-- Server-side hooks on the incubator model:
+--   OnFinishWorkInServer (hatch-complete)   - PRIMARY. The game writes the
+--     replicated HatchedCharacterSaveParameter here and the "born" notification
+--     reads it, BEFORE the ObtainHatchedCharacter spawn step. Normalizing here
+--     (pre + post) fixes both the notification and the hatched Pal.
+--   OnUpdateContainerContentInServer (place) - early pass for the incubation
+--     display when there is a real hatch window.
+--   ObtainHatchedCharacter_ServerInternal    - final safety net for the Pal.
+--
+-- The base is decided ONCE per egg from the egg-data species (uniform when
+-- several bases exist) and written to the hatch source (HatchedPalEggData);
+-- the replicated notification copy is then mirrored to that same base, so the
+-- notification and the Pal never disagree and no second random roll happens.
 
 local Config = require("config")
 
@@ -17,85 +25,113 @@ local function Log(msg)
     print(string.format("[Palvolve] %s\n", msg))
 end
 
--- Rewrites one save-parameter struct; returns "old>new" when it changed.
--- Defensive: should an egg ever carry an Alpha id (BOSS_ prefix), the base
--- lookup uses the unprefixed species - the hatch result is the plain base
--- form either way (alphas are not meant to come from eggs).
-local function normalize(saveParam)
+-- Distinct base candidates for an id (self excluded), via the unprefixed id.
+local function candidates(originalId)
+    local lookupId = originalId:gsub("^BOSS_", "")
+    local out = {}
+    for _, b in ipairs(Config.baseFormsOf(lookupId)) do
+        if b ~= lookupId then table.insert(out, b) end
+    end
+    return out
+end
+
+-- One random base for an original species id; nil = not an evolution target.
+local function pickBase(originalId)
+    local cand = candidates(originalId)
+    local n = #cand
+    if n == 0 then return nil end
+    if n == 1 then return cand[1] end
+    return cand[math.random(n)]
+end
+
+local function isTarget(originalId)
+    return #candidates(originalId) > 0
+end
+
+-- Normalize one egg: decide the base once from the egg-data species and write
+-- it to the hatch source, then mirror the replicated notification copy to that
+-- same base. Idempotent: once the source is a base, pickBase returns nil and
+-- only a stale (still-evolved) notification copy is re-synced. Returns a log
+-- fragment or nil.
+local function normalizeEgg(eggData, hatchedParam)
     local changed = nil
     pcall(function()
-        local id = saveParam.CharacterID:ToString()
-        local lookupId = id:gsub("^BOSS_", "")
-        local base = Config.baseFormOf(lookupId)
-        if base and base ~= id then
-            saveParam.CharacterID = FName(base)
-            changed = id .. " -> " .. base
+        if not (eggData and eggData:IsValid()) then return end
+        local eggId = eggData.CharacterID:ToString()
+        local base = pickBase(eggId)
+        if base then
+            eggData.CharacterID = FName(base)
+            pcall(function() eggData.SaveParameter.CharacterID = FName(base) end)
+            local after = eggData.CharacterID:ToString()
+            changed = eggId .. " -> " .. base
+            if after ~= base then changed = changed .. " (could not update egg species, still " .. after .. ")" end
+            eggId = base
+        end
+        -- mirror the notification copy onto the decided base, but only when it
+        -- still holds an evolved form (never touch a normal egg's species)
+        if hatchedParam then
+            pcall(function()
+                local hp = hatchedParam.CharacterID:ToString()
+                if hp ~= eggId and isTarget(hp) then
+                    hatchedParam.CharacterID = FName(eggId)
+                    if not changed then changed = hp .. " -> " .. eggId .. " (hatch notification)" end
+                end
+            end)
         end
     end)
     return changed
 end
 
-local function normalizeModel(model)
+local function normalizeModel(model, source)
     local changes = {}
-    -- single incubator: one hatched parameter on the model
+    -- single incubator: HatchedPalEggData is the hatch source, and the model's
+    -- HatchedCharacterSaveParameter is the replicated copy the notification reads
     pcall(function()
-        local c = normalize(model.HatchedCharacterSaveParameter)
+        local c = normalizeEgg(model.HatchedPalEggData, model.HatchedCharacterSaveParameter)
         if c then table.insert(changes, c) end
     end)
-    -- multi-slot base variant: per-slot rep and save infos
+    -- multi-slot base variant: one egg per RepInfoArray slot
     pcall(function()
         local items = model.RepInfoArray.Items
         for i = 1, #items do
             pcall(function()
-                local c = normalize(items[i].HatchedCharacterSaveParameter)
-                if c then table.insert(changes, c) end
-            end)
-            pcall(function()
-                -- no IsValid() gate: PalEggData may marshal as a struct
-                -- rather than a UObject; normalize() is pcall-safe anyway
-                local egg = items[i].PalEggData
-                if egg then
-                    local c1 = normalize(egg)                 -- CharacterID on the item
-                    if c1 then table.insert(changes, c1) end
-                    pcall(function()
-                        local c2 = normalize(egg.SaveParameter)
-                        if c2 then table.insert(changes, c2) end
-                    end)
-                end
-            end)
-        end
-    end)
-    pcall(function()
-        local infos = model.TmpSaveInfoArray
-        for i = 1, #infos do
-            pcall(function()
-                local c = normalize(infos[i].HatchedCharacterSaveParameter)
+                local c = normalizeEgg(items[i].PalEggData, items[i].HatchedCharacterSaveParameter)
                 if c then table.insert(changes, c) end
             end)
         end
     end)
     if #changes > 0 then
-        Log("Egg filter: normalized " .. table.concat(changes, ", "))
-    elseif Config.devMode then
-        Log("[probe-eggfill] hatch hook fired, nothing to normalize")
+        Log(string.format("Egg filter: normalized %s", table.concat(changes, ", ")))
     end
 end
 
 function EggFilter.init()
     if not (Config.eggFilter and Config.eggFilter.enabled) then return end
+    pcall(function() math.randomseed(os.time()) end)
 
+    -- {path, label, alsoPost}
     local hooks = {
-        "/Script/Pal.PalMapObjectHatchingEggModelBase:ObtainHatchedCharacter_ServerInternal",
-        "/Script/Pal.PalMapObjectHatchingEggModel:ObtainHatchedCharacter_ServerInternal",
+        { "/Script/Pal.PalMapObjectHatchingEggModel:OnFinishWorkInServer", "finish", true },
+        { "/Script/Pal.PalMapObjectHatchingEggModelBase:OnFinishWorkInServer", "finish", true },
+        { "/Script/Pal.PalMapObjectHatchingEggModel:OnUpdateContainerContentInServer", "place", false },
+        { "/Script/Pal.PalMapObjectHatchingEggModelBase:OnUpdateContainerContentInServer", "place", false },
+        { "/Script/Pal.PalMapObjectHatchingEggModelBase:ObtainHatchedCharacter_ServerInternal", "hatch", false },
+        { "/Script/Pal.PalMapObjectHatchingEggModel:ObtainHatchedCharacter_ServerInternal", "hatch", false },
     }
     local registered = {}
     local function tryHooks()
         local allOk = true
-        for _, path in ipairs(hooks) do
+        for _, h in ipairs(hooks) do
+            local path, label, alsoPost = h[1], h[2], h[3]
             if not registered[path] then
-                local ok = pcall(RegisterHook, path, function(self)
-                    pcall(function() normalizeModel(self:get()) end)
-                end)
+                local pre = function(self) pcall(function() normalizeModel(self:get(), label) end) end
+                local ok
+                if alsoPost then
+                    local post = function(self) pcall(function() normalizeModel(self:get(), label .. "/post") end) end
+                    ok = pcall(RegisterHook, path, pre, post)
+                else
+                    ok = pcall(RegisterHook, path, pre)
+                end
                 registered[path] = ok
                 allOk = allOk and ok
             end
@@ -103,14 +139,14 @@ function EggFilter.init()
         return allOk
     end
     if not tryHooks() then
-        -- BP-adjacent classes may load late; retry like the level-up hook
+        -- BP-adjacent classes may load late; retry until they register
         LoopAsync(5000, function()
             local done = false
             ExecuteInGameThread(function() done = tryHooks() end)
             return done
         end)
     end
-    Log("Egg filter active: eggs hatch base forms only")
+    Log("Egg filter active: eggs hatch base forms (evolution chains only)")
 end
 
 return EggFilter

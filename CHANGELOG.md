@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.3.2] - 2026-07-19
+
+### Fixed
+
+- Eggs that would hatch an evolved form hatched nothing at all - the egg was consumed and no Pal appeared. The filter rewrote only the model's replicated hatch copy, not the egg's own stored save parameter that the game builds the hatched Pal from, so the mismatched hatch produced an empty result. The egg's stored species is now normalized server-side at hatch-complete, before the Pal is built, so a base form hatches as intended. Reported by Catch 34.
+- The "X was born" message named the evolved form while a different base-form Pal was received. That message reads the replicated hatch parameter, which is now written to the same base form as the Pal, so the notification and the hatched Pal always match (previously mismatched on dedicated servers, where the two replicate separately).
+
+### Changed
+
+- Eggs follow evolution chains only. An egg of an evolved form hatches a base form; a pure element adaptation (the same Pal in a different element) hatches unchanged. Where the chain runs through an element-adapted form, or a base carries element variants, the egg hatches one of the whole base family - the plain base or any of its element variants - and where several lineages or variants qualify, one is chosen with equal chance.
+
 ## [1.3.1] - 2026-07-18
 
 ### Fixed

@@ -1341,31 +1341,157 @@ function Config.findPairs(characterId)
     return result
 end
 
--- Reverse map for the egg filter: evolved/adapted form -> base form, walked
--- transitively (Yeti -> SmallYeti). Funchain links are excluded so cross-
--- family results (MopKing -> Yeti) do not normalize into the wrong family.
--- Disabled pairs count too: an egg of a disabled target still normalizes.
-local baseFormCache = nil
-function Config.baseFormOf(characterId)
-    if baseFormCache == nil then
-        local parentOf = {}
-        for _, pair in ipairs(Config.map) do
-            if pair.category ~= "funchain" and not parentOf[pair.to] then
-                parentOf[pair.to] = pair.from
-            end
+-- Reverse/forward maps for the egg filter, split by category so eggs follow
+-- EVOLUTION chains only. Funchain links are always excluded.
+--   evoParents[to]    = { evolution froms }
+--   adaParents[to]    = { adaptation froms }
+--   adaChildren[from] = { adaptation tos } (element variants of a base)
+local evoParentsCache, adaParentsCache, adaChildrenCache = nil, nil, nil
+local function eggParents()
+    if evoParentsCache == nil then
+        evoParentsCache, adaParentsCache, adaChildrenCache = {}, {}, {}
+        local function add(map, k, v)
+            local list = map[k]
+            if not list then list = {}; map[k] = list end
+            for _, x in ipairs(list) do if x == v then return end end
+            table.insert(list, v)
         end
-        baseFormCache = {}
-        for child, _ in pairs(parentOf) do
-            local seen = { [child] = true }
-            local cur = child
-            while parentOf[cur] and not seen[parentOf[cur]] do
-                cur = parentOf[cur]
-                seen[cur] = true
+        for _, pair in ipairs(Config.map) do
+            if pair.category == "evolution" then
+                add(evoParentsCache, pair.to, pair.from)
+            elseif pair.category == "adaptation" then
+                add(adaParentsCache, pair.to, pair.from)
+                add(adaChildrenCache, pair.from, pair.to)
             end
-            baseFormCache[child] = cur
         end
     end
-    return baseFormCache[characterId]
+    return evoParentsCache, adaParentsCache, adaChildrenCache
+end
+
+-- Raw base candidates for an egg of `characterId`, following EVOLUTION chains
+-- only. First, peel the id's own adaptation layers to reach the evolution chain
+-- beneath it. Then walk evolution parents STRICTLY below the seeds; every node
+-- reached that is an adaptation form OR an evolution root is a "family point".
+-- Finally, expand each family point to its base family - the plain base reached
+-- by peeling that point's adaptation, plus every element adaptation of that
+-- base. So an interleaved chain contributes a base family at every adaptation
+-- form it passes through, not only at the very bottom. A pure adaptation with
+-- no evolution beneath yields nothing, so element variants hatch unchanged.
+-- Config.baseFormsOf below resolves these to terminal forms.
+local function rawBaseForms(characterId)
+    local evoParents, adaParents, adaChildren = eggParents()
+
+    -- plain base(s) of Y: peel Y's adaptation layers to forms with no adaptation
+    -- parent (Y itself when it is not an adaptation form)
+    local function plainBases(Y)
+        if not adaParents[Y] then return { Y } end
+        local out, seen, st = {}, {}, { Y }
+        while #st > 0 do
+            local cur = table.remove(st)
+            local ps = adaParents[cur]
+            if ps and #ps > 0 then
+                for _, p in ipairs(ps) do
+                    if not seen[p] then seen[p] = true; table.insert(st, p) end
+                end
+            else
+                table.insert(out, cur)
+            end
+        end
+        return out
+    end
+
+    local family, famSet = {}, {}
+    local function addFamily(pointId)
+        for _, b in ipairs(plainBases(pointId)) do
+            if not famSet[b] then famSet[b] = true; table.insert(family, b) end
+            local kids = adaChildren[b]
+            if kids then
+                for _, k in ipairs(kids) do
+                    if not famSet[k] then famSet[k] = true; table.insert(family, k) end
+                end
+            end
+        end
+    end
+
+    -- seeds: characterId plus its adaptation ancestors
+    local seeds, seedSet, astack = {}, { [characterId] = true }, { characterId }
+    while #astack > 0 do
+        local cur = table.remove(astack)
+        table.insert(seeds, cur)
+        local ps = adaParents[cur]
+        if ps then
+            for _, p in ipairs(ps) do
+                if not seedSet[p] then seedSet[p] = true; table.insert(astack, p) end
+            end
+        end
+    end
+
+    -- evolution walk strictly below the seeds; expand every family point
+    -- (adaptation form or evolution root) it reaches
+    local visited, estack = {}, {}
+    for _, s in ipairs(seeds) do
+        local ps = evoParents[s]
+        if ps then for _, p in ipairs(ps) do table.insert(estack, p) end end
+    end
+    while #estack > 0 do
+        local cur = table.remove(estack)
+        if not visited[cur] then
+            visited[cur] = true
+            if adaParents[cur] or not evoParents[cur] then addFamily(cur) end
+            local ps = evoParents[cur]
+            if ps then
+                for _, p in ipairs(ps) do
+                    if not visited[p] then table.insert(estack, p) end
+                end
+            end
+        end
+    end
+
+    -- never resolve to the egg's own species
+    if famSet[characterId] then
+        local filtered = {}
+        for _, id in ipairs(family) do
+            if id ~= characterId then table.insert(filtered, id) end
+        end
+        return filtered
+    end
+    return family
+end
+
+-- All distinct base forms an egg of `characterId` may hatch. Resolves the raw
+-- candidates to TERMINAL forms: a candidate that is itself an evolution target
+-- (an intermediate on an interleaved chain, where an element-adapted form also
+-- evolves from something) is replaced by its own base forms. This makes every
+-- returned candidate a fixed point, so the egg filter's per-egg pick is stable
+-- and repeated hook fires never re-normalize a chosen base to a deeper one.
+function Config.baseFormsOf(characterId)
+    local result, resultSet, seen = {}, {}, {}
+    local worklist = {}
+    for _, c in ipairs(rawBaseForms(characterId)) do table.insert(worklist, c) end
+    while #worklist > 0 do
+        local cur = table.remove(worklist)
+        if not seen[cur] then
+            seen[cur] = true
+            local sub = rawBaseForms(cur)
+            if #sub == 0 then
+                if cur ~= characterId and not resultSet[cur] then
+                    resultSet[cur] = true
+                    table.insert(result, cur)
+                end
+            else
+                for _, s in ipairs(sub) do
+                    if not seen[s] then table.insert(worklist, s) end
+                end
+            end
+        end
+    end
+    return result
+end
+
+-- Deterministic single base (first reachable) - kept for any caller that does
+-- not want the random pick; the egg filter uses baseFormsOf directly.
+function Config.baseFormOf(characterId)
+    return (Config.baseFormsOf(characterId))[1]
 end
 
 -- Optional user overlay: the configurator at palvolve.doodesch.de generates
@@ -1426,7 +1552,7 @@ if user then
         end
         if #cleaned > 0 then
             Config.map = cleaned
-            baseFormCache = nil
+            evoParentsCache = nil
         end
     end
     if type(user.eggFilter) == "table" and user.eggFilter.enabled ~= nil then
