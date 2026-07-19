@@ -29,18 +29,46 @@ if not okCore then
     Log("core failed to load: " .. tostring(errCore))
 end
 
+-- Per-Pal "never evolve" opt-out (flag store + radial toggle + glow suppression)
+local NeverEvolve = nil
+local okNever, errNever = pcall(function()
+    NeverEvolve = require("neverevolve")
+    NeverEvolve.init()
+end)
+if not okNever then
+    Log("never-evolve module failed to load: " .. tostring(errNever))
+    NeverEvolve = nil
+end
+
 -- Radial menu integration (Evolve entry in the hold-4 wheel)
 if Evolution and not Role.isDedicated() then
     local okRadial, errRadial = pcall(function()
         require("radialmenu").init({
             check = Evolution.check,
             canOffer = Evolution.canOffer,
-            listOptions = Evolution.listOptions,
-            executeOption = Evolution.executeOption,
+            -- wrapped so the submenu shows a "Never Evolve" / "Allow Evolve"
+            -- toggle and routes that selection to the flag instead of a swap;
+            -- falls back to the core's own functions if the module failed
+            listOptions = NeverEvolve
+                and function() return NeverEvolve.wrapListOptions(Evolution) end
+                or Evolution.listOptions,
+            executeOption = NeverEvolve
+                and function(opt) return NeverEvolve.wrapExecuteOption(Evolution, opt) end
+                or Evolution.executeOption,
         })
     end)
     if not okRadial then
         Log("radial menu integration failed to load: " .. tostring(errRadial))
+    end
+end
+
+-- Ready-to-evolve glow (client-side cosmetic; same gating as the radial menu)
+if Evolution and not Role.isDedicated() then
+    local okGlow, errGlow = pcall(function()
+        require("readyglow").init()
+    end)
+    if not okGlow then
+        Log("ready glow failed to load: " .. tostring(errGlow))
     end
 end
 
