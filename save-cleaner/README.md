@@ -2,7 +2,7 @@
 
 > 🛟 **Need help or found a bug?** Get support at [support.doodesch.de](https://support.doodesch.de).
 
-Removes every Palvolve trace from a Palworld world save, so the world loads on a machine that has no Palvolve installed - or never had it.
+Removes every Palvolve trace from a Palworld world save, so the world loads on a machine that has no Palvolve installed - or never had it. The full uninstall guide, including the simpler keep-the-data-folder path, is [UNINSTALL.md](../UNINSTALL.md).
 
 ## When you need this
 

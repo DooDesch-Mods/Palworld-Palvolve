@@ -74,6 +74,8 @@ Hand-written configs use `conditions = { "night", "knowsMove:Dragon", "inParty:P
 
 ## Uninstalling
 
+**Step-by-step guide: [UNINSTALL.md](UNINSTALL.md)** - both paths (keep the small data folder, or run the Save Cleaner for a world that needs nothing at all), plus recovery for a world that already refuses to load.
+
 A world that ever used Palvolve keeps references to its items in places you cannot reach - the game even records statistics about every item you crafted or picked up, inside your player save. If those references stop resolving, the world no longer loads. PalSchema advertises a cleanup for such leftovers, but on the current game build its cleanup hook does not attach (it says so in every log), so nothing is cleaned automatically. Two rules follow from this:
 
 1. Run `/palvolve uninstall` in chat (in single player, or as the host) while the mod is still installed. It deletes every Palvolve item from your inventory for real, removes the technology unlock, scans every container in the world - chests, pals, other players - and tells you where remaining stacks sit, and lists placed workbenches. Collect what it names, demolish the benches, run it again until it reports the world clean. Do not use the game's own discard for mod items: discarding drops them to the ground, base pals haul them into chests, and the stacks live on in your save.
