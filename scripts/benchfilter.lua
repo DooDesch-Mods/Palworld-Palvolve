@@ -12,6 +12,7 @@
 -- callback refs get garbage collected under load ("Ref was not function"),
 -- which can free every deferred callback of the mod at once.
 local Config = require("config")
+local ServerCheck = require("servercheck")
 
 local BenchFilter = {}
 
@@ -64,6 +65,10 @@ local function patchModel(model)
         -- the appended Palvolve_Craft entry is the LAST one in the class
         -- default list (Medicine, Drug, ConsumeGainStatusPoints, Palvolve_Craft)
         if id == OUR_ID then
+            -- host has no Palvolve: leave the extractor bench unpatched so it does
+            -- not advertise mod recipes the server will never craft (the vanilla
+            -- medicine-bench revert below still runs - that is a client-only cleanup)
+            if ServerCheck.blocked() then return end
             local craftType = types[n]
             for i = 1, n do types[i] = craftType end
         elseif n >= 2 then

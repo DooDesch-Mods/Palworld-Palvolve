@@ -29,6 +29,18 @@ if not okCore then
     Log("core failed to load: " .. tostring(errCore))
 end
 
+-- Server check: a connected client asks the host whether Palvolve runs there and,
+-- if not, disables evolution for the session and tells the player why. The
+-- authority (host/single-player) runs the mod itself, so it never pings.
+if Evolution and not Role.isDedicated() then
+    local okSC, errSC = pcall(function()
+        require("servercheck").init()
+    end)
+    if not okSC then
+        Log("server check failed to load: " .. tostring(errSC))
+    end
+end
+
 -- Radial menu integration (Evolve entry in the hold-4 wheel)
 if Evolution and not Role.isDedicated() then
     local okRadial, errRadial = pcall(function()

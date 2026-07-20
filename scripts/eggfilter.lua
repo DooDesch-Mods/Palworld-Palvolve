@@ -139,11 +139,15 @@ function EggFilter.init()
         return allOk
     end
     if not tryHooks() then
-        -- BP-adjacent classes may load late; retry until they register
+        -- BP-adjacent classes may load late; retry until they register. The
+        -- flag lives outside the tick because ExecuteInGameThread only QUEUES
+        -- the work - a flag set inside it is written after this tick already
+        -- returned, so the next tick is what observes success and ends the loop.
+        local hooksDone = false
         LoopAsync(5000, function()
-            local done = false
-            ExecuteInGameThread(function() done = tryHooks() end)
-            return done
+            if hooksDone then return true end
+            ExecuteInGameThread(function() hooksDone = tryHooks() end)
+            return false
         end)
     end
     Log("Egg filter active: eggs hatch base forms (evolution chains only)")

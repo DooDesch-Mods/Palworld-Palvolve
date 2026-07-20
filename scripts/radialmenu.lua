@@ -624,7 +624,7 @@ function RadialMenu.init(evolutionApi)
             fn = function(self)
                 local wheel = nil
                 pcall(function() wheel = self:get() end)
-                if not (wheel and isActionWheel(wheel)) then return end
+                if not (wheel and wheel:IsValid() and isActionWheel(wheel)) then return end
                 if Config.devMode then Log("[radial] wheel OnDecided") end
                 if subMode then subCommit() else commitOurs() end
             end,
@@ -636,7 +636,9 @@ function RadialMenu.init(evolutionApi)
             fn = function(self)
                 local wheel = nil
                 pcall(function() wheel = self:get() end)
-                if wheel and isActionWheel(wheel) then
+                -- Close is what the engine calls while dismantling the UI on the
+                -- way back to the main menu, so the widget can already be gone
+                if wheel and wheel:IsValid() and isActionWheel(wheel) then
                     if cancelRequested then
                         if Config.devMode and (ourHover or subMode) then
                             Log("[radial] close: cancelled, nothing committed")
@@ -723,21 +725,40 @@ function RadialMenu.init(evolutionApi)
         end
         return allOk
     end
+    local doneRegistering = false
     if tryHooks() then
+        doneRegistering = true
         Log("Radial menu integration active: Evolve entry in the hold-4 wheel")
-    else
-        -- the WBPs load with the HUD; retry until all hooks are in
-        local done = false
-        LoopAsync(5000, function()
-            if done then return true end
+    end
+
+    -- The radial WBP classes load LAZILY (the UI is built on demand, often only when
+    -- the wheel is first opened), so register when a radial-menu WBP instance
+    -- appears rather than polling for a class that is not loaded yet.
+    -- NotifyOnNewObject flags a registration pass; a single idle-guarded LoopAsync
+    -- performs it on the game thread (RegisterHook needs the game thread). This is
+    -- the canonical GC-safe pattern (UE4SS-LESSONS 1/4): it never polls forever (the
+    -- "evolve tab disappears until relaunch" trap) and never gives up early (it
+    -- re-arms every time the UI reappears, fixing the "hooks unavailable" give-up
+    -- that left single-player with no Evolve entry).
+    if not doneRegistering then
+        local wantRegister = true -- one retry after load, then armed by the notify
+        pcall(function()
+            NotifyOnNewObject(MENU_WBP, function() wantRegister = true end)
+        end)
+        LoopAsync(1000, function()
+            if doneRegistering then return true end -- all hooks in -> stop looping
+            if not wantRegister then return false end -- idle: nothing pending, ref-free
             ExecuteInGameThread(function()
-                if done then return end
-                done = tryHooks()
-                if done then
-                    Log("Radial menu integration active: Evolve entry in the hold-4 wheel")
-                end
+                pcall(function()
+                    if doneRegistering then return end
+                    wantRegister = false
+                    if tryHooks() then
+                        doneRegistering = true
+                        Log("Radial menu integration active: Evolve entry in the hold-4 wheel")
+                    end
+                end)
             end)
-            return done
+            return false
         end)
     end
 end

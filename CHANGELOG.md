@@ -2,9 +2,25 @@
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-07-20
+
+### Added
+
+- Palvolve now checks whether the server you join runs it. On a server without Palvolve the mod tells you once and disables evolution for that session, instead of letting you unlock the technology and craft stones that the server then discards. On a server that does run Palvolve you get a chat line naming the version it runs, plus a warning if that version differs from your own. Single player and hosted games are unaffected and never show a message. Reported by Learoyjenkins.
+
+### Fixed
+
+- The game could crash when leaving for the title screen, or disconnecting from a server, while a transformation was still playing. The recall scheduled for the end of the dissolve kept running after the world was already gone and reached for characters the game had freed in the meantime. Every stage of the transformation now confirms the world is still there before it touches anything, and an interrupted transformation ends where it stood.
+- The Evolve entry could be missing from the hold-4 wheel for a whole session, and only came back after a restart. The wheel's interface classes load late in some sessions, and registration used to give up after a fixed number of attempts. It now waits for those classes to appear.
+- A retry loop that installs the egg filter never noticed it had succeeded and kept running for the entire session, on servers as well. It now stops once the filter is in place.
+
 ### Changed
 
 - License changed from MIT to GPL-3.0. Derived mods must be released under the GPL-3.0 as well, with source available and credit kept. Releases up to v1.3.2 remain MIT.
+
+### Known issues
+
+- Work suitability keeps the values of the form a Pal evolved from until you reload. The base suitability shown in the team and Palbox screens is built once when a Pal is loaded and is not rebuilt when its species changes, and it cannot be rebuilt from a mod while the world is running. Job skill book bonuses are unaffected. Relogging shows the correct values, and Pals evolved in earlier sessions are already correct. Reported by mat pet telo tiga.
 
 ## [1.3.2] - 2026-07-19
 

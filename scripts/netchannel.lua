@@ -40,6 +40,18 @@ local function palUtility()
     return nil
 end
 
+-- Engine net mode read from a world context object: true on any authority
+-- (standalone, listen host, dedicated). Unlike an actor's HasAuthority this is a
+-- world-level property, so it is already correct inside the join hook.
+local function worldIsAuthority(wc)
+    local ok = false
+    pcall(function()
+        local k = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+        if k and k:IsValid() and wc then ok = (k:IsServer(wc) == true) end
+    end)
+    return ok
+end
+
 -- ---------------------------------------------------------------- client send
 
 local reqCounter = 0
@@ -62,10 +74,25 @@ function NetChannel.sendEvolve(playerCtx, pairIndex)
     return ok
 end
 
+-- The "do you run Palvolve?" handshake is host-driven, not a client ping: no
+-- Lua-callable client->server RPC transmits reliably early (the otomo carrier needs
+-- a summoned Pal; RequestGetUserInfoByPlayerUId and the like are dropped by native
+-- validation). Instead the host greets each joining client from its server-side
+-- PalPlayerCharacter:OnCompleteInitializeParameter join hook (see initHost). The
+-- client only waits for the pong; a timeout without one means the host has no
+-- Palvolve. ServerCheck installs onLocalEnterWorld to (re)start its check each time
+-- the LOCAL player enters a remote world (the same join hook fires client-side).
+NetChannel.onLocalEnterWorld = nil
+
 -- ---------------------------------------------------------------- host receive
 
 -- per-sender rate limit + replay window (uid string -> state)
 local senders = {}
+
+-- per-sender last visible-greet time: a client sends several handshake pings, but
+-- only one "server runs Palvolve" chat line should appear per sender per window
+local greeted = {}
+local GREET_WINDOW_S = 60
 
 -- Replay protection is TIME-based, not a persistent reqId set: a client's
 -- send counter resets to zero on mod reload / reconnect, so a set keyed only
@@ -100,6 +127,35 @@ local function gate(uidStr, reqId)
     return nil
 end
 
+-- Greet a joining Palvolve client: a hidden pong (drives the client's detection and
+-- version compare) plus one visible [SYSTEM] chat line, deduped per sender so
+-- repeated pings draw a single line. SendSystemToPlayerChat posts an unattributed
+-- system line to JUST that player (no "[Name]:" prefix, and not a broadcast to all).
+local function greetSender(senderCtx)
+    if not (senderCtx and senderCtx.pc and senderCtx.playerUId) then return end
+    local uid = guidStr(senderCtx.playerUId)
+    local now = os.clock()
+    -- called on every vanilla otomo selection, so dedup the WHOLE greet per sender
+    if greeted[uid] and (now - greeted[uid]) <= GREET_WINDOW_S then return end
+    greeted[uid] = now
+    -- hidden pong drives the client's detection + version compare
+    NetChannel.sendSignal(senderCtx.pc, "pong|" .. tostring(Config.modVersion))
+    -- one visible [SYSTEM] line, delivered to just this player. The world context
+    -- is the world object (as the working community mods pass), NOT the controller;
+    -- the receiver list is a TArray<FGuid> (plural in the 1.0 build).
+    pcall(function()
+        local util = palUtility()
+        local world = FindFirstOf("World")
+        local g = senderCtx.playerUId
+        if util and world then
+            util:SendSystemToPlayerChat(world,
+                "Palvolve v" .. tostring(Config.modVersion) .. " active on this server",
+                { { A = g.A, B = g.B, C = g.C, D = g.D } })
+        end
+    end)
+    Log("Handshake: greeted client (pong v" .. tostring(Config.modVersion) .. ")")
+end
+
 -- handler(senderCtx, pairIndex, holder) -> ok, message
 -- Runs entirely on the game thread inside the RPC's own hook frame: RPC
 -- handlers already execute on the game thread, and the holder reference from
@@ -115,7 +171,7 @@ function NetChannel.initHost(handler)
     local pendingPairIndex = nil -- set by pre when a valid evolve arrives
     local pendingRestore = nil   -- selection value to restore after the body
 
-    pcall(function()
+    local hostHookOk = pcall(function()
         RegisterHook("/Script/Pal.PalOtomoHolderComponentBase:SetSelectOtomoID_ToServer",
             function(self, ID, Index)
                 pendingPairIndex = nil
@@ -127,12 +183,10 @@ function NetChannel.initHost(handler)
                     local owner = holder:GetOwner()
                     if not (owner and owner:IsValid()) then return end
 
-                    -- AUTHORITY GATE: this hook is registered in every process.
-                    -- On a client it ALSO fires for the player's own outgoing
-                    -- send (UE4SS hooks the local UFunction execution). Doing
-                    -- anything here on a client - rewriting the params or
-                    -- processing locally - destroys the magic payload before it
-                    -- reaches the server. Only the authority may touch it.
+                    -- AUTHORITY GATE: this hook is registered in every process. On a
+                    -- client it ALSO fires for the player's own outgoing send. Only
+                    -- the authority may touch the magic evolve payload (rewriting it
+                    -- on a client destroys it before it reaches the server).
                     local isAuth = false
                     pcall(function() isAuth = owner:HasAuthority() end)
                     if not isAuth then return end
@@ -154,15 +208,20 @@ function NetChannel.initHost(handler)
                     end)
 
                     local senderCtx = Role.playerCtxFor(owner)
-                    if not (senderCtx and senderCtx.playerUId) then return end
+                    if not (senderCtx and senderCtx.playerUId) then
+                        if opcode == OP_EVOLVE then Log("Evolve request dropped: sender player id unresolved") end
+                        return
+                    end
+
                     local drop = gate(guidStr(senderCtx.playerUId), reqId)
                     if drop then
-                        if Config.devMode then Log("[net] dropped (" .. drop .. ")") end
+                        if opcode == OP_EVOLVE then Log("Evolve request dropped: " .. drop) end
                         return
                     end
 
                     if opcode == OP_EVOLVE then
                         pendingPairIndex = pairIndex
+                        Log(string.format("Evolve request received (reqId %d, option %d)", reqId, pairIndex))
                     end
                 end)
             end,
@@ -177,7 +236,10 @@ function NetChannel.initHost(handler)
                     -- fresh holder from the POST-hook's own self (survives here,
                     -- unlike a stored pre-hook reference)
                     local holder = self:get()
-                    if not (holder and holder:IsValid()) then return end
+                    if not (holder and holder:IsValid()) then
+                        if pairIndex ~= nil then Log("Evolve aborted: holder invalid at post-hook") end
+                        return
+                    end
 
                     -- keep the player's real selection (the vanilla body just
                     -- re-applied `cur`, but restore defensively)
@@ -193,19 +255,73 @@ function NetChannel.initHost(handler)
                         -- the owner (controller) is a stable actor; the handler
                         -- re-resolves the holder from it via GetComponentByClass
                         local owner = holder:GetOwner()
-                        if not (owner and owner:IsValid()) then return end
+                        if not (owner and owner:IsValid()) then
+                            Log("Evolve aborted: request owner invalid")
+                            return
+                        end
                         local senderCtx = Role.playerCtxFor(owner)
-                        if not senderCtx then return end
+                        if not senderCtx then
+                            Log("Evolve aborted: sender context unresolved at post-hook")
+                            return
+                        end
                         -- the handler (headless path) drives the phase signals
-                        -- itself via NetChannel.sendSignal; here we only relay a
-                        -- failure reason to the requester
+                        -- itself via NetChannel.sendSignal; here we relay a
+                        -- failure reason to the requester AND log it server-side,
+                        -- so a rejected evolve leaves a trace even when the chat
+                        -- channel does not render on the client
                         local ok, msg = handler(senderCtx, pairIndex)
-                        if (not ok) and msg then Role.chat(senderCtx, msg) end
+                        if not ok then
+                            Log("Evolve rejected: " .. tostring(msg or "no reason given"))
+                            if msg then Role.chat(senderCtx, msg) end
+                        end
                     end
                 end)
             end)
-        Log("Network channel active (host): evolve requests via carrier C")
     end)
+
+    -- Join handshake: greet a connecting player when their character finishes
+    -- initializing (name + UID are populated by then). This is the community-proven
+    -- join trigger (used by PalworldEssentials/SphereProject for "welcome" lines):
+    -- the host greets each joining client server-side, so no client->server ping is
+    -- needed. The hook also fires on a client for its own character, but only the
+    -- authority sends the greet.
+    local joinHookOk = pcall(function()
+        RegisterHook("/Script/Pal.PalPlayerCharacter:OnCompleteInitializeParameter",
+            function(Context)
+                pcall(function()
+                    local char = Context:get()
+                    if not (char and char:IsValid()) then return end
+                    local controller = char.Controller
+                    if not (controller and controller:IsValid()) then return end
+                    local isAuth, isLocal = false, false
+                    pcall(function() isAuth = controller:HasAuthority() end)
+                    pcall(function() isLocal = controller:IsLocalPlayerController() end)
+                    if isLocal then
+                        -- OUR OWN character entered a world. ServerCheck classifies
+                        -- that world from the engine net mode, so hand it the
+                        -- character as the world context object.
+                        if NetChannel.onLocalEnterWorld then
+                            pcall(NetChannel.onLocalEnterWorld, char)
+                        end
+                    elseif isAuth and worldIsAuthority(char) then
+                        -- authority side: a CONNECTED client's character finished
+                        -- initializing -> greet that client. The net-mode check is a
+                        -- belt so a client can never emit a greet on a stray
+                        -- HasAuthority read.
+                        greetSender(Role.playerCtxFor(controller))
+                    end
+                end)
+            end)
+    end)
+    if not joinHookOk then
+        Log("Network channel join handshake hook FAILED to register")
+    end
+
+    if hostHookOk then
+        Log("Network channel active (host): evolve requests via carrier C")
+    else
+        Log("Network channel host hook FAILED to register - evolve requests will NOT reach the server")
+    end
 end
 
 -- Host -> client phase signal (parameterless kind: "start"/"ready"/"reveal").
@@ -221,7 +337,7 @@ end
 -- dispatch the kind to onSignal(kind). Registered in every process; on the
 -- host it also sees its own outgoing signal, but the client handlers no-op
 -- without a local player, so it is harmless there.
-function NetChannel.initClient(onSignal)
+function NetChannel.initClient(onSignal, onPong)
     pcall(function()
         RegisterHook("/Script/Pal.PalPlayerController:SendScreenLogToClient",
             function(self, Message)
@@ -230,7 +346,12 @@ function NetChannel.initClient(onSignal)
                     pcall(function() text = Message:get():ToString() end)
                     if text and text:sub(1, #SIGNAL_PREFIX) == SIGNAL_PREFIX then
                         local kind = text:sub(#SIGNAL_PREFIX + 1)
-                        ExecuteInGameThread(function() pcall(onSignal, kind) end)
+                        local pong = kind:match("^pong|(.*)$")
+                        if pong ~= nil then
+                            if onPong then ExecuteInGameThread(function() pcall(onPong, pong) end) end
+                        else
+                            ExecuteInGameThread(function() pcall(onSignal, kind) end)
+                        end
                     end
                 end)
             end)

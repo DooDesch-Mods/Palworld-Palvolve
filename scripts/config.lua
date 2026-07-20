@@ -21,6 +21,19 @@ local Config = {
     -- [diag] sequence telemetry in the log.
     devMode = false,
 
+    -- Mod version, reported to connected clients by the host handshake. Keep in
+    -- sync with Info.json (the release flow checks this).
+    modVersion = "1.3.3",
+
+    -- Server check: a connected client asks the host whether Palvolve runs
+    -- server-side and which version. Without a host-side answer, evolution and
+    -- the bench recipe patch are disabled for the session and the client is told
+    -- why (so a client-only install no longer half-works and confuses players).
+    serverCheck = {
+        enabled = true,
+        timeoutSeconds = 10,   -- no host greet within this window = host has no Palvolve
+    },
+
     -- Timings for the evolution staging
     -- (spin-up -> shrink -> peak hold -> grow -> finale hold)
     digimon = {

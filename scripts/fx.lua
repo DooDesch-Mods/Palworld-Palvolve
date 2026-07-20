@@ -56,6 +56,9 @@ end
 -- tinting is impossible, so element looks come from the dedicated vanilla
 -- element effects below instead.
 local function spawnLight(worldCtx, x, y, z)
+    -- SpawnSystemAtLocation resolves the world through a virtual call on the
+    -- context object, so a freed one faults natively, past any pcall
+    if not (worldCtx and worldCtx:IsValid()) then return end
     pcall(function()
         local ns = StaticFindObject("/Game/Pal/Effect/Common/Return/NS_Return.NS_Return")
         local lib = StaticFindObject("/Script/Niagara.Default__NiagaraFunctionLibrary")
@@ -97,6 +100,7 @@ local function elemAt(elems, i)
 end
 
 local function spawnBurst(worldCtx, x, y, z, elem)
+    if not (worldCtx and worldCtx:IsValid()) then return end
     if not (Config.digimon and Config.digimon.elementColors) then return end
     local path = elem and ELEMENT_BURSTS[elem]
     if not path then return end
@@ -220,7 +224,9 @@ local M = {
             ExecuteInGameThread(function()
                 if state.stopped then return end
                 local a = ctx.actor
-                if not (a and a:IsValid()) then
+                -- the world context goes with the world, so a teardown mid-dissolve
+                -- must end the driver just like a lost actor does
+                if not (a and a:IsValid()) or not (ctx.worldCtx and ctx.worldCtx:IsValid()) then
                     state.stopped = true
                     return
                 end
@@ -286,6 +292,12 @@ local M = {
             end
             ExecuteInGameThread(function()
                 if stopped then return end
+                -- bounded by a 30 s wall clock above, but that outlives a world
+                -- teardown - stop as soon as the context dies
+                if not (ctx.worldCtx and ctx.worldCtx:IsValid()) then
+                    stopped = true
+                    return
+                end
                 i = i + 1
                 local zOff = (i % 3) * 60
                 spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ + zOff)

@@ -14,6 +14,7 @@ local I18n = require("i18n")
 local Role = require("role")
 local Authority = require("authority")
 local NetChannel = require("netchannel")
+local ServerCheck = require("servercheck")
 
 local Evolution = {}
 
@@ -372,6 +373,18 @@ local function applyIvBonus(param)
         end
     end
     if #parts > 0 then Log("Evolution bonus (IVs): " .. table.concat(parts, ", ")) end
+end
+
+-- The base work suitability the Team/Palbox UI shows is a native cache built only
+-- when the individual param is CONSTRUCTED (deserialized), which is why it reads
+-- the new species only after a relog. Every in-session re-derive was ruled out:
+-- writing SaveParameter.CraftSpeeds, OnRep_SaveParameter, the character-database
+-- apply, and the actor rebuild all leave the cache stale; the only true fix is
+-- reconstructing the param (CreateIndividual*), which hard-crashes when called
+-- from Lua (native delegate/struct marshalling). The swap already persists the new
+-- CharacterID, so the save is correct and a relog shows the right suitability.
+-- Kept as a no-op hook so the swap sites have a single place to revisit this.
+local function refreshWorkSuitability(param, playerCtx, actor)
 end
 
 -- ---------------------------------------------------------------- polling helper
@@ -767,12 +780,33 @@ local function performEvolution(p)
     -- Teardown with per-strategy despawn verification. The direct manager
     -- teardown destroys the actor without the holder recall action (whose
     -- ball visuals run on a mesh clone that ignores a hidden actor).
+    -- Every stage below is queued in UE4SS's own scheduler, whose lifetime the
+    -- world does NOT bound: leaving for the title screen mid-evolution frees the
+    -- character manager, holder and actor while these callbacks are still
+    -- pending. A UFunction call on a freed UObject faults natively, past any
+    -- pcall, so each deferred stage re-checks its handles before touching them.
+    local function handlesAlive()
+        return mgr and mgr:IsValid() and holder and holder:IsValid()
+    end
+
+    -- Teardown exit: end the sequence without touching anything the dying world
+    -- owns. Deliberately no refund - the inventory goes away with the world, and
+    -- writing to it would fault exactly like the call we are avoiding here.
+    local function abandonOnTeardown()
+        if seq.done then return end
+        seq.done = true
+        currentAbort = nil
+        pcall(function() fx.cleanup(ctx) end)
+        sequenceRunning = false
+        Log("Left the world mid-evolution - sequence abandoned")
+    end
+
     local recallStrategies = {
         { name = "DirectTeardown", fn = function()
-            mgr:DespawnCharacterByHandle(handle, nil)
+            if mgr and mgr:IsValid() then mgr:DespawnCharacterByHandle(handle, nil) end
         end },
         { name = "InactivateCurrentOtomo", fn = function()
-            holder:InactivateCurrentOtomo()
+            if holder and holder:IsValid() then holder:InactivateCurrentOtomo() end
         end },
         { name = "PlayerController:InactiveOtomo", fn = function()
             local pc = playerCtx and playerCtx.pc
@@ -783,6 +817,7 @@ local function performEvolution(p)
     -- Authoritative view: the holder knows whether an otomo is out.
     -- (handle:TryGetIndividualActor stays "valid" after the recall - pooling.)
     local function isDespawned()
+        if not (holder and holder:IsValid()) then return false end
         local spawned = nil
         pcall(function() spawned = holder:TryGetSpawnedOtomo() end)
         return not (spawned and spawned:IsValid())
@@ -791,6 +826,10 @@ local function performEvolution(p)
     local proceedAfterDespawn -- forward declaration
 
     local function tryRecall(i)
+        if not handlesAlive() then
+            abandonOnTeardown()
+            return
+        end
         if i > #recallStrategies then
             Log("Despawn not confirmed (all strategies exhausted) - aborting WITHOUT swap")
             if actor:IsValid() then
@@ -822,6 +861,10 @@ local function performEvolution(p)
     end
 
     proceedAfterDespawn = function()
+        if not handlesAlive() then
+            abandonOnTeardown()
+            return
+        end
         local targetId = swapTargetId(pair, isAlpha) or pair.to
 
         -- Swap in the despawned state (safest write moment) + verify
@@ -859,6 +902,7 @@ local function performEvolution(p)
         if txn then txn.commit() end
         applyIvBonus(param)
         pcall(function() param:FullRecoveryHP() end)
+        refreshWorkSuitability(param, playerCtx, actor)
 
         -- Snapshot only AFTER a successful swap (no phantom rollback entries);
         -- stores the RAW ids (BOSS_ included) so a rollback restores the alpha
@@ -1031,6 +1075,10 @@ local function performEvolution(p)
                                         { Pitch = 0, Yaw = savedYaw or 0, Roll = 0 })
                                 end)
                                 pcall(function() newActor:ForceNetUpdate() end)
+                                -- fresh actor now carries the new species; refresh
+                                -- work suitability HERE (the swap-time call ran on
+                                -- the old actor and could not re-derive the base)
+                                refreshWorkSuitability(param, playerCtx, newActor)
                                 Log("[mpseq] activated fresh " .. targetId .. " -> reveal")
                                 NetChannel.sendSignal(pcSender, "reveal")
                                 -- The evolution flash VFX (VisualEffectComponent:
@@ -1419,6 +1467,12 @@ local function performEvolution(p)
     LoopAsync(dissolveMs, function()
         ExecuteInGameThread(function()
             if seq.done then return end
+            -- the world can be gone by now: this fires a full dissolve after it
+            -- was armed, which is ample time to hit ESC and leave
+            if not handlesAlive() then
+                abandonOnTeardown()
+                return
+            end
             local ok, err = pcall(function()
                 if actor:IsValid() then
                     pcall(function() fx.onHide(ctx) end)
@@ -1440,9 +1494,25 @@ local function performEvolution(p)
     return true
 end
 
+-- Guard for the connected-client transmit path: only hand an evolve request to a
+-- host we have confirmed runs Palvolve. In the short window right after joining
+-- the host's greet may not have arrived yet, and on a vanilla host the carrier
+-- RPC would be interpreted as a plain otomo selection instead.
+local function remoteTransmitReady(playerCtx)
+    if ServerCheck.remoteReady() then return true end
+    local msg = I18n.msg("serverCheckPending")
+    Log(msg)
+    Role.chat(playerCtx, msg)
+    return false
+end
+
 -- ---------------------------------------------------------------- public API
 
 function Evolution.check()
+    if ServerCheck.blocked() then
+        Role.chat(Role.localPlayerCtx(), I18n.msg("serverNoPalvolve"))
+        return
+    end
     if lockBusy() then
         Log(I18n.msg("evolutionRunning"))
         return
@@ -1492,6 +1562,7 @@ function Evolution.check()
             else
                 -- connected client: the confirm travels to the host, which
                 -- re-derives and consumes authoritatively
+                if not remoteTransmitReady(playerCtx) then return end
                 pending = nil
                 NetChannel.sendEvolve(playerCtx, pairIndex or 0)
             end
@@ -1522,6 +1593,9 @@ end
 -- summoned and has at least one configured option. Level and costs are
 -- only checked in the submenu - this runs on every wheel rebuild.
 function Evolution.canOffer()
+    -- hide the radial entry entirely when the host has no Palvolve (the session
+    -- was already told why via the server check)
+    if ServerCheck.blocked() then return false end
     local ok, res = pcall(function()
         local playerCtx = Role.localPlayerCtx()
         local holder = findHolderFor(playerCtx, nil)
@@ -1543,6 +1617,7 @@ end
 -- affordability info - feeds the radial submenu. Returns nil, reason when
 -- nothing is available.
 function Evolution.listOptions()
+    if ServerCheck.blocked() then return nil, I18n.msg("serverNoPalvolveShort") end
     if lockBusy() then return nil, I18n.msg("evolutionRunning") end
     local playerCtx = Role.localPlayerCtx()
     local holder = findHolderFor(playerCtx, nil)
@@ -1736,6 +1811,7 @@ function Evolution.executeOption(opt)
         -- the net channel. The host does the authoritative swap and, on
         -- success, signals this client to re-play the transformation locally
         -- (Evolution.playRemoteReveal, via the net channel client hook).
+        if not remoteTransmitReady(playerCtx) then return end
         lastRemotePair = opt.pair
         local sent = NetChannel.sendEvolve(playerCtx, opt.index or 0)
         if not sent then
@@ -1839,7 +1915,6 @@ end
 function Evolution.onNetSignal(kind)
     local playerCtx = Role.localPlayerCtx()
     if not playerCtx then return end
-    local pc = playerCtx.pc
     local holder = findHolderFor(playerCtx, nil)
     if not holder then return end
 
@@ -1864,8 +1939,21 @@ function Evolution.onNetSignal(kind)
             if done then return true end
             done = true
             ExecuteInGameThread(function()
+                -- Teardown guard, same reason as the server watcher above:
+                -- leaving for the main menu destroys the controller while this
+                -- deferred callback is still scheduled, and a UFunction call on
+                -- a freed UObject is a native fault that pcall does NOT catch.
+                -- Re-resolve instead of trusting the handle captured a full
+                -- dissolve ago, and abort the presentation if the world is gone.
+                local livePc = Role.getLocalPlayerController()
+                if not (livePc and livePc:IsValid()) then
+                    if remoteCtx then pcall(function() FX.cleanup(remoteCtx) end) end
+                    remoteRevealBusy = false
+                    remoteCtx = nil
+                    return
+                end
                 if remoteCtx then pcall(function() FX.onHide(remoteCtx) end) end
-                pcall(function() pc:InactiveOtomo() end)
+                pcall(function() livePc:InactiveOtomo() end)
             end)
             return true
         end)
@@ -2003,6 +2091,7 @@ function Evolution.rollbackLast(playerCtx)
                     -- species/IV change (current HP may exceed the smaller
                     -- form's maximum otherwise)
                     pcall(function() p:FullRecoveryHP() end)
+                    refreshWorkSuitability(p, nil)
                     reverted = true
                 end
                 break
@@ -2039,7 +2128,7 @@ function Evolution.init()
     -- player = no-op, so this is harmless on a dedicated server)
     NetChannel.initClient(function(kind)
         Evolution.onNetSignal(kind)
-    end)
+    end, ServerCheck.onPong)
 
     -- keybinds are player input - meaningless on a dedicated server
     if not Role.isDedicated() then

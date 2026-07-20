@@ -5,6 +5,7 @@
 -- by class - the class is shared with vanilla benches.
 
 local Config = require("config")
+local ServerCheck = require("servercheck")
 
 local BenchVisual = {}
 
@@ -161,7 +162,9 @@ local function handleActor(actor)
         end
     end)
     if id == nil or id == "" or id == "None" then return false end
-    if isOurBench(actor) then
+    -- host has no Palvolve: skip the tint (the extractor bench is not a real thing
+    -- this session, so leave the shared vanilla bench untouched)
+    if isOurBench(actor) and not ServerCheck.blocked() then
         tintActor(actor)
         if PROBE or Config.devMode then Log("[probe-bench] tint attempt on Pal Alchemy Workbench instance") end
     end
