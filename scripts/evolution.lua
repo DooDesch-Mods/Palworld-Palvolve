@@ -14,6 +14,7 @@ local I18n = require("i18n")
 local Role = require("role")
 local Authority = require("authority")
 local NetChannel = require("netchannel")
+local NeverEvolve = require("neverevolve")
 
 local Evolution = {}
 
@@ -525,6 +526,10 @@ local function findEligibleFor(playerCtx)
     if not (actor and actor:IsValid()) then return nil end
     local param = paramOf(actor)
     if not (param and isOwnedBy(param, playerCtx and playerCtx.playerUId)) then return nil end
+    -- per-Pal opt-out: surface the reason (F2 shows it instead of arming)
+    if NeverEvolve.isBlocked(param) then
+        return nil, "This Pal is set to never evolve."
+    end
     local id, isAlpha = baseCharacterId(param:GetCharacterID():ToString())
     -- pick the first pair that passes EVERY gate (alpha form, level,
     -- conditions), so a branched species whose first target is blocked
@@ -573,6 +578,15 @@ local function performEvolution(p)
     -- does only the authoritative data mutation (swap + IV + snapshot + cost)
     -- and a clean recall; the client re-summons to see the new species.
     local headless = Role.isDedicated()
+    -- Per-Pal "never evolve" opt-out. performEvolution is the single executor
+    -- every path funnels through (radial -> handleEvolveRequest, F2 -> here
+    -- directly, network -> Authority -> handleEvolveRequest), so this one
+    -- guard disables evolution for a flagged Pal everywhere. Runs before any
+    -- sequence state is set so it is a clean no-op.
+    if NeverEvolve.isBlocked(param) then
+        pcall(function() Role.chat(playerCtx, "[Palvolve] This Pal is set to never evolve.") end)
+        return false, "never evolve"
+    end
     pending = nil
     sequenceRunning = true
     sequenceStartedAt = os.clock()
