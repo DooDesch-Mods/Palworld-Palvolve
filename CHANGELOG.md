@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.3.5] - 2026-07-20
+
+### Fixed
+
+- The uninstall assistant spoke English regardless of your game language. Everything it says in chat - the findings, the workbench locations, the clean verdict, the keep-the-data-folder reminder - now uses the same seventeen languages as the rest of the mod, as do the rollback messages and the help line. Log lines for support stay English.
+
 ## [1.3.4] - 2026-07-20
 
 ### Added

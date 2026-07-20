@@ -9,6 +9,7 @@
 -- installed: delete its items for real (discard only drops them, and ground
 -- drops persist), and neutralize the technology unlock FName.
 local Costs = require("costs")
+local I18n = require("i18n")
 
 local Uninstall = {}
 
@@ -181,7 +182,7 @@ end
 -- mod's tech name.
 function Uninstall.techNeutralize(playerCtx)
     local arrays = techArrays()
-    if #arrays == 0 then return false, "no player save objects reachable" end
+    if #arrays == 0 then return false, I18n.msg("uninstTechUnreachable") end
     local cleaned, present, failed = 0, 0, nil
     for _, arr in ipairs(arrays) do
         local n = #arr
@@ -197,7 +198,7 @@ function Uninstall.techNeutralize(playerCtx)
         if idx then
             present = present + 1
             if not donor then
-                failed = "no donor element found - nothing written"
+                failed = I18n.msg("uninstTechNoDonor")
             else
                 local donorName = nameAt(arr, donor)
                 local wrote = pcall(function() arr[idx] = FName(donorName) end)
@@ -205,18 +206,18 @@ function Uninstall.techNeutralize(playerCtx)
                 if back ~= TECH_NAME then
                     cleaned = cleaned + 1
                 else
-                    failed = "element write had no effect"
+                    failed = I18n.msg("uninstTechWriteFail")
                 end
             end
         end
     end
     if present == 0 then
-        return true, string.format("'%s' not unlocked by any present player - nothing to do", TECH_NAME)
+        return true, I18n.msg("uninstTechNone", TECH_NAME)
     end
     if failed then
         return false, failed
     end
-    return true, string.format("removed from %d player save(s) (readback OK)", cleaned)
+    return true, I18n.msg("uninstTechRemoved", cleaned)
 end
 
 -- -------------------------------------------------------------- world scan
@@ -274,14 +275,14 @@ local function describeOwner(mgr, bcm, ownerGuid)
         local pos = ""
         pcall(function()
             local t = model.InitialTransformCache.Translation
-            pos = string.format(" near world (%d, %d)", math.floor(t.X / 100), math.floor(t.Y / 100))
+            pos = I18n.msg("locNear", math.floor(t.X / 100), math.floor(t.Y / 100))
         end)
         local base = ""
         pcall(function()
             local campOut = {}
             if bcm and bcm:TryGetModel(model.BaseCampIdBelongTo, campOut) and campOut.Model then
                 local nameStr = campOut.Model.BaseCampName
-                if nameStr and nameStr ~= "" then base = " at base '" .. nameStr .. "'" end
+                if nameStr and nameStr ~= "" then base = I18n.msg("locBase", nameStr) end
             end
         end)
         label = objName .. base .. pos
@@ -383,19 +384,17 @@ function Uninstall.worldScan(playerCtx)
                                                     nick = p:GetCharacterID():ToString()
                                                 end
                                             end)
-                                            where = "carried by pal '" .. tostring(nick) .. "'"
+                                            where = I18n.msg("locPal", tostring(nick))
                                             return
                                         end
                                     end
                                 end
-                                where = "an ORPHANED container (its chest no longer exists; " ..
-                                    "these items cannot be collected by hand)"
+                                where = I18n.msg("locOrphan")
                                 isOrphan = true
                             end)
                         end
                         if isOrphan then table.insert(orphans, c) end
-                        table.insert(locations, table.concat(hits, ", ") .. " in " ..
-                            (where or "a pal's or another player's inventory"))
+                        table.insert(locations, I18n.msg("uninstFound", table.concat(hits, ", "), where or I18n.msg("locOther")))
                     end
                 end
             end

@@ -2019,7 +2019,7 @@ function Evolution.rollbackLast(playerCtx)
         if playerCtx then Role.chat(playerCtx, msg) end
     end
     if lockBusy() then
-        say("Rollback blocked: an evolution is currently running")
+        say(I18n.msg("rollbackBlocked"))
         return
     end
     -- Remove the snapshot only after the restore succeeded (no data loss on
@@ -2045,7 +2045,7 @@ function Evolution.rollbackLast(playerCtx)
     end
     local last = snapIdx and snapshots[snapIdx]
     if not last then
-        say("Rollback: no snapshot available")
+        say(I18n.msg("rollbackNoSnapshot"))
         return
     end
     local reverted = false
@@ -2362,31 +2362,31 @@ function Evolution.init()
                     Role.chat(senderCtx, msg)
                 end
                 if not Role.hasWorldAuthority() then
-                    say("Run this where the world lives: in single player, or on the server console/host.")
+                    say(I18n.msg("uninstAuthorityOnly"))
                     return
                 end
                 local okU, U = pcall(require, "uninstall")
                 if not okU then
-                    say("Uninstall helper unavailable")
+                    say(I18n.msg("uninstUnavailable"))
                     return
                 end
                 local removed = select(1, U.sweepInventory(senderCtx))
                 if #removed > 0 then
-                    say("Deleted from your inventory: " .. table.concat(removed, ", "))
+                    say(I18n.msg("uninstDeleted", table.concat(removed, ", ")))
                 end
                 local techOk, techMsg = U.techNeutralize(senderCtx)
-                say("Technology unlock: " .. techMsg)
+                say(I18n.msg("uninstTech", techMsg))
                 local locations, _, orphans = U.worldScan(senderCtx)
                 local benches = U.findBenches()
                 for i, line in ipairs(locations) do
                     if i > 6 then
-                        say(string.format("...and %d more locations", #locations - 6))
+                        say(I18n.msg("uninstMore", #locations - 6))
                         break
                     end
-                    say("Found " .. line)
+                    say(line)
                 end
                 for _, pos in ipairs(benches) do
-                    say("Pal Alchemy Workbench still placed near " .. pos .. " - empty it, demolish it, pick up what drops")
+                    say(I18n.msg("uninstBench", pos))
                 end
                 -- Honesty over promises: the player statistics keep crafted and
                 -- picked-up mod item names, live only as replicated FastArrays
@@ -2394,15 +2394,15 @@ function Evolution.init()
                 -- stays dependent on the PalSchema data folder - the command
                 -- cleans everything reachable and says exactly that.
                 if #locations == 0 and #benches == 0 and techOk then
-                    say("World is clean of Palvolve items, benches and the technology unlock.")
-                    say("IMPORTANT: when removing the mod, keep the PalSchema\\mods\\Palvolve folder installed - the game keeps statistics about items you crafted, and removing their definitions breaks world loading. Details in the README.")
+                    say(I18n.msg("uninstClean"))
+                    say(I18n.msg("uninstKeepFolder"))
                 else
-                    say("NOT clean yet - collect the listed stacks into your inventory, then run /palvolve uninstall again." ..
-                        (#orphans > 0 and " Some stacks sit in orphaned containers no one can reach; keeping the PalSchema folder installed covers those too." or ""))
+                    say(I18n.msg("uninstNotClean") ..
+                        (#orphans > 0 and (" " .. I18n.msg("uninstOrphanHint")) or ""))
                 end
             end,
             help = function(senderCtx)
-                Role.chat(senderCtx, "Palvolve: /palvolve rollback restores your last evolved Pal; /palvolve uninstall prepares this world for removing the mod")
+                Role.chat(senderCtx, I18n.msg("helpLine"))
             end,
         })
         if okCmd then Log("Chat commands active: /palvolve rollback") end
