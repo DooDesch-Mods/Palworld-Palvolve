@@ -7,6 +7,7 @@
 ### Added
 
 - A guided uninstall: run `/palvolve uninstall` in chat (single player or host) while the mod is still installed. It deletes every Palvolve item from your inventory for real, removes the technology unlock from your save, scans every container in the world - chests, pals, other players - and names the exact spot of every remaining stack, and lists placed workbenches. Run it until it reports the world clean. Background: the game keeps references to mod items in places nobody can reach by hand, discarding an item only drops it for base pals to haul into chests, and a destroyed chest can leave its contents alive inside the save. Reported by MADMIKEYMAN and Joryuu, whose chest find led straight to the deepest of these cases.
+- The Save Cleaner, a small offline tool (in `save-cleaner/`, also attached to the GitHub release): with the game closed it removes every Palvolve trace from a world's save files - remaining item stacks become plain Stone, placed workbenches and their work assignments go away, and the crafting statistics inside each player file lose their mod entries. After it runs, the world loads on a machine with no Palvolve at all. This is the answer for saves synced to another PC, game reinstalls, and worlds that already refuse to load.
 - When you join a server that runs Palvolve with the same version as your client, the chat now also shows your own client version right under the server's line, so a match is visible at a glance. A version difference keeps showing the existing warning.
 
 ### Fixed
@@ -16,7 +17,7 @@
 
 ### Known issues
 
-- Removing the mod completely from a world that used it is not safe yet: the game stores statistics about crafted and picked-up items inside the player save, in a form no mod can clean while the game runs. Until that changes, keep the `PalSchema\mods\Palvolve` data folder installed when uninstalling - it defines the items so your save stays readable, and does nothing else. The README has the full procedure, and a world that no longer loads recovers by reinstalling the mod.
+- A running game cannot clean its own crafting statistics, so `/palvolve uninstall` alone does not make a world independent of the mod. Two supported ways close the gap: keep the small `PalSchema\mods\Palvolve` data folder installed (it defines the items so the save stays readable, and does nothing else - remember it again after a game reinstall, since Steam syncs saves but not mods), or run the offline Save Cleaner once and the world needs nothing at all. The README has both procedures; a world that no longer loads recovers with either.
 
 ## [1.3.3] - 2026-07-20
 

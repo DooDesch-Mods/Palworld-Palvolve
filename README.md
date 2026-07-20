@@ -79,7 +79,11 @@ A world that ever used Palvolve keeps references to its items in places you cann
 1. Run `/palvolve uninstall` in chat (in single player, or as the host) while the mod is still installed. It deletes every Palvolve item from your inventory for real, removes the technology unlock, scans every container in the world - chests, pals, other players - and tells you where remaining stacks sit, and lists placed workbenches. Collect what it names, demolish the benches, run it again until it reports the world clean. Do not use the game's own discard for mod items: discarding drops them to the ground, base pals haul them into chests, and the stacks live on in your save.
 2. When you then remove the mod, keep the `PalSchema\mods\Palvolve` folder (the data half) installed. It weighs nothing and does nothing on its own - it only keeps the item definitions resolvable so the crafting statistics in your player save cannot break world loading. Removing the Lua half (`Mods\Palvolve`) disables the mod completely.
 
-If you removed everything and your world no longer loads: reinstall the mod (both halves), and the world loads again. Nothing is lost.
+This dependency survives reinstalls: Steam syncs your savegames, not your mods. If you reinstall the game or move to a new PC, the cloud brings the world back without the data folder - put `PalSchema\mods\Palvolve` (and PalSchema itself) back in place before loading it. The same applies to friends who host your world from their own save.
+
+To cut the dependency for good, use the **[Save Cleaner](save-cleaner/README.md)** (also attached to each GitHub release): with the game closed, it removes every Palvolve trace from the save itself - remaining item stacks, placed workbenches, and the crafting statistics no running game can touch. After that the world loads with nothing of Palvolve installed, on any machine.
+
+If you removed everything and your world no longer loads: either run the Save Cleaner on it, or reinstall the mod (both halves) and the world loads again. Nothing is lost either way.
 
 ## Notes
 
