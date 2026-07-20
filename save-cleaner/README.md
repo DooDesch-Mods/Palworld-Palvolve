@@ -17,14 +17,14 @@ The in-game command `/palvolve uninstall` cleans what a running game can reach. 
 3. Double-click `run-cleaner.bat`. It fetches a private Python runtime on first use, lists your worlds, shows what it would change (dry run), and only writes after you confirm.
 4. Start the game and load the world.
 
-A full copy of the world folder is created next to it before anything is written (`<world>.palvolve-backup-<timestamp>`). If anything looks wrong afterwards, delete the world folder and rename the backup back.
+Before anything is written, always and automatically, a full copy of the world folder is created next to it (`<world>.palvolve-backup-<timestamp>`) - the write routine refuses to run without it. If anything looks wrong afterwards, delete the world folder and rename the backup back.
 
 ## What it changes
 
 - Item stacks with Palvolve ids become plain Stone (same stack size).
 - Placed Pal Alchemy Workbenches and their work assignments are removed.
 - Palvolve entries in each player's crafting statistics and technology unlocks are removed.
-- `LocalData.sav` is set aside if it holds a stale reference; the game rebuilds it.
+- `LocalData.sav` is never touched - it carries your revealed map, and a stale reference inside it is harmless. If an earlier cleaner version set it aside and cost you the map, running the cleaner again restores it.
 
 Anything it does not recognize is reported instead of skipped silently - if you see an `UNRESOLVED reference` line, please send it to support.
 

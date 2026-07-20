@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [1.3.6] - 2026-07-20
+
+### Fixed
+
+- The Save Cleaner set `LocalData.sav` aside and cost players their revealed map - the file carries the map fog, and the rebuilt one starts black. The stale mod reference inside it turned out to be harmless (isolation-tested), so the cleaner no longer touches the file at all. If an earlier cleaner run took your map, run the new cleaner once on the world: it restores the set-aside file and brings the map back, keeping the rebuilt one next to it. Reported on Nexus within hours - thank you.
+
+### Changed
+
+- The cleaner's write routine now refuses to run unless the automatic full world backup exists, as a hard guarantee instead of a convention. The backup was always created first; now nothing can write without it.
+
 ## [1.3.5] - 2026-07-20
 
 ### Fixed

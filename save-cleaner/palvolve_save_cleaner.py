@@ -11,11 +11,14 @@
 #   - crafting statistics inside each player save that reference mod items
 #     -> entries removed
 #   - the technology unlock -> removed from each player save
-#   - LocalData.sav (a local cache that can hold a stale reference)
-#     -> set aside; the game rebuilds it
+#
+# LocalData.sav is deliberately left alone: it carries the revealed-map
+# progress, and a stale mod reference inside it does not block loading
+# (isolation-tested) - early versions set it aside and cost players their map.
 #
 # Safety: without --apply nothing is written (dry run). With --apply the whole
-# world folder is copied to a timestamped backup first, every edited file is
+# world folder is copied to a timestamped backup BEFORE anything else - the
+# write routine refuses to run without that backup - every edited file is
 # re-verified to contain zero mod references (UTF-8 and UTF-16), and every
 # rewrite is checked with a byte-exact decompression roundtrip.
 #
@@ -77,7 +80,14 @@ def read_sav(path):
     raise ValueError(f'{os.path.basename(path)}: unknown save magic {magic!r}')
 
 
+# Set once the world backup exists; write_sav hard-refuses to run before that,
+# so no code path can ever modify a save without a restorable copy on disk.
+BACKUP_DONE = None
+
+
 def write_sav(path, raw):
+    if not (BACKUP_DONE and os.path.isdir(BACKUP_DONE)):
+        raise RuntimeError('refusing to write without a world backup')
     try:
         sav = core.compress_gvas_to_sav(raw, 0x31)
     except Exception:
@@ -231,30 +241,38 @@ def main():
         if new_p is not None:
             edits[p] = new_p
 
+    # LocalData.sav stays untouched: it holds the revealed-map progress, and a
+    # stale reference inside it does not block loading. If an earlier cleaner
+    # version set it aside, the old file wins (it carries the whole map) - any
+    # rebuilt LocalData is kept next to it instead of being destroyed.
     local = os.path.join(world, 'LocalData.sav')
-    park_local = os.path.isfile(local) and scan_bytes(read_sav(local)) > 0
-    if park_local:
-        log('LocalData.sav: holds a stale reference - will be set aside (the game rebuilds it)')
+    parked = local + '.palvolve-removed'
+    if os.path.isfile(parked):
+        log('LocalData.sav: restoring the copy an earlier cleaner version set aside (brings the map back)')
+        if args.apply:
+            if os.path.isfile(local):
+                os.replace(local, local + '.rebuilt-' + time.strftime('%Y%m%d-%H%M%S'))
+            os.replace(parked, local)
+            print('restored: LocalData.sav (map progress back)')
 
-    if not edits and not park_local:
-        print('\nNothing to do - this world holds no Palvolve references.')
+    if not edits:
+        print('\nNothing to do - this world holds no Palvolve references that matter.')
         return
 
     if not args.apply:
         print('\nDry run complete. Re-run with --apply to write these changes.')
         return
 
+    global BACKUP_DONE
     stamp = time.strftime('%Y%m%d-%H%M%S')
     backup = world.rstrip('\\/') + f'.palvolve-backup-{stamp}'
     print(f'\nBacking up world to {backup} ...')
     shutil.copytree(world, backup)
+    BACKUP_DONE = backup
 
     for path, raw in edits.items():
         write_sav(path, raw)
         print(f'written: {os.path.relpath(path, world)}')
-    if park_local:
-        os.replace(local, local + '.palvolve-removed')
-        print('set aside: LocalData.sav (rebuilt on next load)')
 
     print('\nDone. Start the game and load the world - it no longer needs Palvolve.')
     print(f'If anything looks wrong, restore the backup folder: {backup}')

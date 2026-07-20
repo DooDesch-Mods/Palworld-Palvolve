@@ -40,7 +40,7 @@ The Save Cleaner edits the save files themselves, with the game closed, so the w
 4. Pick your world from the list. The cleaner shows exactly what it would change (dry run) and asks before writing. A full copy of the world folder is created first.
 5. Start the game and load the world. Done - the mod can be removed completely, on every machine.
 
-What it changes: item stacks with Palvolve ids become plain Stone at the same stack size, placed workbenches and their work assignments are removed, Palvolve entries leave each player's crafting statistics and technology unlocks, and a stale `LocalData.sav` is set aside for the game to rebuild. Anything it does not recognize is reported instead of skipped, so a false "clean" cannot happen.
+What it changes: item stacks with Palvolve ids become plain Stone at the same stack size, placed workbenches and their work assignments are removed, and Palvolve entries leave each player's crafting statistics and technology unlocks. Your `LocalData.sav` - the revealed map - is never touched. Anything it does not recognize is reported instead of skipped, so a false "clean" cannot happen. A full backup of the world folder is always created before the first write.
 
 For dedicated servers the world folder lives on the server (`.../Pal/Saved/SaveGames/0/<world>`); run the cleaner there with the server stopped.
 
