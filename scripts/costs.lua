@@ -65,6 +65,13 @@ local function tryConsumeItems(playerCtx, staticItemId, need)
     return ok
 end
 
+-- Deletes `count` items from the player's inventory for real. The in-game
+-- discard only DROPS items to the ground, where they persist in the save -
+-- this is the only true removal path exposed to Lua.
+function Costs.removeAll(playerCtx, staticItemId, count)
+    return tryConsumeItems(playerCtx, staticItemId, count)
+end
+
 local function giveItems(playerCtx, staticItemId, count)
     local res = -1
     pcall(function()

@@ -2266,8 +2266,143 @@ function Evolution.init()
                 local okProbes, probes = pcall(require, "probes")
                 if okProbes and probes.playFinaleSample then probes.playFinaleSample() end
             end,
+            -- uninstall probe set (devMode): count leftovers, sweep the own
+            -- inventory, inspect the tech unlock array, neutralize the entry.
+            -- Read (xtech) and write (xtechw) are separate so the array can be
+            -- inspected before anything is written to it.
+            xcount = function(senderCtx)
+                if not Config.devMode then return end
+                local okU, U = pcall(require, "uninstall")
+                if not okU then return end
+                local total, found = U.countReport(senderCtx)
+                Role.chat(senderCtx, total == 0 and "Palvolve items in inventory: none"
+                    or ("Palvolve items: " .. table.concat(found, ", ")))
+            end,
+            xsweep = function(senderCtx)
+                if not Config.devMode then return end
+                local okU, U = pcall(require, "uninstall")
+                if not okU then return end
+                local removed, failed = U.sweepInventory(senderCtx)
+                local msg = #removed == 0 and "nothing to remove"
+                    or ("removed: " .. table.concat(removed, ", "))
+                if #failed > 0 then msg = msg .. " / FAILED: " .. table.concat(failed, ", ") end
+                Role.chat(senderCtx, msg)
+            end,
+            -- record-map probe: can Lua read (and natively remove from) the
+            -- player statistics TMaps that retain crafted mod-item names?
+            xrec = function(senderCtx)
+                if not Config.devMode then return end
+                pcall(function()
+                    local rds = FindAllOf("PalPlayerRecordData") or {}
+                    Log(string.format("[xrec] PalPlayerRecordData instances=%d", #rds))
+                    for ri, rd in ipairs(rds) do
+                        local valid = false
+                        pcall(function() valid = rd:IsValid() end)
+                        Log(string.format("[xrec] rd%d valid=%s", ri, tostring(valid)))
+                        if valid then
+                            for _, spec in ipairs({
+                                { field = "CraftItemCount", inner = "countMap" },
+                                { field = "ItemPickupObtainForInstanceFlag", inner = "flagMap" },
+                            }) do
+                                local okF, errF = pcall(function()
+                                    local wrap = rd[spec.field]
+                                    Log(string.format("[xrec] rd%d %s wrapType=%s", ri, spec.field, type(wrap)))
+                                    local map = wrap and wrap[spec.inner]
+                                    Log(string.format("[xrec] rd%d %s.%s mapType=%s", ri, spec.field, spec.inner, type(map)))
+                                    if not map then return end
+                                    local n, hits = 0, 0
+                                    local okFE, errFE = pcall(function()
+                                        map:ForEach(function(k, v)
+                                            n = n + 1
+                                            local ks = "?"
+                                            pcall(function() ks = k:get():ToString() end)
+                                            if type(ks) ~= "string" then pcall(function() ks = tostring(k) end) end
+                                            local vs = "?"
+                                            pcall(function() vs = tostring(v.get and v:get() or v) end)
+                                            if tostring(ks):find("Palvolve") then hits = hits + 1 end
+                                            if tostring(ks):find("Palvolve") or n <= 3 then
+                                                Log(string.format("[xrec] rd%d %s [%d] %s = %s", ri, spec.field, n, tostring(ks), vs))
+                                            end
+                                        end)
+                                    end)
+                                    Log(string.format("[xrec] rd%d %s entries=%d palvolveKeys=%d forEachOk=%s err=%s",
+                                        ri, spec.field, n, hits, tostring(okFE), tostring(errFE)))
+                                end)
+                                if not okF then
+                                    Log(string.format("[xrec] rd%d %s FIELD ERROR: %s", ri, spec.field, tostring(errF)))
+                                end
+                            end
+                        end
+                    end
+                end)
+                Role.chat(senderCtx, "record probe done - see log")
+            end,
+            xtech = function(senderCtx)
+                if not Config.devMode then return end
+                local okU, U = pcall(require, "uninstall")
+                if okU then Role.chat(senderCtx, U.techInspect(senderCtx)) end
+            end,
+            xtechw = function(senderCtx)
+                if not Config.devMode then return end
+                local okU, U = pcall(require, "uninstall")
+                if not okU then return end
+                local _, msg = U.techNeutralize(senderCtx)
+                Role.chat(senderCtx, msg)
+            end,
+            -- Clean-removal assistant: sweeps the caller's inventory for real
+            -- (discard only drops items, and drops persist in the save),
+            -- scans EVERY world container so nobody has to search chests by
+            -- hand, lists placed benches, neutralizes the tech unlock, and
+            -- only reports "safe to uninstall" when the world is clean.
+            uninstall = function(senderCtx)
+                -- every line goes to the chat AND the UE4SS log: chat lines can
+                -- scroll away or throttle, and support diagnosis needs the log
+                local function say(msg)
+                    Log("[uninstall] " .. msg)
+                    Role.chat(senderCtx, msg)
+                end
+                if not Role.hasWorldAuthority() then
+                    say("Run this where the world lives: in single player, or on the server console/host.")
+                    return
+                end
+                local okU, U = pcall(require, "uninstall")
+                if not okU then
+                    say("Uninstall helper unavailable")
+                    return
+                end
+                local removed = select(1, U.sweepInventory(senderCtx))
+                if #removed > 0 then
+                    say("Deleted from your inventory: " .. table.concat(removed, ", "))
+                end
+                local techOk, techMsg = U.techNeutralize(senderCtx)
+                say("Technology unlock: " .. techMsg)
+                local locations, _, orphans = U.worldScan(senderCtx)
+                local benches = U.findBenches()
+                for i, line in ipairs(locations) do
+                    if i > 6 then
+                        say(string.format("...and %d more locations", #locations - 6))
+                        break
+                    end
+                    say("Found " .. line)
+                end
+                for _, pos in ipairs(benches) do
+                    say("Pal Alchemy Workbench still placed near " .. pos .. " - empty it, demolish it, pick up what drops")
+                end
+                -- Honesty over promises: the player statistics keep crafted and
+                -- picked-up mod item names, live only as replicated FastArrays
+                -- no Lua can touch. A world that ever USED the mod therefore
+                -- stays dependent on the PalSchema data folder - the command
+                -- cleans everything reachable and says exactly that.
+                if #locations == 0 and #benches == 0 and techOk then
+                    say("World is clean of Palvolve items, benches and the technology unlock.")
+                    say("IMPORTANT: when removing the mod, keep the PalSchema\\mods\\Palvolve folder installed - the game keeps statistics about items you crafted, and removing their definitions breaks world loading. Details in the README.")
+                else
+                    say("NOT clean yet - collect the listed stacks into your inventory, then run /palvolve uninstall again." ..
+                        (#orphans > 0 and " Some stacks sit in orphaned containers no one can reach; keeping the PalSchema folder installed covers those too." or ""))
+                end
+            end,
             help = function(senderCtx)
-                Role.chat(senderCtx, "Palvolve: /palvolve rollback restores your last evolved Pal")
+                Role.chat(senderCtx, "Palvolve: /palvolve rollback restores your last evolved Pal; /palvolve uninstall prepares this world for removing the mod")
             end,
         })
         if okCmd then Log("Chat commands active: /palvolve rollback") end

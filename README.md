@@ -72,11 +72,19 @@ The configurator's `config_user.lua` goes into `%LocalAppData%\Pal\Saved\Palvolv
 
 Hand-written configs use `conditions = { "night", "knowsMove:Dragon", "inParty:Penguin" }` - all listed conditions must hold at once, either/or branches are two pairs with the same target. Unknown condition ids are dropped at load with a log line; older mod versions ignore the field. Everything else (pairs, levels, costs, egg filter, transformation timings) lives in `scripts\config.lua`.
 
+## Uninstalling
+
+A world that ever used Palvolve keeps references to its items in places you cannot reach - the game even records statistics about every item you crafted or picked up, inside your player save. If those references stop resolving, the world no longer loads. PalSchema advertises a cleanup for such leftovers, but on the current game build its cleanup hook does not attach (it says so in every log), so nothing is cleaned automatically. Two rules follow from this:
+
+1. Run `/palvolve uninstall` in chat (in single player, or as the host) while the mod is still installed. It deletes every Palvolve item from your inventory for real, removes the technology unlock, scans every container in the world - chests, pals, other players - and tells you where remaining stacks sit, and lists placed workbenches. Collect what it names, demolish the benches, run it again until it reports the world clean. Do not use the game's own discard for mod items: discarding drops them to the ground, base pals haul them into chests, and the stacks live on in your save.
+2. When you then remove the mod, keep the `PalSchema\mods\Palvolve` folder (the data half) installed. It weighs nothing and does nothing on its own - it only keeps the item definitions resolvable so the crafting statistics in your player save cannot break world loading. Removing the Lua half (`Mods\Palvolve`) disables the mod completely.
+
+If you removed everything and your world no longer loads: reinstall the mod (both halves), and the world loads again. Nothing is lost.
+
 ## Notes
 
 - Tested with Palworld 1.0 build 619 - singleplayer, co-op and dedicated servers.
 - On servers the full transformation cinematic plays for the player who evolves. Bystanders see the regular recall and resummon.
-- Demolish placed Pal Alchemy Workbenches before removing the mod - worlds with placed modded buildings will not load without it (game-side limitation). Modded items in inventories are cleaned up by PalSchema.
 - Never use mods on official servers.
 
 ## License

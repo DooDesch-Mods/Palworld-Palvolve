@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [1.3.4] - 2026-07-20
+
+### Added
+
+- A guided uninstall: run `/palvolve uninstall` in chat (single player or host) while the mod is still installed. It deletes every Palvolve item from your inventory for real, removes the technology unlock from your save, scans every container in the world - chests, pals, other players - and names the exact spot of every remaining stack, and lists placed workbenches. Run it until it reports the world clean. Background: the game keeps references to mod items in places nobody can reach by hand, discarding an item only drops it for base pals to haul into chests, and a destroyed chest can leave its contents alive inside the save. Reported by MADMIKEYMAN and Joryuu, whose chest find led straight to the deepest of these cases.
+- When you join a server that runs Palvolve with the same version as your client, the chat now also shows your own client version right under the server's line, so a match is visible at a glance. A version difference keeps showing the existing warning.
+
+### Fixed
+
+- On rented game servers Palvolve could fail to notice it was running on a dedicated server, and started the parts of the mod that only belong on a player's machine. Those parts then kept searching for menus that never exist on a server, which wears on the server the longer it runs. The mod recognized a server by the name of the folder it was installed in, but a host may name that folder anything it likes - GPortal names it exactly like a player's installation. Palvolve now looks for the dedicated server's own program file, which no game client ever has.
+- Messages meant for a single player - evolution confirmations, costs, rejections - appeared in the global chat attributed to that player, readable by everyone on the server. They now arrive as a private system line only the addressed player sees.
+
+### Known issues
+
+- Removing the mod completely from a world that used it is not safe yet: the game stores statistics about crafted and picked-up items inside the player save, in a form no mod can clean while the game runs. Until that changes, keep the `PalSchema\mods\Palvolve` data folder installed when uninstalling - it defines the items so your save stays readable, and does nothing else. The README has the full procedure, and a world that no longer loads recovers by reinstalling the mod.
+
 ## [1.3.3] - 2026-07-20
 
 ### Added
