@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.3.7] - 2026-07-21
+
+### Added
+
+- Palvolve now writes its version to the UE4SS log at startup, next to the existing loaded marker, on both the server and the client. This makes support logs identify the running build at a glance, which matters most on servers where the version was previously not visible anywhere in the log.
+
 ## [1.3.6] - 2026-07-20
 
 ### Fixed

@@ -9,6 +9,18 @@ end
 -- Startup marker; external tooling waits for this exact line
 Log("loaded")
 
+-- Version banner: records the running mod version in the log next to UE4SS's
+-- and PalSchema's own banners, so a support log (server or client) identifies
+-- the build at a glance. Its own line, so the "loaded" marker above stays
+-- exactly as external tooling expects.
+do
+    local okVer, cfg = pcall(require, "config")
+    if okVer and cfg and cfg.modVersion then
+        Log("version " .. tostring(cfg.modVersion)
+            .. " (game build " .. tostring(cfg.gameBuild) .. ")")
+    end
+end
+
 -- Role detection: UI modules and their retry pollers must not run on a
 -- dedicated server. Their endless LoopAsync+ExecuteInGameThread retries
 -- (the hooked widgets never load headless) churn transient callback refs,
