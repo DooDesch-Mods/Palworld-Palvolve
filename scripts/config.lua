@@ -23,7 +23,7 @@ local Config = {
 
     -- Mod version, reported to connected clients by the host handshake. Keep in
     -- sync with Info.json (the release flow checks this).
-    modVersion = "1.3.7",
+    modVersion = "1.3.8",
 
     -- Server check: a connected client asks the host whether Palvolve runs
     -- server-side and which version. Without a host-side answer, evolution and
@@ -31,7 +31,12 @@ local Config = {
     -- why (so a client-only install no longer half-works and confuses players).
     serverCheck = {
         enabled = true,
-        timeoutSeconds = 10,   -- no host greet within this window = host has no Palvolve
+        -- Grace window for the host's join greet. The greet fires from the
+        -- client's server-side character init, which on a busy dedicated server
+        -- can lag the client's own world entry by many seconds, so keep this
+        -- generous. Hitting the timeout only soft-gates silently (the player is
+        -- told at the moment they reach for evolution, not with a banner).
+        timeoutSeconds = 25,
     },
 
     -- Timings for the evolution staging

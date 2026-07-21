@@ -1593,8 +1593,9 @@ end
 -- summoned and has at least one configured option. Level and costs are
 -- only checked in the submenu - this runs on every wheel rebuild.
 function Evolution.canOffer()
-    -- hide the radial entry entirely when the host has no Palvolve (the session
-    -- was already told why via the server check)
+    -- grey the radial entry while the host is unconfirmed as a Palvolve host; the
+    -- reason is surfaced when the player opens it (listOptions) or presses F2, not
+    -- as a preemptive banner
     if ServerCheck.blocked() then return false end
     local why = Config.devMode and {} or nil
     local function verdict(name, v)

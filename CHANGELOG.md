@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.3.8] - 2026-07-22
+
+### Fixed
+
+- On a busy dedicated server the host's join greet can arrive a few seconds after you enter the world. When that happened the client gave up too early, showed "This server does not run Palvolve" and disabled evolution for a moment - even though the server ran Palvolve and evolution still worked. The wait before that verdict is now longer, and reaching it no longer pops the warning on its own. The message shows only if you reach for evolution before the server has answered, and a late greet re-enables everything quietly.
+
 ## [1.3.7] - 2026-07-21
 
 ### Added

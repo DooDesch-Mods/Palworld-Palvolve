@@ -7,8 +7,11 @@
 --   single-player / listen host -> we own the world, everything works, stay silent
 --   host WITH Palvolve          -> the host greets us (hidden pong + its own
 --                                  [SYSTEM] chat line carrying the version)
---   host WITHOUT Palvolve       -> no greet arrives; disable evolution for the
---                                  session and tell the player once
+--   host WITHOUT Palvolve       -> no greet arrives within the grace window;
+--                                  soft-gate evolution for the session SILENTLY
+--                                  and tell the player only when they actually
+--                                  reach for evolution (a late greet on a healthy
+--                                  server routinely rescues it before that)
 --
 -- The world is classified from the ENGINE NET MODE (KismetSystemLibrary:IsStandalone
 -- / :IsServer), a world-level property that is already correct when the join hook
@@ -154,12 +157,14 @@ local function settleRemote(ver)
     -- that only makes it through after the timeout still rescues the session
     -- instead of forcing a relog. Any other state ignores duplicates.
     if state ~= ST.RESOLVING and state ~= ST.ABSENT then return end
-    local recovered = (state == ST.ABSENT)
+    if state == ST.ABSENT then
+        -- a late greet rescued a soft-gated session; recovery is silent because
+        -- the soft-gate never showed a banner - the greyed radial entry simply
+        -- re-enables and evolution works from here
+        Log("late host greet - evolution re-enabled")
+    end
     state = ST.REMOTE
     serverVersion = ver
-    if recovered then
-        showLocalMessage(I18n.msg("serverPalvolveRestored"))
-    end
     local mine = tostring(Config.modVersion)
     if ver and ver ~= "" and ver ~= mine then
         -- the mismatch warning names both versions, so no extra client line
@@ -175,9 +180,17 @@ local function settleRemote(ver)
     end
 end
 
+-- Soft-gate the session, silently. A host greet that only arrives after the
+-- timeout (a slow server-side character init on a busy dedicated server) routinely
+-- rescues the session moments later via settleRemote, so a preemptive banner here
+-- fires as a false alarm on healthy servers. The player learns the reason only if
+-- they actually reach for evolution while still gated (Evolution.check shows it in
+-- chat, the radial greys the Evolve entry with the reason) - by which point a late
+-- greet has usually already restored the session.
 local function settleAbsent()
     state = ST.ABSENT
-    showLocalMessage(I18n.msg("serverNoPalvolve"))
+    Log("no host greet within the grace window - evolution soft-gated (silent; "
+        .. "shown only on an evolve attempt, and lifted if a late greet arrives)")
 end
 
 -- -------------------------------------------------------------------- triggers
