@@ -161,6 +161,20 @@ function Role.chat(playerCtx, msg)
     return ok
 end
 
+-- Reply to a CHAT COMMAND. The EnterChat hook fires on the sender's client
+-- (RPC stub) AND on the world authority, so command handlers run twice on
+-- dedicated servers. The authority owns the visible reply (private system
+-- chat); the client-side run only logs - its EnterChat_Receive fallback
+-- would render the reply attributed to the player, duplicating the system
+-- line. In standalone/host the local run IS the authority and chats normally.
+function Role.ack(playerCtx, msg)
+    if Role.hasWorldAuthority() then
+        return Role.chat(playerCtx, msg)
+    end
+    Log("(ack suppressed on client, authority replies) " .. tostring(msg))
+    return true
+end
+
 -- Player-facing status text. Local player: plain log. Remote requester:
 -- forwarded through the per-player channels - a machine-readable screen
 -- log line (hooked by the client mod, HUD-invisible) and a human-readable
