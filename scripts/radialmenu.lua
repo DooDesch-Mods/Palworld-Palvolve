@@ -699,7 +699,7 @@ function RadialMenu.init(evolutionApi)
         local function markCancel()
             if wheelOpen then
                 cancelRequested = true
-                if Config.devMode then Log("[radial] cancel gesture (4) detected") end
+                if Config.devMode then Log("[radial] cancel gesture detected") end
             end
         end
         -- Key.FOUR is the top digit row (the radial key); NUM_FOUR is the
