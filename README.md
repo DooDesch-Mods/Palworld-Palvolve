@@ -1,6 +1,6 @@
 # Palvolve
 
-Palvolve adds conditional evolutions to Palworld. It preserves all stats and every learned move when evolving.
+> Turn a captured Pal into a related form, on your terms, and keep every stat, IV and move it already learned - the evolutions Palworld never shipped.
 
 [![Steam Workshop](https://img.shields.io/badge/Steam_Workshop-Subscribe-1b2838?logo=steam&logoColor=white)](https://steamcommunity.com/sharedfiles/filedetails/?id=3766366950)
 [![Nexus Mods](https://img.shields.io/badge/Nexus_Mods-Download-da8e35?logo=nexusmods&logoColor=white)](https://www.nexusmods.com/palworld/mods/3976)
@@ -9,29 +9,20 @@ Palvolve adds conditional evolutions to Palworld. It preserves all stats and eve
 
 > 🛟 **Need help or found a bug?** Get support at [support.doodesch.de](https://support.doodesch.de).
 
-## Evolve when you want to
+## Features
 
-Hold 4, pick Evolve, choose your evolution. Your Pal will evolve right in front of you with hand-picked vanilla effects. Blocked options are greyed out and name exactly what is missing, in the game language.
+- **143 curated transformations** as the starting point: evolution chains like Pengullet to Penking, fun chains like Sweepa to Snugloo, and 87 element adaptations.
+- **Evolve when you want to:** hold 4, pick Evolve, and your Pal transforms in front of you with a finale built from its target elements. F2 checks and confirms the summoned Pal without the menu.
+- **Keeps identity and progress:** every learned move carries over, even ones the new form could never learn on its own, and level, nickname, gender, passives, IVs, souls and condenser rank all stay. Alphas evolve into Alpha forms, Luckys stay Lucky.
+- **Conditional evolutions:** a pair can require day or night, water, a status effect, a location, a party member, a known move element, or a trainer-level, trust-rank or IV threshold. Greyed options name exactly what is still missing, in your game language.
+- **Web configurator:** build your own evolution tree at [palvolve.doodesch.de](https://palvolve.doodesch.de/?utm_source=github&utm_medium=readme&utm_campaign=palvolve) - rewire pairs, set levels and conditions, share it as a short link, and download the config. 17 languages.
+- **Reversible by design:** every evolution is snapshotted first, `/palvolve rollback` restores the previous form, and an aborted transformation refunds what it used.
+- **Earned, not free:** evolutions cost stones from the buildable Pal Alchemy Workbench, and eggs keep hatching base forms (configurable).
 
-Learned moves carry over, even when the new form could never learn them on its own. Level, nickname, gender, passives, IVs, souls and condenser rank all stay. Alphas evolve into Alpha forms, Luckys stay Lucky. F2 checks and confirms the summoned Pal without the radial menu.
+## Requirements
 
-## Make it yours
-
-143 transformations ship as the starting point, curated together with the community: evolution chains like Pengullet to Penking, fun chains like Sweepa to Snugloo and 87 element adaptations. Some default pairs are already conditioned - Mau becomes Sekhmet only in the desert by day and Wispaw only at night or in a cave, and Relaxaurus turns Lux only while electrified.
-
-Every pair can carry conditions that must hold at evolve time: day/night, standing in water, status effects, locations from caves to wildlife sanctuaries, gender, a known move element, a specific Pal in your party, gliding, your own base, mid-combat, or threshold requirements like trainer level, trust rank and IVs. Two pairs with the same target and different conditions form an either/or branch - same Pal, different evolution by day and night.
-
-Build your own tree in the [Palvolve Configurator](https://palvolve.doodesch.de/?utm_source=github&utm_medium=readme&utm_campaign=palvolve): an interactive graph where you rewire pairs, set levels and conditions, share the result as a short link and download the finished config.
-
-## Evolution costs
-
-Evolutions cost stones from the buildable Pal Alchemy Workbench (unlocked in the technology tree at level 10): break skill fruits into element essences, forge Evolution Stones, attune element Adaptation Stones. Optional material costs can be enabled on top. Eggs keep hatching base forms, so evolved Pals stay something you earned.
-
-## In case of an emergency
-
-- Every evolution snapshots your Pal first. Typing `/palvolve rollback` into the normal in-game chat restores the previous form from that snapshot, IVs included.
-- If a transformation aborts, everything it consumed is refunded automatically.
-- Multiplayer and dedicated servers are fully supported - the server validates ownership, level, costs and conditions before anything changes.
+- **UE4SS Experimental (Palworld)** - the Palworld-specific build, not the generic upstream RE-UE4SS (that one breaks on Palworld 1.0: Steam-ID mismatch, mods silently stop loading).
+- **PalSchema** - provides the Pal Alchemy Workbench, the stones and the recipes.
 
 ## Installation
 
@@ -64,33 +55,78 @@ The server validates the technology unlock. If the mod is not running on the ser
 6. ???
 7. Profit.
 
-Players keep using the normal Workshop version.
+Every player also needs Palvolve, PalSchema and UE4SS active on their own client. The normal Workshop install does that automatically.
+
+## Multiplayer
+
+Single player, co-op and dedicated servers all work. A few rules:
+
+- Install UE4SS, PalSchema and Palvolve on the host or server **and** on every client. A client-only install does not work.
+- The host or server validates ownership, level, costs and conditions before anything changes.
+- On a dedicated server, only the evolving player sees the full cinematic. Everyone else sees the normal recall and resummon.
 
 ## Configuration
 
-The configurator's `config_user.lua` goes into `%LocalAppData%\Pal\Saved\Palvolve\` (the mod creates the folder on first launch; placing it next to `scripts\config.lua` works too). It fully replaces the default tree and survives mod updates.
+Build your tree in the [web configurator](https://palvolve.doodesch.de/?utm_source=github&utm_medium=readme&utm_campaign=palvolve) and drop the exported `config_user.lua` into `%LocalAppData%\Pal\Saved\Palvolve\` (created on first launch). It replaces the default tree and survives mod updates.
 
-Hand-written configs use `conditions = { "night", "knowsMove:Dragon", "inParty:Penguin", "playerLevel:25" }` - all listed conditions must hold at once, either/or branches are two pairs with the same target. Numeric thresholds are at-least checks: `playerLevel:<n>` (trainer level, 1-80), `trustRank:<n>` (1-10), `ivTotal:<n>` (sum of the four IVs, 1-400), `ivEach:<n>` (every IV, 1-100). Unknown condition ids are dropped at load with a log line; older mod versions ignore the field. Everything else (pairs, levels, costs, egg filter, transformation timings) lives in `scripts\config.lua`.
+Hand-written configs use `conditions = { "night", "knowsMove:Dragon", "inParty:Penguin", "playerLevel:25" }`: all conditions must hold at once, and either/or branches are two pairs with the same target. Numeric thresholds are at-least checks:
+
+- `playerLevel:<n>` - trainer level, 1-80
+- `trustRank:<n>` - trust rank, 1-10
+- `ivTotal:<n>` - sum of the four IVs, 1-400
+- `ivEach:<n>` - every IV, 1-100
+
+Everything else (pairs, levels, costs, egg filter, timings) lives in `scripts\config.lua`.
 
 ## Uninstalling
 
-**Step-by-step guide: [UNINSTALL.md](UNINSTALL.md)** - both paths (keep the small data folder, or run the Save Cleaner for a world that needs nothing at all), plus recovery for a world that already refuses to load.
+Run `/palvolve uninstall` in chat (single player or host) while the mod is still installed, then keep the small `PalSchema\mods\Palvolve` data folder, or run the [Save Cleaner](save-cleaner/README.md) for a world that needs nothing at all.
 
-A world that ever used Palvolve keeps references to its items in places you cannot reach - the game even records statistics about every item you crafted or picked up, inside your player save. If those references stop resolving, the world no longer loads. PalSchema advertises a cleanup for such leftovers, but on the current game build its cleanup hook does not attach (it says so in every log), so nothing is cleaned automatically. Two rules follow from this:
+**Full guide, including recovery for a world that no longer loads: [UNINSTALL.md](UNINSTALL.md).**
 
-1. Run `/palvolve uninstall` in chat (in single player, or as the host) while the mod is still installed. It deletes every Palvolve item from your inventory for real, removes the technology unlock, scans every container in the world - chests, pals, other players - and tells you where remaining stacks sit, and lists placed workbenches. Collect what it names, demolish the benches, run it again until it reports the world clean. Do not use the game's own discard for mod items: discarding drops them to the ground, base pals haul them into chests, and the stacks live on in your save.
-2. When you then remove the mod, keep the `PalSchema\mods\Palvolve` folder (the data half) installed. It weighs nothing and does nothing on its own - it only keeps the item definitions resolvable so the crafting statistics in your player save cannot break world loading. Removing the Lua half (`Mods\Palvolve`) disables the mod completely.
+## Known Issues
 
-This dependency survives reinstalls: Steam syncs your savegames, not your mods. If you reinstall the game or move to a new PC, the cloud brings the world back without the data folder - put `PalSchema\mods\Palvolve` (and PalSchema itself) back in place before loading it. The same applies to friends who host your world from their own save.
+- Work suitability shows the pre-evolution form until you relog. Job skill book bonuses are not affected.
+- Removing the mod needs the cleanup step above first, or the world can fail to load.
 
-To cut the dependency for good, use the **[Save Cleaner](save-cleaner/README.md)** (also attached to each GitHub release): with the game closed, it removes every Palvolve trace from the save itself - remaining item stacks, placed workbenches, and the crafting statistics no running game can touch. After that the world loads with nothing of Palvolve installed, on any machine.
+## FAQ
 
-If you removed everything and your world no longer loads: either run the Save Cleaner on it, or reinstall the mod (both halves) and the world loads again. Nothing is lost either way.
+**No "Evolve" option in the hold-4 menu, even though the workbench and stones work?**
+UE4SS is not loading Palvolve. The workbench is PalSchema, the Evolve button is UE4SS. Check that UE4SS Experimental (Palworld) is installed and Palvolve is enabled; relaunch if it vanishes mid-session.
+
+**The workbench will not unlock at level 10, or will not stay learned?**
+Same cause: UE4SS or PalSchema is not active. The tell is no UE4SS output in the log.
+
+**Co-op and dedicated servers - where do I install it?**
+On the server **and** every client. UE4SS, PalSchema and Palvolve have to be active on both sides; a client-only install does not work.
+
+**How do I uninstall it safely? My world crashes after I remove the mod.**
+Run `/palvolve uninstall` first, then keep the `PalSchema\mods\Palvolve` data folder or run the Save Cleaner. Back up your saves first. Full steps: [UNINSTALL.md](UNINSTALL.md).
+
+**Breeding changed, or an evolved variant will not hatch?**
+Eggs hatch base forms on purpose. Turn the egg filter off in `scripts\config.lua` if you want otherwise.
+
+**Evolution vs. adaptation?**
+Evolution turns a Pal into a different Pal (Pengullet to Penking). Adaptation changes its element (Pengullet to Pengullet Lux).
+
+**How do I evolve a Pal?**
+Build the Pal Alchemy Workbench (level 10), forge an Evolution Stone from skill-fruit essences, then hold 4 and pick Evolve. `/palvolve rollback` undoes it.
+
+**Compatible with other mods?**
+Known conflicts: Dynamic Pals and PalMagic. Keep every mod updated, and send your mod list if an option stays greyed out.
+
+**Custom trees and languages?**
+Yes. Build and share trees in the [web configurator](https://palvolve.doodesch.de/?utm_source=github&utm_medium=readme&utm_campaign=palvolve). The mod and configurator run in 17 languages.
+
+## Support
+
+> 🛟 **Need help or found a bug?** Get support at [support.doodesch.de](https://support.doodesch.de).
+
+When you report something, include your Palvolve version, your Palworld version and the full `UE4SS.log`. Palvolve writes its version into that log at startup, so it is usually all I need to place the problem.
 
 ## Notes
 
 - Tested with Palworld 1.0 build 619 - singleplayer, co-op and dedicated servers.
-- On servers the full transformation cinematic plays for the player who evolves. Bystanders see the regular recall and resummon.
 - Never use mods on official servers.
 
 ## License
