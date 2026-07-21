@@ -706,6 +706,10 @@ function RadialMenu.init(evolutionApi)
         -- numpad - register both
         if Key.FOUR then RegisterKeyBind(Key.FOUR, markCancel) end
         if Key.NUM_FOUR then RegisterKeyBind(Key.NUM_FOUR, markCancel) end
+        -- ESC dismisses the wheel too; without marking it as a cancel the
+        -- Close hook would commit the hovered entry (the markCancel no-ops
+        -- while no wheel is open, so a global ESC bind is safe)
+        if Key.ESCAPE then RegisterKeyBind(Key.ESCAPE, markCancel) end
     end)
 
     local registered = {}
