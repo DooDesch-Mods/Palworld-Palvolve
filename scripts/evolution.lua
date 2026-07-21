@@ -2279,6 +2279,12 @@ function Evolution.init()
                 local okProbes, probes = pcall(require, "probes")
                 if okProbes and probes.playFinaleSample then probes.playFinaleSample() end
             end,
+            xcond = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if okProbes and probes.worldProbe then probes.worldProbe() end
+                Role.ack(senderCtx, "condition probe done - see log")
+            end,
             -- uninstall probe set (devMode): count leftovers, sweep the own
             -- inventory, inspect the tech unlock array, neutralize the entry.
             -- Read (xtech) and write (xtechw) are separate so the array can be
@@ -2288,7 +2294,7 @@ function Evolution.init()
                 local okU, U = pcall(require, "uninstall")
                 if not okU then return end
                 local total, found = U.countReport(senderCtx)
-                Role.chat(senderCtx, total == 0 and "Palvolve items in inventory: none"
+                Role.ack(senderCtx, total == 0 and "Palvolve items in inventory: none"
                     or ("Palvolve items: " .. table.concat(found, ", ")))
             end,
             xsweep = function(senderCtx)
@@ -2299,7 +2305,7 @@ function Evolution.init()
                 local msg = #removed == 0 and "nothing to remove"
                     or ("removed: " .. table.concat(removed, ", "))
                 if #failed > 0 then msg = msg .. " / FAILED: " .. table.concat(failed, ", ") end
-                Role.chat(senderCtx, msg)
+                Role.ack(senderCtx, msg)
             end,
             -- record-map probe: can Lua read (and natively remove from) the
             -- player statistics TMaps that retain crafted mod-item names?
@@ -2348,7 +2354,7 @@ function Evolution.init()
                         end
                     end
                 end)
-                Role.chat(senderCtx, "record probe done - see log")
+                Role.ack(senderCtx, "record probe done - see log")
             end,
             -- offer-chain diagnosis: runs every canOffer step for the summoned
             -- pal WITHOUT the swallowing pcall and logs each verdict, plus the
@@ -2386,19 +2392,19 @@ function Evolution.init()
                 end)
                 if not okAll then table.insert(out, "CHAIN ERROR: " .. tostring(errAll)) end
                 for _, l in ipairs(out) do Log("[xoffer] " .. l) end
-                Role.chat(senderCtx, "offer probe done - see log (" .. #out .. " lines)")
+                Role.ack(senderCtx, "offer probe done - see log (" .. #out .. " lines)")
             end,
             xtech = function(senderCtx)
                 if not Config.devMode then return end
                 local okU, U = pcall(require, "uninstall")
-                if okU then Role.chat(senderCtx, U.techInspect(senderCtx)) end
+                if okU then Role.ack(senderCtx, U.techInspect(senderCtx)) end
             end,
             xtechw = function(senderCtx)
                 if not Config.devMode then return end
                 local okU, U = pcall(require, "uninstall")
                 if not okU then return end
                 local _, msg = U.techNeutralize(senderCtx)
-                Role.chat(senderCtx, msg)
+                Role.ack(senderCtx, msg)
             end,
             -- Clean-removal assistant: sweeps the caller's inventory for real
             -- (discard only drops items, and drops persist in the save),
@@ -2410,7 +2416,7 @@ function Evolution.init()
                 -- scroll away or throttle, and support diagnosis needs the log
                 local function say(msg)
                     Log("[uninstall] " .. msg)
-                    Role.chat(senderCtx, msg)
+                    Role.ack(senderCtx, msg)
                 end
                 if not Role.hasWorldAuthority() then
                     say(I18n.msg("uninstAuthorityOnly"))
@@ -2453,7 +2459,7 @@ function Evolution.init()
                 end
             end,
             help = function(senderCtx)
-                Role.chat(senderCtx, I18n.msg("helpLine"))
+                Role.ack(senderCtx, I18n.msg("helpLine"))
             end,
         })
         if okCmd then Log("Chat commands active: /palvolve rollback") end

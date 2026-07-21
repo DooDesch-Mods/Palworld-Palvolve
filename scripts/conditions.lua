@@ -407,6 +407,73 @@ PARAM_EVAL.knowsMove = function(ctx, elementName)
     return found
 end
 
+-- numeric parameterized conditions share one bounds table; isKnown()
+-- validates integers against it so the web editor and hand-written
+-- configs cannot smuggle nonsense thresholds past the sanitizer
+local NUMERIC_PARAM_BOUNDS = {
+    playerLevel = { min = 1, max = 80 },
+    trustRank = { min = 1, max = 10 },
+    ivTotal = { min = 1, max = 400 },
+    ivEach = { min = 1, max = 100 },
+}
+
+-- "playerLevel:<n>": the TRAINER (player character) is at least level n
+PARAM_EVAL.playerLevel = function(ctx, value)
+    local need = tonumber(value)
+    if not need then return false end
+    local level = nil
+    pcall(function()
+        local pawn = playerPawn(ctx)
+        if pawn then
+            level = pawn.CharacterParameterComponent:GetIndividualParameter():GetLevel()
+        end
+    end)
+    return (tonumber(level) or 0) >= need
+end
+
+-- "trustRank:<n>": the pal's friendship rank is at least n (scale 1..10;
+-- the fixed highTrust condition keeps its threshold of 5)
+PARAM_EVAL.trustRank = function(ctx, value)
+    local need = tonumber(value)
+    if not need then return false end
+    local rank = nil
+    pcall(function() rank = ctx.param:GetFriendshipRank() end)
+    return (tonumber(rank) or 0) >= need
+end
+
+local IV_FIELDS = { "Talent_HP", "Talent_Melee", "Talent_Shot", "Talent_Defense" }
+
+-- reads one talent; nil when unavailable so the callers stay fail closed
+local function readIv(ctx, field)
+    local v = nil
+    pcall(function() v = tonumber(ctx.param.SaveParameter[field]) end)
+    return v
+end
+
+-- "ivTotal:<n>": the four talents sum to at least n
+PARAM_EVAL.ivTotal = function(ctx, value)
+    local need = tonumber(value)
+    if not need then return false end
+    local total = 0
+    for _, field in ipairs(IV_FIELDS) do
+        local v = readIv(ctx, field)
+        if v == nil then return false end
+        total = total + v
+    end
+    return total >= need
+end
+
+-- "ivEach:<n>": every one of the four talents is at least n
+PARAM_EVAL.ivEach = function(ctx, value)
+    local need = tonumber(value)
+    if not need then return false end
+    for _, field in ipairs(IV_FIELDS) do
+        local v = readIv(ctx, field)
+        if v == nil or v < need then return false end
+    end
+    return true
+end
+
 -- "inParty:<CharacterID>": species in any otomo slot, spawned or in the ball;
 -- an Alpha (BOSS_ prefixed) individual counts as its base species
 PARAM_EVAL.inParty = function(ctx, characterId)
@@ -505,6 +572,9 @@ function Conditions.label(id)
     local prefix, value = splitParamId(id)
     if prefix == "knowsMove" then return I18n.msg("knowsMoveLabel", I18n.element(value)) end
     if prefix == "inParty" then return I18n.msg("inPartyLabel", palLabel(value)) end
+    if prefix and NUMERIC_PARAM_BOUNDS[prefix] then
+        return I18n.msg(prefix .. "Label", tonumber(value) or 0)
+    end
     return id
 end
 
@@ -514,6 +584,11 @@ local function isKnown(id)
     local prefix, value = splitParamId(id)
     if prefix == "knowsMove" then return ELEMENTS[value] ~= nil end
     if prefix == "inParty" then return value:match("^[%w_]+$") ~= nil end
+    local bounds = prefix and NUMERIC_PARAM_BOUNDS[prefix]
+    if bounds then
+        local n = tonumber(value)
+        return n ~= nil and n == math.floor(n) and n >= bounds.min and n <= bounds.max
+    end
     return false
 end
 
@@ -605,6 +680,18 @@ function Conditions.debugDump(ctx)
             tostring(ctx.param:GetGenderType()),
             ctx.param:GetFullStomachRate(),
             tostring(ctx.param:GetFriendshipRank())))
+    end)
+    pcall(function()
+        local pawn = playerPawn(ctx)
+        local level = pawn and pawn.CharacterParameterComponent:GetIndividualParameter():GetLevel()
+        Log(string.format("[cond] raw player: level=%s", tostring(level)))
+    end)
+    pcall(function()
+        local parts = {}
+        for _, field in ipairs(IV_FIELDS) do
+            table.insert(parts, string.format("%s=%s", field, tostring(readIv(ctx, field))))
+        end
+        Log("[cond] raw iv: " .. table.concat(parts, " "))
     end)
 end
 

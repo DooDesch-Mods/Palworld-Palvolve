@@ -516,9 +516,10 @@ local function bindProbeKey(keyName, name, fn)
     end))
 end
 
--- HOME: world state (time of day, weather) + the evaluated view of every
--- boolean condition for the summoned pal
-bindProbeKey("HOME", "probe-world", function()
+-- World state (time of day, weather) + the evaluated view of every
+-- boolean condition for the summoned pal. Exported so the chat probe
+-- (/palvolve xcond) can trigger it on keyboards without a nav cluster.
+function M.worldProbe()
     local util = StaticFindObject("/Script/Pal.Default__PalUtility")
     local playerCtx = Role.localPlayerCtx()
     local wc = playerCtx and playerCtx.pawn
@@ -552,7 +553,10 @@ bindProbeKey("HOME", "probe-world", function()
     else
         Log("[probe-world] no condition ctx: " .. tostring(why))
     end
-end)
+end
+
+-- HOME: same world probe as a keybind
+bindProbeKey("HOME", "probe-world", M.worldProbe)
 
 -- PAGE_UP: player location (region/stage/sanctuary raw) + player context
 -- (party slots, own base, combat, riding, gliding, level)

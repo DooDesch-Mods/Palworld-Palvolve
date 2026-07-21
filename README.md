@@ -19,7 +19,7 @@ Learned moves carry over, even when the new form could never learn them on its o
 
 143 transformations ship as the starting point, curated together with the community: evolution chains like Pengullet to Penking, fun chains like Sweepa to Snugloo and 87 element adaptations. Some default pairs are already conditioned - Mau becomes Sekhmet only in the desert by day and Wispaw only at night or in a cave, and Relaxaurus turns Lux only while electrified.
 
-Every pair can carry conditions that must hold at evolve time: day/night, standing in water, status effects, locations from caves to wildlife sanctuaries, gender, a known move element, a specific Pal in your party, gliding, your own base or mid-combat. Two pairs with the same target and different conditions form an either/or branch - same Pal, different evolution by day and night.
+Every pair can carry conditions that must hold at evolve time: day/night, standing in water, status effects, locations from caves to wildlife sanctuaries, gender, a known move element, a specific Pal in your party, gliding, your own base, mid-combat, or threshold requirements like trainer level, trust rank and IVs. Two pairs with the same target and different conditions form an either/or branch - same Pal, different evolution by day and night.
 
 Build your own tree in the [Palvolve Configurator](https://palvolve.doodesch.de/?utm_source=github&utm_medium=readme&utm_campaign=palvolve): an interactive graph where you rewire pairs, set levels and conditions, share the result as a short link and download the finished config.
 
@@ -70,7 +70,7 @@ Players keep using the normal Workshop version.
 
 The configurator's `config_user.lua` goes into `%LocalAppData%\Pal\Saved\Palvolve\` (the mod creates the folder on first launch; placing it next to `scripts\config.lua` works too). It fully replaces the default tree and survives mod updates.
 
-Hand-written configs use `conditions = { "night", "knowsMove:Dragon", "inParty:Penguin" }` - all listed conditions must hold at once, either/or branches are two pairs with the same target. Unknown condition ids are dropped at load with a log line; older mod versions ignore the field. Everything else (pairs, levels, costs, egg filter, transformation timings) lives in `scripts\config.lua`.
+Hand-written configs use `conditions = { "night", "knowsMove:Dragon", "inParty:Penguin", "playerLevel:25" }` - all listed conditions must hold at once, either/or branches are two pairs with the same target. Numeric thresholds are at-least checks: `playerLevel:<n>` (trainer level, 1-80), `trustRank:<n>` (1-10), `ivTotal:<n>` (sum of the four IVs, 1-400), `ivEach:<n>` (every IV, 1-100). Unknown condition ids are dropped at load with a log line; older mod versions ignore the field. Everything else (pairs, levels, costs, egg filter, transformation timings) lives in `scripts\config.lua`.
 
 ## Uninstalling
 
