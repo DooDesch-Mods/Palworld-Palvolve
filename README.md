@@ -75,6 +75,7 @@ Hand-written configs use `conditions = { "night", "knowsMove:Dragon", "inParty:P
 - `trustRank:<n>` - trust rank, 1-10
 - `ivTotal:<n>` - sum of the four IVs, 1-400
 - `ivEach:<n>` - every IV, 1-100
+- `ivHP:<n>` / `ivMelee:<n>` / `ivShot:<n>` / `ivDefense:<n>` - one specific IV, 1-100
 
 Everything else (pairs, levels, costs, egg filter, timings) lives in `scripts\config.lua`.
 

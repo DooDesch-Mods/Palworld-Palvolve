@@ -415,6 +415,10 @@ local NUMERIC_PARAM_BOUNDS = {
     trustRank = { min = 1, max = 10 },
     ivTotal = { min = 1, max = 400 },
     ivEach = { min = 1, max = 100 },
+    ivHP = { min = 1, max = 100 },
+    ivMelee = { min = 1, max = 100 },
+    ivShot = { min = 1, max = 100 },
+    ivDefense = { min = 1, max = 100 },
 }
 
 -- "playerLevel:<n>": the TRAINER (player character) is at least level n
@@ -473,6 +477,21 @@ PARAM_EVAL.ivEach = function(ctx, value)
     end
     return true
 end
+
+-- "ivHP:<n>" / "ivMelee:<n>" / "ivShot:<n>" / "ivDefense:<n>": that one talent
+-- is at least n (fail closed when the talent cannot be read)
+local function ivStatEval(field)
+    return function(ctx, value)
+        local need = tonumber(value)
+        if not need then return false end
+        local v = readIv(ctx, field)
+        return v ~= nil and v >= need
+    end
+end
+PARAM_EVAL.ivHP = ivStatEval("Talent_HP")
+PARAM_EVAL.ivMelee = ivStatEval("Talent_Melee")
+PARAM_EVAL.ivShot = ivStatEval("Talent_Shot")
+PARAM_EVAL.ivDefense = ivStatEval("Talent_Defense")
 
 -- "inParty:<CharacterID>": species in any otomo slot, spawned or in the ball;
 -- an Alpha (BOSS_ prefixed) individual counts as its base species
