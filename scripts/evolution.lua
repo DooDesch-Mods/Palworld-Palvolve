@@ -1596,20 +1596,33 @@ function Evolution.canOffer()
     -- hide the radial entry entirely when the host has no Palvolve (the session
     -- was already told why via the server check)
     if ServerCheck.blocked() then return false end
+    local why = Config.devMode and {} or nil
+    local function verdict(name, v)
+        if why then table.insert(why, name .. "=" .. tostring(v)) end
+        return v
+    end
     local ok, res = pcall(function()
         local playerCtx = Role.localPlayerCtx()
         local holder = findHolderFor(playerCtx, nil)
-        if not holder then return false end
+        if not verdict("holder", holder ~= nil) then return false end
         local actor = nil
         pcall(function() actor = holder:TryGetSpawnedOtomo() end)
-        if not (actor and actor:IsValid()) then return false end
+        if not verdict("actor", (actor and actor:IsValid()) == true) then return false end
         local param = paramOf(actor)
-        if not (param and isOwnedBy(param, playerCtx and playerCtx.playerUId)) then return false end
+        if not verdict("param+owned",
+            (param and isOwnedBy(param, playerCtx and playerCtx.playerUId)) ~= nil
+            and param ~= nil and isOwnedBy(param, playerCtx and playerCtx.playerUId)) then return false end
         local id = baseCharacterId(param:GetCharacterID():ToString())
-        if #Config.findPairs(id) == 0 then return false end
+        local n = #Config.findPairs(id)
+        if why then table.insert(why, string.format("id='%s' pairs=%d", id, n)) end
+        if n == 0 then return false end
         prewarmNames(id)
         return true
     end)
+    if why and not (ok and res == true) then
+        Log(string.format("[canOffer] GREY: pcallOk=%s res=%s | %s",
+            tostring(ok), tostring(res), table.concat(why, " ")))
+    end
     return ok and res == true
 end
 
@@ -2336,6 +2349,44 @@ function Evolution.init()
                     end
                 end)
                 Role.chat(senderCtx, "record probe done - see log")
+            end,
+            -- offer-chain diagnosis: runs every canOffer step for the summoned
+            -- pal WITHOUT the swallowing pcall and logs each verdict, plus the
+            -- pair list with categories - pinpoints why the radial entry greys
+            xoffer = function(senderCtx)
+                if not Config.devMode then return end
+                local out = {}
+                local function step(name, v) table.insert(out, name .. "=" .. tostring(v)); return v end
+                local okAll, errAll = pcall(function()
+                    step("blocked", ServerCheck.blocked())
+                    -- on a dedicated server there is no local player: diagnose
+                    -- the SENDING player's chain instead (the server-side view
+                    -- that validates evolve requests)
+                    local playerCtx = Role.localPlayerCtx() or senderCtx
+                    step("playerCtx", playerCtx ~= nil)
+                    local holder = findHolderFor(playerCtx, nil)
+                    if not step("holder", holder ~= nil) then return end
+                    local actor = nil
+                    pcall(function() actor = holder:TryGetSpawnedOtomo() end)
+                    if not step("actor", actor and actor:IsValid() or false) then return end
+                    local param = paramOf(actor)
+                    if not step("param", param ~= nil) then return end
+                    step("owned", isOwnedBy(param, playerCtx and playerCtx.playerUId))
+                    local raw = param:GetCharacterID():ToString()
+                    local id, isAlpha = baseCharacterId(raw)
+                    table.insert(out, string.format("raw='%s' id='%s' alpha=%s", raw, id, tostring(isAlpha)))
+                    local pairs_ = Config.findPairs(id)
+                    table.insert(out, "findPairs=" .. #pairs_)
+                    for i, p in ipairs(pairs_) do
+                        table.insert(out, string.format("  [%d] ->%s cat=%s stone=%s lvl=%d en=%s",
+                            i, p.to, tostring(p.category), tostring(p.stone), p.minLevel or -1, tostring(p.enabled)))
+                    end
+                    local canOk, canRes = pcall(Evolution.canOffer)
+                    table.insert(out, string.format("canOffer pcallOk=%s result=%s", tostring(canOk), tostring(canRes)))
+                end)
+                if not okAll then table.insert(out, "CHAIN ERROR: " .. tostring(errAll)) end
+                for _, l in ipairs(out) do Log("[xoffer] " .. l) end
+                Role.chat(senderCtx, "offer probe done - see log (" .. #out .. " lines)")
             end,
             xtech = function(senderCtx)
                 if not Config.devMode then return end
