@@ -6,7 +6,12 @@
 
 ### Added
 
+- Four new evolution conditions for custom trees: `playerLevel:<n>` (your trainer level), `trustRank:<n>` (the pal's trust rank, 1-10), `ivTotal:<n>` (the four IVs combined) and `ivEach:<n>` (every single IV). All are at-least thresholds, work in hand-written configs and in the web configurator, and show their requirement in the radial menu like every other condition.
 - Palvolve now writes its version to the UE4SS log at startup, next to the existing loaded marker, on both the server and the client. This makes support logs identify the running build at a glance, which matters most on servers where the version was previously not visible anywhere in the log.
+
+### Fixed
+
+- On dedicated servers, replies to `/palvolve` chat commands showed up twice: once as the private system line from the server and once as a line attributed to the player, produced by their own client. The client half now only writes to the log; the server's system line is the single visible reply.
 
 ## [1.3.6] - 2026-07-20
 
