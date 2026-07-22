@@ -121,10 +121,11 @@ local Config = {
         },
     },
 
-    -- Eggs only ever hatch base forms (evolved forms are normalized back to
-    -- their base species while hatching); funchain results stay allowed.
+    -- Egg filter, opt-in (off by default): when enabled, eggs only ever hatch
+    -- base forms (evolved forms are normalized back to their base species while
+    -- hatching); funchain results stay allowed.
     eggFilter = {
-        enabled = true,
+        enabled = false,
     },
 
     -- Map schema version; 4 = per-pair conditions

@@ -12,7 +12,7 @@
 - **Conditional evolutions:** a pair can require day or night, water, a status effect, a location, a party member, a known move element, or a trainer-level, trust-rank or IV threshold. Greyed options name what is still missing, in your game language.
 - **Web configurator:** build your own evolution tree at [palvolve.doodesch.de](https://palvolve.doodesch.de) - rewire pairs, set levels and conditions, share it as a short link, and download the config. 17 languages.
 - **Reversible by design:** every evolution is snapshotted first, `/palvolve rollback` restores the previous form, and an aborted transformation refunds what it used.
-- **Earned, not free:** evolutions cost stones from the buildable Pal Alchemy Workbench, and eggs keep hatching base forms (configurable).
+- **Earned, not free:** evolutions cost stones from the buildable Pal Alchemy Workbench, and an optional egg filter can keep eggs hatching base forms.
 
 ## Requirements
 
@@ -68,7 +68,7 @@ On the server **and** every client. UE4SS, PalSchema and Palvolve have to be act
 Run `/palvolve uninstall` first, then keep the `PalSchema\mods\Palvolve` data folder or run the Save Cleaner. Back up your saves first. Full steps: [UNINSTALL.md](https://github.com/DooDesch-Mods/Palworld-Palvolve/blob/main/UNINSTALL.md).
 
 **Breeding changed, or an evolved variant will not hatch?**
-Eggs hatch base forms on purpose. Turn the egg filter off in the config if you want otherwise.
+The egg filter is off by default, so eggs hatch what they normally would. If you turned it on (it makes eggs hatch base forms only), turn it back off in the config or the configurator.
 
 **Evolution vs. adaptation?**
 Evolution turns a Pal into a different Pal (Pengullet to Penking). Adaptation changes its element (Pengullet to Pengullet Lux).

@@ -6,6 +6,10 @@
 
 - Per-stat IV conditions for custom trees: `ivHP:<n>`, `ivMelee:<n>`, `ivShot:<n>` and `ivDefense:<n>`, each an at-least threshold on that single talent (1-100). They sit next to the existing `ivTotal` and `ivEach`, work in hand-written configs and in the web configurator, and name their requirement in the radial menu like every other condition.
 
+### Changed
+
+- The egg filter is now off by default. Eggs hatch the species they normally would; enable the filter in the config or the configurator if you want eggs to only ever hatch base forms.
+
 ## [1.3.8] - 2026-07-22
 
 ### Fixed
