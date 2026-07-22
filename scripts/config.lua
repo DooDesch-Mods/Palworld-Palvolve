@@ -1376,11 +1376,13 @@ local function eggParents()
             table.insert(list, v)
         end
         for _, pair in ipairs(Config.map) do
-            if pair.category == "evolution" then
-                add(evoParentsCache, pair.to, pair.from)
-            elseif pair.category == "adaptation" then
-                add(adaParentsCache, pair.to, pair.from)
-                add(adaChildrenCache, pair.from, pair.to)
+            if pair.enabled then
+                if pair.category == "evolution" then
+                    add(evoParentsCache, pair.to, pair.from)
+                elseif pair.category == "adaptation" then
+                    add(adaParentsCache, pair.to, pair.from)
+                    add(adaChildrenCache, pair.from, pair.to)
+                end
             end
         end
     end

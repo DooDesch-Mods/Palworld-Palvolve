@@ -57,6 +57,15 @@ local function normalizeEgg(eggData, hatchedParam)
     local changed = nil
     pcall(function()
         if not (eggData and eggData:IsValid()) then return end
+        -- Never normalize a base-game special egg (mutation / WorldTree). Their
+        -- special result is tied to the egg's item type (StaticId), not its
+        -- CharacterID, so a species rewrite would silently damage them. Match on
+        -- the item id and fail closed when it cannot be read.
+        local sid = ""
+        pcall(function() sid = eggData.StaticId:ToString() end)
+        if sid == "" or sid:find("PalEgg_WorldTree", 1, true) or sid:find("PalEgg_MutationPal", 1, true) then
+            return
+        end
         local eggId = eggData.CharacterID:ToString()
         local base = pickBase(eggId)
         if base then
