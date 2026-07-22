@@ -8,7 +8,7 @@
 
 ### Changed
 
-- The egg filter is now off by default. Eggs hatch the species they normally would; enable the filter in the config or the configurator if you want eggs to only ever hatch base forms.
+- The egg filter is now off by default. Eggs hatch the species they normally would; enable the filter in the config or the configurator if you want eggs to only ever hatch base forms. A new guide, `EGG-FILTER.md`, explains what it does with diagrams and a worked example.
 
 ## [1.3.8] - 2026-07-22
 

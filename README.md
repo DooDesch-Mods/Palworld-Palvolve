@@ -79,6 +79,8 @@ Hand-written configs use `conditions = { "night", "knowsMove:Dragon", "inParty:P
 
 Everything else (pairs, levels, costs, egg filter, timings) lives in `scripts\config.lua`.
 
+The egg filter is off by default. When on, eggs of evolved forms hatch base forms instead. Full walkthrough with diagrams: [EGG-FILTER.md](EGG-FILTER.md).
+
 ## Uninstalling
 
 Run `/palvolve uninstall` in chat (single player or host) while the mod is still installed, then keep the small `PalSchema\mods\Palvolve` data folder, or run the [Save Cleaner](save-cleaner/README.md) for a world that needs nothing at all.
@@ -105,7 +107,7 @@ On the server **and** every client. UE4SS, PalSchema and Palvolve have to be act
 Run `/palvolve uninstall` first, then keep the `PalSchema\mods\Palvolve` data folder or run the Save Cleaner. Back up your saves first. Full steps: [UNINSTALL.md](UNINSTALL.md).
 
 **Breeding changed, or an evolved variant will not hatch?**
-The egg filter is off by default, so eggs hatch what they normally would. If you turned it on (it makes eggs hatch base forms only), turn it back off in `scripts\config.lua` or the configurator.
+The egg filter is off by default, so eggs hatch what they normally would. If you turned it on (it makes eggs hatch base forms only), turn it back off in `scripts\config.lua` or the configurator. What it does and why, with diagrams: [EGG-FILTER.md](EGG-FILTER.md).
 
 **Evolution vs. adaptation?**
 Evolution turns a Pal into a different Pal (Pengullet to Penking). Adaptation changes its element (Pengullet to Pengullet Lux).
