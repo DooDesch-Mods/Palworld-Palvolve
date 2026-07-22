@@ -28,7 +28,7 @@ So when an egg finishes incubating, the decision looks like this:
 ```mermaid
 flowchart TD
     A(["An egg finishes incubating.<br/>Its stored species is X."]) --> B{"Egg filter on?"}
-    B -->|No| Z1["Hatches X.<br/>Vanilla behaviour."]
+    B -->|No| Z1["Hatches X.<br/>Vanilla behavior."]
     B -->|Yes| C{"Is X an evolved form<br/>(does it sit above a base<br/>on an evolution chain)?"}
     C -->|"No: X is a base form,<br/>an element variant,<br/>or a fun-chain result"| Z2["Hatches X unchanged."]
     C -->|"Yes"| D["Collect X's base family:<br/>the base it evolves from,<br/>plus every element variant<br/>of that base."]
@@ -41,7 +41,7 @@ The base family is the part that decides the outcome, so here is a real one.
 
 ## A worked example: the Pengullet family
 
-Palvolve ships these three pairs for Pengullet:
+Three of the pairs Palvolve ships for the Pengullet family:
 
 ```mermaid
 flowchart LR
