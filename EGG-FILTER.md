@@ -1,6 +1,6 @@
 # The Egg Filter
 
-> 🛟 **Need help or found a bug?** Get support at [support.doodesch.de](https://support.doodesch.de).
+> 🛟 **Need help or found a bug?** Get support at [support.doodesch.de/palvolve](https://support.doodesch.de/palvolve).
 
 Palvolve lets you evolve a captured Pal into a related form. The egg filter is the breeding side of that: with it on, eggs only ever hatch **base forms**, so an evolved Pal stays something you earned at the workbench instead of something that falls out of an egg. It changes nothing about how eggs are made, only what comes out of them.
 
