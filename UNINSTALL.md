@@ -1,6 +1,6 @@
 # Uninstalling Palvolve
 
-> 🛟 **Need help or found a bug?** Get support at [support.doodesch.de](https://support.doodesch.de).
+> 🛟 **Need help or found a bug?** Get support at [support.doodesch.de/palvolve](https://support.doodesch.de/palvolve).
 
 A world that used Palvolve stores references to the mod's items in places you cannot reach by hand: item stacks in chests, the placed workbench, and crafting statistics inside each player file. When the mod's definitions disappear, those references stop resolving and the world refuses to load. This guide removes them properly. Nothing here can lose your world - every path below is reversible, and a world that already refuses to load is recovered the same way.
 
