@@ -23,7 +23,7 @@ local Config = {
 
     -- Mod version, reported to connected clients by the host handshake. Keep in
     -- sync with Info.json (the release flow checks this).
-    modVersion = "1.3.8",
+    modVersion = "1.3.9",
 
     -- Server check: a connected client asks the host whether Palvolve runs
     -- server-side and which version. Without a host-side answer, evolution and

@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.3.9] - 2026-07-23
 
 ### Added
 
@@ -9,6 +9,11 @@
 ### Changed
 
 - The egg filter is now off by default. Eggs hatch the species they normally would; enable the filter in the config or the configurator if you want eggs to only ever hatch base forms. A new guide, `EGG-FILTER.md`, explains what it does with diagrams and a worked example.
+
+### Fixed
+
+- With the egg filter on, the game's special eggs are now left alone. Mutation eggs and the glowing WorldTree eggs hatch what they should; only ordinary evolved-form eggs are turned back into their base. Thanks to the players who flagged the breeding side effect.
+- A pair you disabled in a custom tree no longer affects what eggs hatch. The egg filter now respects the enabled switch on each pair.
 
 ## [1.3.8] - 2026-07-22
 
