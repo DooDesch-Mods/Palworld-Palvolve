@@ -243,10 +243,15 @@ end
 -- Wired into NetChannel.initClient: the host's hidden greet carrying its version.
 function ServerCheck.onPong(ver)
     Log("Handshake: host greet received (v" .. tostring(ver) .. ") while " .. state)
-    if state == ST.IDLE then
-        earlyPong = { ver = ver, at = os.clock() }
-        return
-    end
+    -- Always buffer the greet. On a reconnect within the same client session
+    -- (e.g. the server restarted) the host re-greets while state is still REMOTE
+    -- from the previous world, BEFORE onEnterWorld re-baselines to RESOLVING.
+    -- settleRemote ignores a greet in REMOTE, so without buffering it the greet
+    -- is lost, the re-baselined session finds no greet and times out to a false
+    -- "server does not run Palvolve". Buffering lets the imminent onEnterWorld
+    -- consume it (the EARLY_PONG_MAX_AGE_S guard drops stale ones).
+    earlyPong = { ver = ver, at = os.clock() }
+    if state == ST.IDLE then return end
     settleRemote(ver)
 end
 

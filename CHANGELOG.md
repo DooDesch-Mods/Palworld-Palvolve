@@ -5,6 +5,11 @@
 ### Fixed
 
 - Evolve rejection notices (missing materials, level or conditions) now arrive as a private system line instead of a chat line attributed to you. On a server the host delivers the reason, so it reads as a system message rather than something you appeared to type in chat.
+- After a dedicated server restarts and you reconnect without restarting your game, evolution no longer gets stuck showing "This server does not run Palvolve". The client used to drop the host's re-greet if it arrived before the reconnect finished settling, then time out and disable evolution until a full game restart. It now keeps that greet, so a rejoin re-enables evolution on its own.
+
+### Known issues
+
+- A Pal you only evolved into, never caught, does not unlock its saddle or Pal Gear recipe in the Technology tree. Catch that species once to unlock it.
 
 ## [1.3.9] - 2026-07-23
 
