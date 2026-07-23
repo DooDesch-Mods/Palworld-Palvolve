@@ -1547,7 +1547,16 @@ function Evolution.check()
         local reason = I18n.msg("couldEvolveMissing",
             palDisplayName(pair.from), level, palDisplayName(pair.to), Costs.describeMissing(missing))
         Log(reason)
-        Role.chat(playerCtx, reason)
+        if Role.hasWorldAuthority() then
+            -- authority (single player / host): this check is final, show it here
+            Role.chat(playerCtx, reason)
+        elseif remoteTransmitReady(playerCtx) then
+            -- pure client: emitting the reason locally would attribute it to the
+            -- player ("[Name]: ..."). Send the request instead so the host rejects
+            -- it and delivers the reason as a private [SYSTEM] line; the host
+            -- re-checks and consumes nothing on a rejected evolve.
+            NetChannel.sendEvolve(playerCtx, pairIndex or 0)
+        end
         return
     end
 
@@ -1805,7 +1814,14 @@ function Evolution.executeOption(opt)
     -- only to the log
     if opt.blocked then
         Log(opt.blocked)
-        Role.chat(playerCtx, opt.blocked)
+        if Role.hasWorldAuthority() then
+            Role.chat(playerCtx, opt.blocked)
+        elseif remoteTransmitReady(playerCtx) then
+            -- pure client: don't attribute the reason locally ("[Name]: ..."). Send
+            -- the picked option so the host re-validates and rejects it with a
+            -- private [SYSTEM] line; the host consumes nothing on a rejected evolve.
+            NetChannel.sendEvolve(playerCtx, opt.index or 0)
+        end
         return
     end
     if not playerCtx then

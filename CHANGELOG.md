@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Evolve rejection notices (missing materials, level or conditions) now arrive as a private system line instead of a chat line attributed to you. On a server the host delivers the reason, so it reads as a system message rather than something you appeared to type in chat.
+
 ## [1.3.9] - 2026-07-23
 
 ### Added
