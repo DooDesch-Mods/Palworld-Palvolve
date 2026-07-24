@@ -77,6 +77,8 @@ Hand-written configs use `conditions = { "night", "knowsMove:Dragon", "inParty:P
 - `ivEach:<n>` - every IV, 1-100
 - `ivHP:<n>` / `ivMelee:<n>` / `ivShot:<n>` / `ivDefense:<n>` - one specific IV, 1-100
 
+A leading `!` turns any condition into its opposite: `"!night"` (must not be night), `"!knowsMove:Dragon"` (knows no Dragon move). Negated thresholds are strict below-checks - `"!trustRank:4"` means trust rank 1-3, and `"!ivEach:70"` means at least one IV is below 70. One `!` per condition. Two pairs like `{ "trustRank:4" }` and `{ "!trustRank:4" }` split one Pal into a high-trust and a low-trust branch. Mod versions before 1.3.10 ignore `!` conditions (the pair still works, just without that requirement).
+
 Everything else (pairs, levels, costs, egg filter, timings) lives in `scripts\config.lua`.
 
 The egg filter is off by default. When on, eggs of evolved forms hatch base forms instead. Full walkthrough with diagrams: [EGG-FILTER.md](EGG-FILTER.md).

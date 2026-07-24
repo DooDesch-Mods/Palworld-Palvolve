@@ -23,7 +23,7 @@ local Config = {
 
     -- Mod version, reported to connected clients by the host handshake. Keep in
     -- sync with Info.json (the release flow checks this).
-    modVersion = "1.3.9",
+    modVersion = "1.3.10",
 
     -- Server check: a connected client asks the host whether Palvolve runs
     -- server-side and which version. Without a host-side answer, evolution and
@@ -128,8 +128,9 @@ local Config = {
         enabled = false,
     },
 
-    -- Map schema version; 4 = per-pair conditions
-    schemaVersion = 4,
+    -- Map schema version; 5 = negatable conditions ("!" prefix), 4 = per-pair
+    -- conditions
+    schemaVersion = 5,
     -- Palworld revision: the trailing digits of the title-screen version
     -- (v1.0.1.100619 -> 619), the identifier the official mod loader uses
     gameBuild = 619,

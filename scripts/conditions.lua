@@ -5,12 +5,17 @@
 -- every same-target candidate). Parameterized ids use a colon:
 --   "knowsMove:Dragon"  (EPalElementType name)
 --   "inParty:Penguin"   (DT_PalMonsterParameter row name)
+-- A leading "!" negates any id: "!night" (must not be night), "!trustRank:4"
+-- (trust rank below 4). At most one "!"; "!!x" is unknown and dropped.
 --
 -- Evaluation is pull-based only: plain reads inside the existing game-thread
 -- call frames of the gates. No hooks, no delegates, no timers.
 -- A known condition whose game API fails evaluates as NOT met (fail closed):
 -- a silently granted evolution would be an invisible correctness hole, a
--- greyed option with a reason is visible and debuggable.
+-- greyed option with a reason is visible and debuggable. Negation only
+-- inverts a CLEANLY returned boolean - an eval error or unknown id stays
+-- unmet regardless of polarity, so "!" can never turn a failure into a met
+-- condition.
 --
 -- This module must not require config.lua (config.lua requires this module
 -- for its sanitizer); devMode is read lazily via package.loaded.
@@ -566,6 +571,14 @@ local function splitParamId(id)
     return nil
 end
 
+-- polarity split: "!night" -> true, "night"; anything else -> false, id
+local function splitNegation(id)
+    if type(id) == "string" and id:sub(1, 1) == "!" then
+        return true, id:sub(2)
+    end
+    return false, id
+end
+
 -- localized pal display name for parameterized labels (falls back to the id)
 local function palLabel(id)
     local name = nil
@@ -583,8 +596,8 @@ local function palLabel(id)
     return name or id
 end
 
--- human label for any id (used in blocked reasons and the config drop log)
-function Conditions.label(id)
+-- human label for a positive (base) id
+local function positiveLabel(id)
     local localized = I18n.condition(id)
     if localized then return localized end
     if Conditions.LABELS[id] then return Conditions.LABELS[id] end
@@ -597,8 +610,22 @@ function Conditions.label(id)
     return id
 end
 
--- is this id part of the vocabulary (including valid parameterized forms)?
-local function isKnown(id)
+-- Human label for any id (used in blocked reasons and the config drop log).
+-- Negated numerics state the complementary requirement ("Trust rank < 4")
+-- instead of wrapping the "%d+" form in "not"; other negated ids wrap their
+-- positive label in the notLabel template ("not Night").
+function Conditions.label(id)
+    local negated, base = splitNegation(id)
+    if not negated then return positiveLabel(base) end
+    local prefix, value = splitParamId(base)
+    if prefix and NUMERIC_PARAM_BOUNDS[prefix] then
+        return I18n.msg(prefix .. "UnderLabel", tonumber(value) or 0)
+    end
+    return I18n.msg("notLabel", positiveLabel(base))
+end
+
+-- is this base id part of the vocabulary (including valid parameterized forms)?
+local function isKnownBase(id)
     if BOOL_EVAL[id] then return true end
     local prefix, value = splitParamId(id)
     if prefix == "knowsMove" then return ELEMENTS[value] ~= nil end
@@ -609,6 +636,13 @@ local function isKnown(id)
         return n ~= nil and n == math.floor(n) and n >= bounds.min and n <= bounds.max
     end
     return false
+end
+
+-- vocabulary check for either polarity ("!!x" and a bare "!" stay unknown)
+local function isKnown(id)
+    local negated, base = splitNegation(id)
+    if negated and (base == "" or base:sub(1, 1) == "!") then return false end
+    return isKnownBase(base)
 end
 
 -- ------------------------------------------------------------------ public API
@@ -632,20 +666,28 @@ function Conditions.sanitize(list)
     return clean, dropped
 end
 
--- evaluates one id; API errors and unknown ids count as NOT met (fail closed)
+-- Evaluates one id; API errors and unknown ids count as NOT met (fail
+-- closed) REGARDLESS of polarity - "!" only inverts a clean boolean result,
+-- so an eval failure can never satisfy a negated condition.
 local function evalOne(id, ctx)
-    local met = false
-    local prefix, value = splitParamId(id)
+    local negated, base = splitNegation(id)
+    local met = nil -- nil = no clean result
+    local prefix, value = splitParamId(base)
     local ok, err = pcall(function()
         if prefix then
             met = PARAM_EVAL[prefix](ctx, value) == true
-        elseif BOOL_EVAL[id] then
-            met = BOOL_EVAL[id](ctx) == true
+        elseif BOOL_EVAL[base] then
+            met = BOOL_EVAL[base](ctx) == true
         end
     end)
-    if not ok and devMode() then
-        Log(string.format("[cond] %s eval error: %s", id, tostring(err)))
+    if not ok then
+        if devMode() then
+            Log(string.format("[cond] %s eval error: %s", id, tostring(err)))
+        end
+        return false
     end
+    if met == nil then return false end
+    if negated then return not met end
     return met
 end
 

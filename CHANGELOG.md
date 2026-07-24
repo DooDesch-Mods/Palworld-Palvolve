@@ -1,6 +1,10 @@
 # Changelog
 
-## [Unreleased]
+## [1.3.10] - 2026-07-24
+
+### Added
+
+- Every evolution condition can now be negated with a leading `!`: `"!night"` requires it not to be night, `"!knowsMove:Dragon"` requires knowing no Dragon move. Negated thresholds check strictly below - `"!trustRank:4"` means trust rank 1-3, `"!ivEach:70"` means at least one IV under 70. That makes opposite branches possible, like a Depresso that becomes Katress at trust rank 4+ but Daedream below it. The radial menu names negated requirements the readable way ("Trust rank < 4", "not Daytime"). In the web configurator every condition token got a small invert toggle. Works in hand-written configs too; mod versions before 1.3.10 simply ignore `!` conditions. Thanks to the player on Discord who suggested trust-based branching.
 
 ### Fixed
 
