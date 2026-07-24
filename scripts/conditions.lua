@@ -179,18 +179,39 @@ local BOOL_EVAL = {}
 BOOL_EVAL.day = function(ctx) return not isNightNow(ctx) end
 BOOL_EVAL.night = function(ctx) return isNightNow(ctx) end
 
-BOOL_EVAL.inWater = function(ctx)
-    local mv = ctx.actor:GetPalCharacterMovementComponent()
-    if not (mv and mv:IsValid()) then return false end
+-- water state of one movement component; nil when unreadable
+local function waterState(mv)
+    if not (mv and mv:IsValid()) then return nil end
     local met = nil
     pcall(function() met = mv:IsEnteredWater() == true end)
     if met ~= nil then return met end
     -- fallbacks when IsEnteredWater is unavailable on this build
     pcall(function() met = mv:IsSwimming() == true end)
     if met == true then return true end
-    local rate = 0
+    local rate = nil
     pcall(function() rate = mv:GetInWaterRate() end)
-    return rate > 0
+    if rate ~= nil then return rate > 0 end
+    return nil
+end
+
+BOOL_EVAL.inWater = function(ctx)
+    -- The summoned pal counts first, but hovering/flying species (Suzaku,
+    -- Ragnahawk, ...) never enter the swim state - they float above the
+    -- surface. The PLAYER swimming counts too, which also matches the
+    -- region conditions: those read the player's position already.
+    local palIn = nil
+    pcall(function()
+        palIn = waterState(ctx.actor:GetPalCharacterMovementComponent())
+    end)
+    if palIn == true then return true end
+    local playerIn = nil
+    pcall(function()
+        local pawn = playerPawn(ctx)
+        if pawn then
+            playerIn = waterState(pawn:GetPalCharacterMovementComponent())
+        end
+    end)
+    return playerIn == true
 end
 
 BOOL_EVAL.burning = function(ctx) return statusActive(ctx, STATUS.Burn) end

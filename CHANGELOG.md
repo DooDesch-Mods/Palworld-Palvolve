@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.3.11] - 2026-07-24
+
+### Fixed
+
+- The `inWater` condition now also counts when the player is swimming, not only the summoned Pal. Hovering and flying species like Suzaku float above the surface and never enter the swim state, which made water evolutions (Suzaku into Suzaku Aqua) impossible to trigger. The region conditions already read the player's position, so this brings water in line. Thanks to the player who reported the stuck water adaptation.
+
 ## [1.3.10] - 2026-07-24
 
 ### Added
