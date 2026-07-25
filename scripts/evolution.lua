@@ -100,6 +100,39 @@ local function guidString(g)
     return string.format("%08X-%08X-%08X-%08X", g.A, g.B, g.C, g.D)
 end
 
+-- Catch-gated technologies (saddles, Pal gear) unlock when a species is CAPTURED, not when
+-- its CharacterID changes - so an evolved form stays locked. The capture record lives in
+-- replicated FastArrays that UE4SS-Lua cannot map; the native companion (dlls/main.dll)
+-- sets it through the game's own _ForServer setters. See
+-- Workspace/docs/Palvolve/KNOWN-ISSUE-catch-tech-unlock.md.
+local nativeMissingLogged = false
+local function unlockCatchTech(targetId, playerCtx)
+    if not Config.unlockCatchTech then return end
+
+    -- Without the companion the evolution itself is unaffected: skip quietly, note it once.
+    if type(PalvolveNative_UnlockCaptureRecord) ~= "function" then
+        if not nativeMissingLogged then
+            nativeMissingLogged = true
+            Log("Native companion missing - catch-gated technologies stay locked for this session")
+        end
+        return
+    end
+
+    local uid
+    pcall(function()
+        if playerCtx and playerCtx.playerUId then uid = guidString(playerCtx.playerUId) end
+    end)
+
+    local called, ok, msg = pcall(PalvolveNative_UnlockCaptureRecord, targetId, uid)
+    if not called then
+        Log(string.format("Catch-tech unlock errored for %s: %s", tostring(targetId), tostring(ok)))
+    elseif ok then
+        Log(string.format("Catch-tech unlocked for %s (%s)", tostring(targetId), tostring(msg)))
+    else
+        Log(string.format("Catch-tech unlock skipped for %s: %s", tostring(targetId), tostring(msg)))
+    end
+end
+
 local function individualKey(param)
     local key = ""
     pcall(function() key = guidString(param.IndividualId.InstanceId) end)
@@ -917,6 +950,9 @@ local function performEvolution(p)
                 and guidString(playerCtx.playerUId) or nil,
         })
         saveSnapshots()
+        -- Always the unprefixed id: the capture record is keyed by EPalTribeID, which has one
+        -- entry per species and none for the BOSS_ (alpha) rows, exactly like the Paldeck.
+        unlockCatchTech(pair.to, playerCtx)
 
         -- Headless (dedicated server): the authoritative param swap is done.
         -- Do NOT touch the otomo lifecycle - on this path the pal was never

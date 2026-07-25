@@ -23,7 +23,12 @@ local Config = {
 
     -- Mod version, reported to connected clients by the host handshake. Keep in
     -- sync with Info.json (the release flow checks this).
-    modVersion = "1.3.11",
+    modVersion = "1.4.0",
+
+    -- Unlock the catch-gated technologies (saddle, Pal gear) of the target species when a
+    -- pal evolves, the same way capturing one would. Needs the native companion in
+    -- dlls/main.dll; without it this is skipped and evolution works as before.
+    unlockCatchTech = true,
 
     -- Server check: a connected client asks the host whether Palvolve runs
     -- server-side and which version. Without a host-side answer, evolution and

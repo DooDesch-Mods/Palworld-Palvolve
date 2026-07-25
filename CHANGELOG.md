@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.4.0] - 2026-07-25
+
+### Added
+
+- A Pal you evolved into now unlocks that species' saddle and Pal Gear recipes in the Technology tree, the same way catching one would. This was the longest-standing gap in the mod: evolving a Helzephyr into a Helzephyr Lux gave you the Pal, but its saddle stayed uncraftable for good. Palworld ties those recipes to having caught the species, not to owning it. Turn it off with `unlockCatchTech = false` in the config if you would rather keep the catch requirement. Thanks to everyone on Discord who kept reporting the missing saddle.
+
+### Changed
+
+- The mod now ships a small native component next to the Lua scripts. Only the technology unlock uses it; everything else works exactly as before. It is built against the current UE4SS Experimental (Palworld) release, so an older UE4SS will not load it. In that case evolutions still run normally and only the recipe unlock is skipped.
+
 ## [1.3.11] - 2026-07-24
 
 ### Fixed

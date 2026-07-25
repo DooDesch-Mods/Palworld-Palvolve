@@ -2,7 +2,7 @@
   "ModName": "Palvolve",
   "PackageName": "Palvolve",
   "Thumbnail": "thumbnail.png",
-  "Version": "1.3.11",
+  "Version": "1.4.0",
   "DebugMode": false,
   "MinRevision": 619,
   "Author": "DooDesch",
@@ -17,13 +17,15 @@
     {
       "Type": "Lua",
       "Targets": [
-        "./Scripts"
+        "./Scripts",
+        "./dlls"
       ]
     },
     {
       "Type": "Lua",
       "Targets": [
-        "./Scripts"
+        "./Scripts",
+        "./dlls"
       ],
       "IsServer": true
     },

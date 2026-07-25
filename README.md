@@ -92,8 +92,7 @@ Run `/palvolve uninstall` in chat (single player or host) while the mod is still
 ## Known Issues
 
 - Work suitability shows the pre-evolution form until you relog. Job skill book bonuses are not affected.
-- A Pal you only evolved into, never caught, does not unlock its saddle or Pal Gear recipe in the Technology tree. See the FAQ below for why and how to fix it.
-- Removing the mod needs the cleanup step above first, or the world can fail to load.
+- Removing the mod without the cleanup step above can stop the world from loading.
 
 ## FAQ
 
@@ -119,7 +118,7 @@ Evolution turns a Pal into a different Pal (Pengullet to Penking). Adaptation ch
 Build the Pal Alchemy Workbench (level 10), forge an Evolution Stone from skill-fruit essences, then hold 4 and pick Evolve. `/palvolve rollback` undoes it.
 
 **I evolved a Pal but its saddle is missing from the Tech Tree and Pal Gear Workbench?**
-Catching a species unlocks its saddle recipe, and evolving into it never counts as a catch, so the recipe stays locked. The mod cannot unlock it reliably without native game access it does not have. Catch that species once and the recipe unlocks.
+Since 1.4.0 the mod unlocks those recipes for you when you evolve a Pal into that species. If the saddle still does not show up, the native component behind it is not loading. Check the UE4SS log for a line starting with `[PalvolveNative]`, and make sure your UE4SS build matches the one the mod was built against. If you prefer the vanilla rule that only catching a species unlocks its gear, set `unlockCatchTech = false` in the config.
 
 **Compatible with other mods?**
 Known conflicts: Dynamic Pals and PalMagic. Keep every mod updated, and send your mod list if an option stays greyed out.
