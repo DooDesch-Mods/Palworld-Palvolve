@@ -905,7 +905,108 @@ bindProbeKey("BACKSPACE", "probe-finale-run", function()
     end
 end)
 
-Log(string.format("Probes active: F3 revert(own), F4 arm radial probes, F5 overlay, F6 VFX, F7 morph FX bases, F8 fanfare, F9 freeze, F10 give EXP, END free mode, test kit on %s, conditions on HOME/PAGE_UP/PAGE_DOWN, NUM7 day/night, NUM8 status cycle, F1 finale assets, BACKSPACE full evolution run (random target, 12 stages), chat /palvolve free|kit|fx",
+-- Passive weather recorder. The four weather conditions carry guessed
+-- thresholds and stay hidden in the editor until real values back them, and
+-- weather cannot be forced: nothing in the object dump sets it, and PalDefender
+-- has no weather command either. So instead of driving the weather, sample it
+-- and write a line whenever it moves, which turns one normal play session into
+-- the data set. Time can be sped up (PalCheatManager:SetPalWorldTimeScale) to
+-- cycle through weather faster.
+local function startWeatherWatch()
+    local last = nil
+    local function changed(cur)
+        if not last then return true end
+        if cur.lightning ~= last.lightning then return true end
+        if cur.raining ~= last.raining or cur.snowing ~= last.snowing
+            or cur.thunderstorm ~= last.thunderstorm or cur.foggy ~= last.foggy then return true end
+        return math.abs(cur.rain - last.rain) > 0.01
+            or math.abs(cur.snow - last.snow) > 0.01
+            or math.abs(cur.fog - last.fog) > 0.005
+    end
+
+    LoopAsync(3000, function()
+        ExecuteInGameThread(function()
+            pcall(function()
+                local sky = FindFirstOf("PalSkyCreator")
+                if not (sky and sky:IsValid()) then return end
+                local fx = sky.WeatherSettings.WeatherFXSettings
+                local fog = sky.WeatherSettings.ExponentialHeightFogSettings
+                local cur = {
+                    rain = fx.RainAmount, snow = fx.SnowAmount,
+                    fog = fog.FogDensity, lightning = fx.EnableLightnings == true,
+                    tod = sky.TimeOfDay,
+                }
+                -- the verdicts the shipped thresholds produce right now, logged
+                -- next to the raw values so both can be compared in one line
+                cur.raining = cur.rain > 0.05
+                cur.snowing = cur.snow > 0.05
+                cur.thunderstorm = cur.lightning
+                cur.foggy = cur.fog > 0.05
+                if not changed(cur) then return end
+                last = cur
+                Log(string.format(
+                    "[weather] rain=%.3f snow=%.3f fog=%.4f lightning=%s tod=%.2f | raining=%s snowing=%s thunderstorm=%s foggy=%s",
+                    cur.rain, cur.snow, cur.fog, tostring(cur.lightning), cur.tod,
+                    tostring(cur.raining), tostring(cur.snowing),
+                    tostring(cur.thunderstorm), tostring(cur.foggy)))
+            end)
+        end)
+        return false -- runs for the whole session
+    end)
+end
+
+-- Spike for the configurable workbench unlock level. The stage lives in the
+-- PalSchema building JSON as Technology.LevelCap, which a Workshop update
+-- overwrites, so the goal is to set it at runtime from config_user.lua instead.
+-- PalTechnologyDataTableRowBase carries LevelCap as a plain IntProperty and both
+-- technology tables exist as objects; what is unknown is whether Lua can reach a
+-- row at all. This reports what is reachable rather than assuming, once per
+-- session after the tables have had time to load.
+local function probeTechnologyTable()
+    local PATHS = {
+        "/Game/Pal/DataTable/Technology/DT_TechnologyRecipeUnlock.DT_TechnologyRecipeUnlock",
+        "/Game/Pal/DataTable/Technology/DT_TechnologyRecipeUnlock_Common.DT_TechnologyRecipeUnlock_Common",
+    }
+    for _, path in ipairs(PATHS) do
+        local dt = nil
+        pcall(function() dt = StaticFindObject(path) end)
+        if not (dt and dt:IsValid()) then
+            Log("[probe-tech] not found: " .. path)
+        else
+            local cls = "?"
+            pcall(function() cls = dt:GetClass():GetFName():ToString() end)
+            Log(string.format("[probe-tech] found %s (class %s)", path, cls))
+
+            -- RowMap is TMap<FName, uint8*>; UE4SS Lua may refuse the raw value
+            local ok, err = pcall(function()
+                local rm = dt.RowMap
+                if rm == nil then error("RowMap nil") end
+                local n = "?"
+                pcall(function() n = tostring(#rm) end)
+                Log("[probe-tech]   RowMap readable, entries=" .. n)
+            end)
+            if not ok then
+                Log("[probe-tech]   RowMap NOT readable: " .. tostring(err))
+            end
+
+            for _, fn in ipairs({ "FindRow", "BP_FindRow", "GetRowNames" }) do
+                pcall(function()
+                    if dt[fn] ~= nil then Log("[probe-tech]   exposes " .. fn) end
+                end)
+            end
+        end
+    end
+end
+
+startWeatherWatch()
+
+-- one-shot, delayed so the technology tables are past their load
+LoopAsync(15000, function()
+    ExecuteInGameThread(function() pcall(probeTechnologyTable) end)
+    return true
+end)
+
+Log(string.format("Probes active: F3 revert(own), F4 arm radial probes, F5 overlay, F6 VFX, F7 morph FX bases, F8 fanfare, F9 freeze, F10 give EXP, END free mode, test kit on %s, conditions on HOME/PAGE_UP/PAGE_DOWN, NUM7 day/night, NUM8 status cycle, F1 finale assets, BACKSPACE full evolution run (random target, 12 stages), chat /palvolve free|kit|fx; weather recorder writes [weather] lines on every change",
     Key.INS and "INSERT" or "POS1"))
 
 return M
