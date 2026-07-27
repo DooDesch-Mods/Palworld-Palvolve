@@ -23,7 +23,7 @@ local Config = {
 
     -- Mod version, reported to connected clients by the host handshake. Keep in
     -- sync with Info.json (the release flow checks this).
-    modVersion = "1.4.0",
+    modVersion = "1.4.1",
 
     -- Unlock the catch-gated technologies (saddle, Pal gear) of the target species when a
     -- pal evolves, the same way capturing one would. Needs the native companion in
@@ -1366,15 +1366,15 @@ function Config.findPairs(characterId)
     return result
 end
 
--- Reverse/forward maps for the egg filter, split by category so eggs follow
--- EVOLUTION chains only. Funchain links are always excluded.
---   evoParents[to]    = { evolution froms }
---   adaParents[to]    = { adaptation froms }
---   adaChildren[from] = { adaptation tos } (element variants of a base)
-local evoParentsCache, adaParentsCache, adaChildrenCache = nil, nil, nil
+-- Reverse maps for the egg filter, split by category so eggs follow EVOLUTION
+-- chains only. Funchain links are always excluded. Both maps point at parents:
+-- the walk below only ever moves towards the base of a chain.
+--   evoParents[to] = { evolution froms }
+--   adaParents[to] = { adaptation froms }
+local evoParentsCache, adaParentsCache = nil, nil
 local function eggParents()
     if evoParentsCache == nil then
-        evoParentsCache, adaParentsCache, adaChildrenCache = {}, {}, {}
+        evoParentsCache, adaParentsCache = {}, {}
         local function add(map, k, v)
             local list = map[k]
             if not list then list = {}; map[k] = list end
@@ -1387,26 +1387,24 @@ local function eggParents()
                     add(evoParentsCache, pair.to, pair.from)
                 elseif pair.category == "adaptation" then
                     add(adaParentsCache, pair.to, pair.from)
-                    add(adaChildrenCache, pair.from, pair.to)
                 end
             end
         end
     end
-    return evoParentsCache, adaParentsCache, adaChildrenCache
+    return evoParentsCache, adaParentsCache
 end
 
 -- Raw base candidates for an egg of `characterId`, following EVOLUTION chains
 -- only. First, peel the id's own adaptation layers to reach the evolution chain
 -- beneath it. Then walk evolution parents STRICTLY below the seeds; every node
 -- reached that is an adaptation form OR an evolution root is a "family point".
--- Finally, expand each family point to its base family - the plain base reached
--- by peeling that point's adaptation, plus every element adaptation of that
--- base. So an interleaved chain contributes a base family at every adaptation
--- form it passes through, not only at the very bottom. A pure adaptation with
--- no evolution beneath yields nothing, so element variants hatch unchanged.
--- Config.baseFormsOf below resolves these to terminal forms.
+-- Finally, expand each family point to that point itself plus the plain base it
+-- adapted from. So an interleaved chain contributes candidates at every
+-- adaptation form it passes through, not only at the very bottom. A pure
+-- adaptation with no evolution beneath yields nothing, so element variants
+-- hatch unchanged. Config.baseFormsOf below resolves these to terminal forms.
 local function rawBaseForms(characterId)
-    local evoParents, adaParents, adaChildren = eggParents()
+    local evoParents, adaParents = eggParents()
 
     -- plain base(s) of Y: peel Y's adaptation layers to forms with no adaptation
     -- parent (Y itself when it is not an adaptation form)
@@ -1427,17 +1425,17 @@ local function rawBaseForms(characterId)
         return out
     end
 
+    -- A candidate is the reached form itself plus the forms that can be adapted INTO it,
+    -- never its sibling variants. Adaptation runs one way (base -> variant), so handing out
+    -- a sibling strands the player: from Kelpsea Ignis there is no way back to Kelpsea, while
+    -- Kelpsea can still become Ignis and is therefore a fair stand-in for it.
     local family, famSet = {}, {}
     local function addFamily(pointId)
-        for _, b in ipairs(plainBases(pointId)) do
-            if not famSet[b] then famSet[b] = true; table.insert(family, b) end
-            local kids = adaChildren[b]
-            if kids then
-                for _, k in ipairs(kids) do
-                    if not famSet[k] then famSet[k] = true; table.insert(family, k) end
-                end
-            end
+        local function add(id)
+            if not famSet[id] then famSet[id] = true; table.insert(family, id) end
         end
+        add(pointId)
+        for _, b in ipairs(plainBases(pointId)) do add(b) end
     end
 
     -- seeds: characterId plus its adaptation ancestors

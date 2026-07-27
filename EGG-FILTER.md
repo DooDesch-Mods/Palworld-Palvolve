@@ -31,13 +31,15 @@ flowchart TD
     B -->|No| Z1["Hatches X.<br/>Vanilla behavior."]
     B -->|Yes| C{"Is X an evolved form<br/>(does it sit above a base<br/>on an evolution chain)?"}
     C -->|"No: X is a base form,<br/>an element variant,<br/>or a fun-chain result"| Z2["Hatches X unchanged."]
-    C -->|"Yes"| D["Collect X's base family:<br/>the base it evolves from,<br/>plus every element variant<br/>of that base."]
+    C -->|"Yes"| D["Collect X's candidates:<br/>the base it evolves from,<br/>plus any form that can be<br/>adapted INTO that base."]
     D --> E{"More than one<br/>candidate?"}
     E -->|"One"| Z3["Hatches that base."]
     E -->|"Several"| Z4["Hatches one of them,<br/>equal chance each."]
 ```
 
-The base family is the part that decides the outcome, so here is a real one.
+Adaptation runs one way. Pengullet can be adapted into Pengullet Lux, but a Pengullet Lux cannot be turned back into a Pengullet. That is why the candidates only ever include forms you could still adapt into the base you were owed: handing you a variant instead would leave you stuck with the wrong Pal.
+
+The candidate set is the part that decides the outcome, so here is a real one.
 
 ## A worked example: the Pengullet family
 
@@ -50,7 +52,7 @@ flowchart LR
     PL -->|evolution| PKL["Penking Lux"]
 ```
 
-Pengullet has an evolved form (Penking) and an element variant (Pengullet Lux), and that variant has its own evolved form (Penking Lux). The base family here is therefore **both base-tier Pals**: Pengullet and Pengullet Lux. When the filter normalizes an egg down to this family, it picks one of them at random, each with an equal chance.
+Pengullet has an evolved form (Penking) and an element variant (Pengullet Lux), and that variant has its own evolved form (Penking Lux). The two evolved forms sit above different bases: Penking comes from Pengullet, Penking Lux comes from Pengullet Lux.
 
 Run every egg in the family through the filter and you get:
 
@@ -58,16 +60,18 @@ Run every egg in the family through the filter and you get:
 |---|---|---|
 | Pengullet | Pengullet | Pengullet - it is already a base |
 | Pengullet Lux | Pengullet Lux | Pengullet Lux - element variants are never gated |
-| Penking | Penking | Pengullet **or** Pengullet Lux, equal chance |
-| Penking Lux | Penking Lux | Pengullet **or** Pengullet Lux, equal chance |
+| Penking | Penking | Pengullet |
+| Penking Lux | Penking Lux | Pengullet Lux **or** Pengullet, equal chance |
 
-The two evolved forms (Penking, Penking Lux) collapse to the same base family, because both descend from it. The two base-tier forms hatch unchanged, one because it is the base, the other because it is a pure element adaptation.
+A Penking egg always gives you Pengullet. Pengullet Lux is not an option there, because you could never adapt it back into the Pengullet the egg was worth.
+
+A Penking Lux egg is the one with a choice. It is worth a Pengullet Lux, and a plain Pengullet can still be adapted into one, so both are fair outcomes and each has an equal chance.
 
 ## The rules in one place
 
 - **Base form** - hatches unchanged.
 - **Element variant** (pure adaptation, nothing evolves into it) - hatches unchanged.
-- **Evolved form** - hatches its base family: the base it came from, plus any element variants of that base. If the family has several members, one is chosen at random with an equal chance.
+- **Evolved form** - hatches the base it came from, or any form that can still be adapted into that base. Sibling variants of the base are never candidates, because adaptation only runs one way. If more than one candidate qualifies, one is chosen at random with an equal chance.
 - **Fun-chain result** - hatches unchanged. Fun chains are never walked back.
 
 Two things follow from this:
