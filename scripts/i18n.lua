@@ -82,6 +82,34 @@ function I18n.msg(key, ...)
     return okEn and formattedEn or key
 end
 
+-- Localized item name through the game's own text system, so cost lines read
+-- "Pal Souls" instead of the raw "PalUpgradeStone". The mod's own items go the
+-- same way, because PalSchema registers them with an ITEM_NAME_ key like any
+-- other item. Returns the id unchanged when the lookup fails, which is what a
+-- call before the world exists does.
+local itemNameCache = {}
+function I18n.itemName(id, fallback)
+    if type(id) ~= "string" or id == "" then return fallback or id end
+    local cached = itemNameCache[id]
+    if cached then return cached end
+    local name = nil
+    pcall(function()
+        local mdt = StaticFindObject("/Script/Pal.Default__PalMasterDataTablesUtility")
+        local ctx = FindFirstOf("PalPlayerCharacter")
+        if not (mdt and mdt:IsValid() and ctx and ctx:IsValid()) then return end
+        -- EPalLocalizeTextCategory::ItemName = 11
+        local txt = mdt:GetLocalizedText(ctx, 11, FName("ITEM_NAME_" .. id))
+        if txt then
+            local s = txt:ToString()
+            if s and s ~= "" then name = s end
+        end
+    end)
+    -- only successful lookups are cached, so a call made before the world is up
+    -- retries later; the cache dies with the Lua state on restart
+    if name then itemNameCache[id] = name end
+    return name or fallback or id
+end
+
 -- localized label for a boolean condition id (nil when unknown)
 function I18n.condition(id)
     local cat = catalogFor(I18n.lang())

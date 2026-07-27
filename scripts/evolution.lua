@@ -812,7 +812,7 @@ local function performEvolution(p)
         txn, failedItem = Costs.beginTransaction(playerCtx, costList)
         if not txn then
             local msg = string.format("Evolution aborted: %dx %s not available/consumable",
-                failedItem and failedItem.count or 0, failedItem and failedItem.label or "?")
+                failedItem and failedItem.count or 0, Costs.labelOf(failedItem))
             Log(msg)
             finishAbort()
             return false, msg

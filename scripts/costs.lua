@@ -12,8 +12,25 @@
 
 local Config = require("config")
 local Elements = require("elements")
+local I18n = require("i18n")
 
 local Costs = {}
+
+-- Display name of a cost entry, resolved at the moment a message is built and
+-- never stored: the resolved list is cached, and the game's text system is not
+-- answering yet while the world loads, so a name baked in at resolve time could
+-- be a permanent fallback. An explicit label from a per-pair `materials` entry
+-- wins; otherwise the game's own localized item name, with the configured
+-- English name as the last resort for the mod's own stones.
+function Costs.labelOf(entry)
+    if not entry then return "?" end
+    if entry.label then return entry.label end
+    local base = I18n.itemName(entry.id, entry.fallbackLabel)
+    if entry.element then
+        return string.format("%s (%s)", base, I18n.element(entry.element))
+    end
+    return base
+end
 
 local function Log(msg)
     print(string.format("[Palvolve] %s\n", msg))
@@ -208,13 +225,12 @@ function Costs.resolve(pair, level, worldCtx)
             end
             table.insert(list, {
                 id = stoneId, count = Config.stoneCount,
-                label = element and string.format("%s (%s)", Config.stoneNames.adaptation, element)
-                    or Config.stoneNames.adaptation,
+                element = element, fallbackLabel = Config.stoneNames.adaptation,
             })
         else
             table.insert(list, {
                 id = Config.stoneItemIds.evolution, count = Config.stoneCount,
-                label = Config.stoneNames.evolution,
+                fallbackLabel = Config.stoneNames.evolution,
             })
         end
     end
@@ -223,7 +239,7 @@ function Costs.resolve(pair, level, worldCtx)
         local matSource = (pair.stone == "adaptation") and pair.to or pair.from
         local mats = pair.materials or materialsFor(matSource, level, worldCtx)
         for _, m in ipairs(mats) do
-            table.insert(list, { id = m.id, count = m.count, label = m.label or m.id })
+            table.insert(list, { id = m.id, count = m.count, label = m.label })
         end
     end
     -- coalesce duplicate item ids (a drop row can repeat an item across
@@ -234,7 +250,8 @@ function Costs.resolve(pair, level, worldCtx)
         if byId[c.id] then
             byId[c.id].count = byId[c.id].count + c.count
         else
-            local entry = { id = c.id, count = c.count, label = c.label }
+            local entry = { id = c.id, count = c.count, label = c.label,
+                            element = c.element, fallbackLabel = c.fallbackLabel }
             byId[c.id] = entry
             table.insert(merged, entry)
         end
@@ -243,13 +260,15 @@ function Costs.resolve(pair, level, worldCtx)
     return merged
 end
 
--- Returns ok, missing[] where missing entries carry {label, count, have}
+-- Returns ok, missing[] where missing entries keep the naming fields so the
+-- description can resolve the item name when the message is actually built
 function Costs.check(playerCtx, costList)
     local missing = {}
     for _, c in ipairs(costList) do
         local have = Costs.countItem(playerCtx, c.id)
         if have < c.count then
-            table.insert(missing, { label = c.label, count = c.count, have = have })
+            table.insert(missing, { id = c.id, label = c.label, element = c.element,
+                                    fallbackLabel = c.fallbackLabel, count = c.count, have = have })
         end
     end
     return #missing == 0, missing
@@ -258,7 +277,7 @@ end
 function Costs.describe(costList)
     local parts = {}
     for _, c in ipairs(costList) do
-        table.insert(parts, string.format("%dx %s", c.count, c.label))
+        table.insert(parts, string.format("%dx %s", c.count, Costs.labelOf(c)))
     end
     return table.concat(parts, ", ")
 end
@@ -266,7 +285,7 @@ end
 function Costs.describeMissing(missing)
     local parts = {}
     for _, m in ipairs(missing) do
-        table.insert(parts, string.format("%dx %s (have %d)", m.count, m.label, m.have))
+        table.insert(parts, string.format("%dx %s (have %d)", m.count, Costs.labelOf(m), m.have))
     end
     return table.concat(parts, ", ")
 end
