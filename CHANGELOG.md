@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.4.1] - 2026-07-27
+
+### Fixed
+
+- On a dedicated server with more than one player, the saddle and Pal Gear unlock added in 1.4.0 could fail with "player record ambiguous" and skip without telling anyone. The mod picked the right player's record by comparing an id it read from the replicated player state, and when that id was empty or wrong there was no way to tell two players apart. The mod now tells the native component which player state to read, so the id comes straight off the server's own object, and it looks the record up through the player account rather than scanning every record in the world. Single player is unaffected and takes the same path as before. Reported by SirmittensI, whose server log made the failure visible in the first place.
+- With the egg filter on, an egg of an evolved form could hatch an element variant of its base instead of the base itself - a Penking egg giving you a Pengullet Lux, which you cannot turn back into a Pengullet. Eggs now only ever hatch the base the Pal came from, or a form you could still adapt into that base. Sibling variants are no longer candidates. A Penking egg gives Pengullet; a Penking Lux egg gives Pengullet Lux or Pengullet, since a Pengullet can still be adapted into one. `EGG-FILTER.md` has the updated rules and example.
+
+### Changed
+
+- When a recipe unlock fails, the affected player now gets a single private chat line saying so, once per session. The evolution itself is unaffected. Previously this only ever appeared in the server log.
+- The README lists known mod conflicts in one place, each marked with what was reported and when, and flagged as a player report rather than something I tested myself.
+
+### Known issues
+
+- The multiplayer case behind the first fix could not be reproduced here, since it needs two players on a dedicated server. If a recipe unlock still fails on 1.4.1, the log now names the reason, how the player id was resolved and how many records were in play. Please send that line.
+
 ## [1.4.0] - 2026-07-25
 
 ### Added
