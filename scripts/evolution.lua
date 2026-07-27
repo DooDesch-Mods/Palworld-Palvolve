@@ -100,12 +100,21 @@ local function guidString(g)
     return string.format("%08X-%08X-%08X-%08X", g.A, g.B, g.C, g.D)
 end
 
+-- An unset FGuid reads as all zeros. It is a table like any other, so a plain nil check
+-- accepts it as an identity and it then matches no record at all.
+local function isZeroGuid(g)
+    return not g or (g.A == 0 and g.B == 0 and g.C == 0 and g.D == 0)
+end
+
 -- Catch-gated technologies (saddles, Pal gear) unlock when a species is CAPTURED, not when
 -- its CharacterID changes - so an evolved form stays locked. The capture record lives in
 -- replicated FastArrays that UE4SS-Lua cannot map; the native companion (dlls/main.dll)
 -- sets it through the game's own _ForServer setters. See
 -- Workspace/docs/Palvolve/KNOWN-ISSUE-catch-tech-unlock.md.
 local nativeMissingLogged = false
+-- Keyed by player, not a single flag: on a dedicated server one shared flag would let the
+-- first player to hit a failure consume the notice for everyone else.
+local techUnlockNoticeSent = {}
 local function unlockCatchTech(targetId, playerCtx)
     if not Config.unlockCatchTech then return end
 
@@ -118,18 +127,43 @@ local function unlockCatchTech(targetId, playerCtx)
         return
     end
 
-    local uid
+    local uid = ""
     pcall(function()
-        if playerCtx and playerCtx.playerUId then uid = guidString(playerCtx.playerUId) end
+        if playerCtx and not isZeroGuid(playerCtx.playerUId) then
+            uid = guidString(playerCtx.playerUId)
+        end
     end)
 
-    local called, ok, msg = pcall(PalvolveNative_UnlockCaptureRecord, targetId, uid)
+    -- Naming the PlayerState lets the native side read the uid off the authority's own object
+    -- rather than trust the replicated value this process happened to see. Both are passed:
+    -- the native side prefers the state and falls back to the uid.
+    local stateName = ""
+    pcall(function()
+        local ps = playerCtx and playerCtx.playerState
+        if ps and ps:IsValid() then stateName = ps:GetFName():ToString() end
+    end)
+
+    local called, ok, msg = pcall(PalvolveNative_UnlockCaptureRecord, targetId, uid, stateName)
     if not called then
         Log(string.format("Catch-tech unlock errored for %s: %s", tostring(targetId), tostring(ok)))
     elseif ok then
         Log(string.format("Catch-tech unlocked for %s (%s)", tostring(targetId), tostring(msg)))
     else
         Log(string.format("Catch-tech unlock skipped for %s: %s", tostring(targetId), tostring(msg)))
+        -- Species that share a Paldeck slot with their base (Gumoss Botan) have no own
+        -- EPalTribeID, so the game keeps no capture record for them and there are no
+        -- catch-gated recipes to unlock. Nothing is wrong there, so the player is not asked
+        -- to report it - unlike a missing enum, which breaks every species and does count
+        -- as a failure. The native side distinguishes the two in its message.
+        local noRecordSlot = type(msg) == "string"
+            and msg:find("no EPalTribeID entry", 1, true) ~= nil
+        -- The evolution itself worked, so a real failure costs the player one line per
+        -- session; without it the failure only ever reaches the server log.
+        local noticeKey = uid ~= "" and uid or "unresolved"
+        if not noRecordSlot and not techUnlockNoticeSent[noticeKey] then
+            techUnlockNoticeSent[noticeKey] = true
+            pcall(function() Role.chat(playerCtx, I18n.msg("techUnlockFailed")) end)
+        end
     end
 end
 

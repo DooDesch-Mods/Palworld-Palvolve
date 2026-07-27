@@ -106,6 +106,15 @@ local function guidStr(g)
     return string.format("%08X-%08X-%08X-%08X", g.A, g.B, g.C, g.D)
 end
 
+-- An unset FGuid is still a table, so it passes a nil check and then identifies nobody.
+-- Treating it as a real sender id lets per-player gating and record lookups key off a
+-- value every player shares.
+local function isZeroGuid(g)
+    return not g or (g.A == 0 and g.B == 0 and g.C == 0 and g.D == 0)
+end
+
+local zeroUidLogged = false
+
 -- returns dropReason or nil (nil = accept)
 local function gate(uidStr, reqId)
     local now = os.clock()
@@ -211,6 +220,14 @@ function NetChannel.initHost(handler)
                     if not (senderCtx and senderCtx.playerUId) then
                         if opcode == OP_EVOLVE then Log("Evolve request dropped: sender player id unresolved") end
                         return
+                    end
+                    -- Deliberately not a drop: a zero id still identifies the requester well
+                    -- enough for the evolve itself, and refusing here would turn a missing
+                    -- recipe unlock into no evolutions at all. Note it once so a support log
+                    -- says whether this is what broke the record lookup.
+                    if isZeroGuid(senderCtx.playerUId) and not zeroUidLogged then
+                        zeroUidLogged = true
+                        Log("Sender player id is a zero guid - per-player lookups will not match")
                     end
 
                     local drop = gate(guidStr(senderCtx.playerUId), reqId)

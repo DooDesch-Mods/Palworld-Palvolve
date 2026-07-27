@@ -13,14 +13,17 @@ UE4SS fires the same-name `on_lua_start` for a Lua mod that shares this mod's na
 how the bindings reach `scripts/evolution.lua`:
 
 ```lua
-PalvolveNative_Version()                              -- string
-PalvolveNative_GetCaptureRecord(characterId, uid?)    -- count, flagSet, message
-PalvolveNative_UnlockCaptureRecord(characterId, uid?) -- ok, message
+PalvolveNative_Version()                                                -- string
+PalvolveNative_GetCaptureRecord(characterId, uid?, playerStateName?)    -- count, flagSet, message
+PalvolveNative_UnlockCaptureRecord(characterId, uid?, playerStateName?) -- ok, message
 ```
 
-`uid` is the owning player's `OwnerPlayerUId` formatted as `%08X-%08X-%08X-%08X`. Leave it out
-in single player. Calls are idempotent, refuse to run without world authority, and report
-failure as `(false, message)` rather than throwing.
+`uid` is the owning player's `OwnerPlayerUId` formatted as `%08X-%08X-%08X-%08X`.
+`playerStateName` is the object name of that player's `PalPlayerState`. When both are given the
+state wins, because the uid is then read from the authority's own object instead of from whatever
+the calling process saw replicated. Pass empty strings in single player. An all-zero uid counts as
+unresolved. Calls are idempotent, refuse to run without world authority, and report failure as
+`(false, message)` rather than throwing.
 
 ## Version lock
 

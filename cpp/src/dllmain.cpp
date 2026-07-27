@@ -36,13 +36,14 @@
 #include <Unreal/CoreUObject/UObject/Class.hpp>
 #include <Unreal/CoreUObject/UObject/UnrealType.hpp>
 #include <Unreal/Property/FStructProperty.hpp>
+#include <Unreal/Property/FObjectProperty.hpp>
 
 using namespace RC;
 using namespace RC::Unreal;
 
 namespace
 {
-    constexpr const wchar_t* ModVersionString = STR("1.4.0");
+    constexpr const wchar_t* ModVersionString = STR("1.4.1");
 
     // A world context object is required by the *_ForServer setters. The game mode is the
     // first reliable one available and exists only on the authority, which doubles as the
@@ -146,37 +147,117 @@ namespace
         return Buffer;
     }
 
-    // Picks the record of the requesting player. With a uid the match is exact. Falling back to
-    // "the one record in this world" is only allowed while exactly one live record exists, so a
-    // caller that could not resolve its uid never writes a stranger's record in multiplayer.
-    auto find_player_record(const std::wstring& PlayerUid, std::wstring& OutError) -> UObject*
+    // An unset FGuid formats as all zeros. It is not a usable identity but it is not empty
+    // either, so a plain emptiness check lets it through and it then matches nothing.
+    auto is_zero_guid(const std::wstring& Guid) -> bool
     {
+        if (Guid.empty()) return false;
+        return Guid.find_first_not_of(STR("0-")) == std::wstring::npos;
+    }
+
+    // Reporters paste server logs into public threads. The first block of a uid is enough to
+    // tell "all zeros" from "does not match anything", so full player identities stay out.
+    auto guid_prefix(const std::wstring& Guid) -> std::wstring
+    {
+        if (Guid.empty()) return STR("<none>");
+        return Guid.substr(0, Guid.find(L'-'));
+    }
+
+    // Reads an FGuid-shaped struct property off an object, empty when it is not there.
+    auto read_guid_prop(UObject* Object, const wchar_t* PropName) -> std::wstring
+    {
+        if (!Object) return {};
+        auto* Prop = CastField<FStructProperty>(Object->GetPropertyByNameInChain(PropName));
+        if (!Prop) return {};
+        return guid_string(Prop->ContainerPtrToValuePtr<void>(Object));
+    }
+
+    auto is_live(UObject* Object) -> bool
+    {
+        return Object && Object->GetName().find(STR("Default__")) == StringType::npos;
+    }
+
+    // The uid the Lua side computes comes from the replicated PlayerState. Reading it here
+    // instead, straight off the authority's own object, removes that link from the chain: the
+    // caller only has to name which PlayerState it is.
+    auto uid_from_player_state(const std::wstring& StateName) -> std::wstring
+    {
+        if (StateName.empty()) return {};
+        std::vector<UObject*> States;
+        UObjectGlobals::FindAllOf(STR("PalPlayerState"), States);
+        for (auto* State : States)
+        {
+            if (!is_live(State) || State->GetName() != StateName) continue;
+            return read_guid_prop(State, STR("PlayerUId"));
+        }
+        return {};
+    }
+
+    // Picks the record of the requesting player, trying the identities in order of how much
+    // they can be trusted. Falling back to "the one record in this world" is only allowed while
+    // exactly one live record exists, so a caller that could not resolve its uid never writes a
+    // stranger's record in multiplayer.
+    auto find_player_record(const std::wstring& PlayerUid, const std::wstring& PlayerStateName,
+                            std::wstring& OutError) -> UObject*
+    {
+        // 1. Prefer the uid read natively off the named PlayerState over the one passed in.
+        const bool bZeroFromCaller = is_zero_guid(PlayerUid);
+        std::wstring Uid = uid_from_player_state(PlayerStateName);
+        const bool bFromState = !Uid.empty() && !is_zero_guid(Uid);
+        if (!bFromState) Uid = PlayerUid;
+        if (is_zero_guid(Uid)) Uid.clear();
+
+        // 2. The player account carries both the uid and the record, so it resolves the record
+        //    even when the record's own OwnerPlayerUId is not set.
+        if (!Uid.empty())
+        {
+            std::vector<UObject*> Accounts;
+            UObjectGlobals::FindAllOf(STR("PalPlayerAccount"), Accounts);
+            for (auto* Account : Accounts)
+            {
+                if (!is_live(Account)) continue;
+                if (read_guid_prop(Account, STR("PlayerUId")) != Uid) continue;
+                // Cast rather than trust the name: a game patch that turns RecordData into a
+                // different property type would otherwise make the deref read a garbage pointer.
+                auto* RecordProp = CastField<FObjectProperty>(Account->GetPropertyByNameInChain(STR("RecordData")));
+                if (!RecordProp) continue;
+                auto* Record = *RecordProp->ContainerPtrToValuePtr<UObject*>(Account);
+                if (is_live(Record)) return Record;
+            }
+        }
+
+        // 3. Match the records themselves.
         std::vector<UObject*> Records;
         UObjectGlobals::FindAllOf(STR("PalPlayerRecordData"), Records);
 
         UObject* Fallback = nullptr;
         int32 LiveCount = 0;
+        std::wstring Seen;
 
         for (auto* Record : Records)
         {
-            if (!Record || Record->GetName().find(STR("Default__")) != StringType::npos) continue;
+            if (!is_live(Record)) continue;
             ++LiveCount;
             if (!Fallback) Fallback = Record;
 
-            if (PlayerUid.empty()) continue;
+            const std::wstring Owner = read_guid_prop(Record, STR("OwnerPlayerUId"));
+            if (!Seen.empty()) Seen += STR(",");
+            Seen += guid_prefix(Owner);
 
-            auto* UidProp = CastField<FStructProperty>(Record->GetPropertyByNameInChain(STR("OwnerPlayerUId")));
-            if (!UidProp) continue;
-            if (guid_string(UidProp->ContainerPtrToValuePtr<void>(Record)) == PlayerUid) return Record;
+            if (!Uid.empty() && Owner == Uid) return Record;
         }
 
         if (!Fallback) { OutError = STR("no PalPlayerRecordData in this world"); return nullptr; }
-        if (LiveCount > 1)
-        {
-            OutError = STR("player record ambiguous: no uid match and more than one record present");
-            return nullptr;
-        }
-        return Fallback;
+
+        // 4. Single-player and any world with one record left: unambiguous by construction.
+        if (LiveCount == 1) return Fallback;
+
+        OutError = STR("player record ambiguous: uid=") + guid_prefix(Uid)
+                 + (Uid.empty() ? STR(" (unresolved)") : (bFromState ? STR(" (from playerstate)") : STR(" (from caller)")))
+                 + ((!bFromState && bZeroFromCaller) ? STR(" zero-guid") : STR(""))
+                 + STR(" records=") + std::to_wstring(LiveCount)
+                 + STR(" owners=[") + Seen + STR("]");
+        return nullptr;
     }
 
     auto resolve_tribe_id(const std::wstring& CharacterId, uint16& OutValue, std::wstring& OutError) -> bool
@@ -216,14 +297,14 @@ namespace
     };
 
     auto prepare(const std::wstring& CharacterId, const std::wstring& PlayerUid,
-                 FRecordAccess& Out, std::wstring& OutError) -> bool
+                 const std::wstring& PlayerStateName, FRecordAccess& Out, std::wstring& OutError) -> bool
     {
         Out.World = g_world_context.load();
         if (!Out.World) { OutError = STR("no world authority (client-side call?)"); return false; }
 
         if (!resolve_tribe_id(CharacterId, Out.TribeId, OutError)) return false;
 
-        Out.Record = find_player_record(PlayerUid, OutError);
+        Out.Record = find_player_record(PlayerUid, PlayerStateName, OutError);
         if (!Out.Record) return false;
 
         Out.Utility = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalPlayerRecordDataUtility"));
@@ -310,7 +391,7 @@ class PalvolveNative : public CppUserModBase
         // consume the marker once a read actually succeeded.
         FRecordAccess Access{};
         std::wstring Error;
-        if (!prepare(Species, std::wstring{}, Access, Error)) return;
+        if (!prepare(Species, std::wstring{}, std::wstring{}, Access, Error)) return;
 
         int32 Count = 0;
         bool Flag = false;
@@ -367,6 +448,7 @@ class PalvolveNative : public CppUserModBase
     {
         std::wstring CharacterId;
         std::wstring PlayerUid;
+        std::wstring PlayerStateName;
 
         if (!L.is_string())
         {
@@ -376,10 +458,11 @@ class PalvolveNative : public CppUserModBase
         }
         CharacterId = to_wstring(std::string{L.get_string()});
         if (L.is_string()) PlayerUid = to_wstring(std::string{L.get_string()});
+        if (L.is_string()) PlayerStateName = to_wstring(std::string{L.get_string()});
 
         FRecordAccess Access{};
         std::wstring Error;
-        if (!prepare(CharacterId, PlayerUid, Access, Error))
+        if (!prepare(CharacterId, PlayerUid, PlayerStateName, Access, Error))
         {
             Output::send<LogLevel::Warning>(STR("[PalvolveNative] {} failed: {}\n"),
                                             bWrite ? STR("unlock") : STR("read"), Error);
