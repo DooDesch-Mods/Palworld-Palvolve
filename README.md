@@ -89,7 +89,7 @@ Run `/palvolve uninstall` in chat (single player or host) while the mod is still
 
 **Full guide, including recovery for a world that no longer loads: [UNINSTALL.md](UNINSTALL.md).**
 
-## Known Issues
+## Known issues
 
 - Work suitability shows the pre-evolution form until you relog. Job skill book bonuses are not affected.
 - Removing the mod without the cleanup step above can stop the world from loading.
@@ -121,10 +121,27 @@ Build the Pal Alchemy Workbench (level 10), forge an Evolution Stone from skill-
 Since 1.4.0 the mod unlocks those recipes for you when you evolve a Pal into that species. If the saddle still does not show up, the native component behind it is not loading. Check the UE4SS log for a line starting with `[PalvolveNative]`, and make sure your UE4SS build matches the one the mod was built against. If you prefer the vanilla rule that only catching a species unlocks its gear, set `unlockCatchTech = false` in the config.
 
 **Compatible with other mods?**
-Known conflicts: Dynamic Pals and PalMagic. Keep every mod updated, and send your mod list if an option stays greyed out.
+Mostly, with a few known conflicts - see [Known mod conflicts](#known-mod-conflicts) below. Keep every mod updated, and send your mod list if an option stays greyed out.
 
 **Custom trees and languages?**
 Yes. Build and share trees in the [web configurator](https://palvolve.doodesch.de/?utm_source=github&utm_medium=readme&utm_campaign=palvolve). The mod and configurator run in 17 languages.
+
+## Known mod conflicts
+
+These come from player reports. I do not run these mods myself, so each entry says "someone hit
+this" rather than passing judgement on the other mod. If you use one of them and everything works,
+tell me and I will correct the entry.
+
+| Mod | Symptom | Reported | Status |
+|---|---|---|---|
+| Dynamic Pals | Not fully compatible, evolve options can stay greyed out | 2026-07-20, Nexus | Open, unverified |
+| PalMagic | Not fully compatible, evolve options can stay greyed out | 2026-07-20, Nexus | Open, unverified |
+| Existing Pal Editor | Evolve entry missing from the radial menu | 2026-07-20, Nexus | Likely fixed in 1.3.3 |
+
+The Existing Pal Editor report matched a Palvolve bug of its own: the radial menu could lose its
+Evolve entry for a whole session because the wheel's interface classes load late. That was fixed in
+1.3.3 and nobody has reported the combination since. If you still see it on 1.3.3 or newer, that is
+a separate problem - please report it.
 
 ## Support
 
