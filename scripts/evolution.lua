@@ -2372,6 +2372,27 @@ function Evolution.init()
                 if okProbes and probes.worldProbe then probes.worldProbe() end
                 Role.ack(senderCtx, "condition probe done - see log")
             end,
+            -- dumps the sky plugin's weather presets, which carry the rain, snow,
+            -- fog and lightning values of every weather state. Needs a loaded
+            -- world: at the main menu only a stub preset exists.
+            wpreset = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.dumpWeatherPresets) then return end
+                local n = probes.dumpWeatherPresets() or 0
+                Role.ack(senderCtx, string.format("%d weather presets read - see log", n))
+            end,
+            -- cycles the world clock speed for the weather recording session
+            fast = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.cycleTimeScale) then return end
+                -- the chat hook already runs on the game thread, like the other
+                -- probe commands here, so the call is direct and the result usable
+                local rate = probes.cycleTimeScale()
+                Role.ack(senderCtx, rate and string.format("world clock at %.0fx", rate)
+                    or "time scale unchanged - see log")
+            end,
             -- uninstall probe set (devMode): count leftovers, sweep the own
             -- inventory, inspect the tech unlock array, neutralize the entry.
             -- Read (xtech) and write (xtechw) are separate so the array can be

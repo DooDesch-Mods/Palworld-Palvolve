@@ -335,6 +335,33 @@ local function givePalsV2(pc)
     end
 end
 
+-- Time acceleration for the weather recording session. Weather follows the day
+-- cycle and cannot be set directly, so running the clock faster is the only way
+-- to see several weather states in one sitting. The retail build has no console
+-- and the chat parser passes no arguments, so this cycles fixed rates instead
+-- of taking one.
+local TIME_SCALES = { 1.0, 20.0, 60.0 }
+local timeScaleIdx = 1
+function M.cycleTimeScale()
+    local playerCtx = Role.localPlayerCtx()
+    local pc = playerCtx and playerCtx.pc
+    if not (pc and pc:IsValid()) then
+        Log("[probe-time] no player controller")
+        return nil
+    end
+    local cm = getCheatManager(pc)
+    if not cm then
+        Log("[probe-time] no CheatManager (even after EnableCheats)")
+        return nil
+    end
+    timeScaleIdx = (timeScaleIdx % #TIME_SCALES) + 1
+    local rate = TIME_SCALES[timeScaleIdx]
+    local ok, err = pcall(function() cm:SetPalWorldTimeScale(rate) end)
+    Log(string.format("[probe-time] SetPalWorldTimeScale(%.1f) ok=%s%s", rate, tostring(ok),
+        ok and "" or (" err=" .. tostring(err))))
+    return ok and rate or nil
+end
+
 -- Exposed on M for the chat command path ("/palvolve kit"): compact
 -- keyboards have no INSERT key.
 function M.giveTestKit()
@@ -905,55 +932,6 @@ bindProbeKey("BACKSPACE", "probe-finale-run", function()
     end
 end)
 
--- Passive weather recorder. The four weather conditions carry guessed
--- thresholds and stay hidden in the editor until real values back them, and
--- weather cannot be forced: nothing in the object dump sets it, and PalDefender
--- has no weather command either. So instead of driving the weather, sample it
--- and write a line whenever it moves, which turns one normal play session into
--- the data set. Time can be sped up (PalCheatManager:SetPalWorldTimeScale) to
--- cycle through weather faster.
-local function startWeatherWatch()
-    local last = nil
-    local function changed(cur)
-        if not last then return true end
-        if cur.lightning ~= last.lightning then return true end
-        if cur.raining ~= last.raining or cur.snowing ~= last.snowing
-            or cur.thunderstorm ~= last.thunderstorm or cur.foggy ~= last.foggy then return true end
-        return math.abs(cur.rain - last.rain) > 0.01
-            or math.abs(cur.snow - last.snow) > 0.01
-            or math.abs(cur.fog - last.fog) > 0.005
-    end
-
-    LoopAsync(3000, function()
-        ExecuteInGameThread(function()
-            pcall(function()
-                local sky = FindFirstOf("PalSkyCreator")
-                if not (sky and sky:IsValid()) then return end
-                local fx = sky.WeatherSettings.WeatherFXSettings
-                local fog = sky.WeatherSettings.ExponentialHeightFogSettings
-                local cur = {
-                    rain = fx.RainAmount, snow = fx.SnowAmount,
-                    fog = fog.FogDensity, lightning = fx.EnableLightnings == true,
-                    tod = sky.TimeOfDay,
-                }
-                -- the verdicts the shipped thresholds produce right now, logged
-                -- next to the raw values so both can be compared in one line
-                cur.raining = cur.rain > 0.05
-                cur.snowing = cur.snow > 0.05
-                cur.thunderstorm = cur.lightning
-                cur.foggy = cur.fog > 0.05
-                if not changed(cur) then return end
-                last = cur
-                Log(string.format(
-                    "[weather] rain=%.3f snow=%.3f fog=%.4f lightning=%s tod=%.2f | raining=%s snowing=%s thunderstorm=%s foggy=%s",
-                    cur.rain, cur.snow, cur.fog, tostring(cur.lightning), cur.tod,
-                    tostring(cur.raining), tostring(cur.snowing),
-                    tostring(cur.thunderstorm), tostring(cur.foggy)))
-            end)
-        end)
-        return false -- runs for the whole session
-    end)
-end
 
 -- Spike for the configurable workbench unlock level. The stage lives in the
 -- PalSchema building JSON as Technology.LevelCap, which a Workshop update
@@ -998,7 +976,49 @@ local function probeTechnologyTable()
     end
 end
 
-startWeatherWatch()
+-- Reads the game's own weather presets instead of waiting for weather. The sky
+-- plugin ships one asset per weather state (DT_PPSC_Weather_Rain_01, _Snow_02,
+-- _Storm_04, ...), each carrying the same settings structs the live sky exposes,
+-- so every state's rain, snow, fog and lightning values can be read in one pass
+-- with no weather ever occurring. That is what the four weather conditions need
+-- in order to be calibrated.
+-- Returns the number of presets it managed to report, so the caller can wait
+-- for the world: only a stub preset exists at the main menu, the per-weather
+-- assets come in with the level.
+function M.dumpWeatherPresets()
+    local presets = FindAllOf("PPSkyCreatorWeatherPreset") or {}
+    if #presets == 0 then
+        Log("[probe-wpreset] no PPSkyCreatorWeatherPreset objects found")
+        return 0
+    end
+    Log(string.format("[probe-wpreset] %d preset objects", #presets))
+    local reported = 0
+    for _, p in ipairs(presets) do
+        local name = "?"
+        pcall(function() name = p:GetFName():ToString() end)
+        if not (p and p:IsValid()) then
+            Log(string.format("[probe-wpreset] %-32s (invalid object)", name))
+        else
+            -- Properties, never GetWeatherPresetSettings(): that getter returns the
+            -- settings struct by value, and struct-by-value marshalling hard-crashes
+            -- the process from Lua in this build - pcall does not catch it. The asset
+            -- carries the same data as plain struct properties, which is how the live
+            -- sky is read as well.
+            local ok, err = pcall(function()
+                local fx = p.WeatherFXSettings
+                local fog = p.ExponentialHeightFogSettings
+                Log(string.format("[probe-wpreset] %-32s rain=%.3f snow=%.3f fog=%.4f lightning=%s",
+                    name, fx.RainAmount, fx.SnowAmount, fog.FogDensity, tostring(fx.EnableLightnings)))
+            end)
+            if ok then
+                reported = reported + 1
+            else
+                Log(string.format("[probe-wpreset] %-32s read FAILED: %s", name, tostring(err)))
+            end
+        end
+    end
+    return reported
+end
 
 -- one-shot, delayed so the technology tables are past their load
 LoopAsync(15000, function()
