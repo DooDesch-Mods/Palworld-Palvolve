@@ -90,6 +90,10 @@ local TRUST_RANK_MIN = 5      -- GetFriendshipRank threshold
 -- needs a lower bar: the lightest snowfall state sits at 0.01.
 local RAIN_MIN = 0.05
 local SNOW_MIN = 0.005
+-- Fog is only read together with a dry-sky check, see BOOL_EVAL.foggy. The bar
+-- sits above the clear-sky band (a daylight preset reaches 0.08, a clear night
+-- measured 0.06) and below the weakest fog state that is actually visible.
+local FOG_MIN = 0.1
 
 -- ---------------------------------------------------------------- ue helpers
 
@@ -356,11 +360,19 @@ BOOL_EVAL.thunderstorm = function(ctx)
     return fx.EnableLightnings == true
 end
 
--- There is deliberately no `foggy`. FogDensity cannot express it: the sky
--- plugin's own presets put real fog anywhere between 0.01 and 0.4, while snow
--- reaches 0.4, rain 0.1 and even a clear daylight preset sits at 0.08. The
--- ranges overlap completely, so no threshold separates fog weather from the
--- rest, and density also rises every night on a clear sky.
+-- Fog needs more than a density threshold, because density alone does not mean
+-- fog: it climbs every night on a clear sky, a clear daylight preset sits at
+-- 0.08, and heavy snow reaches 0.4. What separates real fog is that the density
+-- is high AND the sky is otherwise dry. Measured against the sky plugin's own
+-- presets, "above 0.1 with no rain and no snow" catches Fog_01 (0.4), Fog_03
+-- (0.105) and Fog_04 (0.3) while excluding Snow_02 (0.4 with full snow),
+-- Rain_03 (0.1 with rain) and every clear state. Fog_02 (0.01) is missed on
+-- purpose: at that density there is nothing to see anyway.
+BOOL_EVAL.foggy = function(ctx)
+    local fx, sky = weatherFx(ctx)
+    if fx.RainAmount > 0 or fx.SnowAmount > 0 then return false end
+    return sky.WeatherSettings.ExponentialHeightFogSettings.FogDensity > FOG_MIN
+end
 
 local function hpRate(ctx)
     local hp, maxHp = nil, nil
@@ -563,7 +575,7 @@ Conditions.ORDER = {
     "isMale", "isFemale",
     "hpLow", "hpFull", "hungry", "wellFed", "highTrust",
     "isGliding", "inOwnBase", "inCombat",
-    "raining", "snowing", "thunderstorm",
+    "raining", "snowing", "thunderstorm", "foggy",
     -- available to hand-written configs only
     "isRiding",
 }
@@ -585,6 +597,7 @@ Conditions.LABELS = {
     isMale = "Male", isFemale = "Female",
     isGliding = "Gliding", inOwnBase = "In your own base", inCombat = "In combat",
     raining = "Raining", snowing = "Snowing", thunderstorm = "Thunderstorm",
+    foggy = "Foggy",
     hpLow = "Low HP", hpFull = "Full HP",
     hungry = "Hungry", wellFed = "Well fed", highTrust = "High trust",
     isRiding = "Being ridden",

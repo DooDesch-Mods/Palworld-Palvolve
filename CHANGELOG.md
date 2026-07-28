@@ -5,16 +5,14 @@
 ### Added
 
 - The player level that unlocks the Pal Alchemy Workbench is now yours to set. It sits in the configurator next to the other global settings and defaults to 10, the level it has always been. Some players want the workbench earlier, others later, and until now the only way to move it was editing a mod file that the next update overwrote. The setting lives in your config instead, so it survives updates, and the mod restores it on every start. A change applies the next time you start the game, because the technology tree reads its levels once at load.
-- Three weather conditions are now available in the configurator: raining, snowing and thunderstorm. They already existed in the mod but stayed hidden while their thresholds were guesses. They are checked against the game's own weather definitions now, so a pair that asks for rain fires in rain and nowhere else.
+- Four weather conditions are now available in the configurator: raining, snowing, thunderstorm and foggy. They already existed in the mod but stayed hidden while their thresholds were guesses. They are checked against the game's own weather definitions now, so a pair that asks for rain fires in rain and nowhere else.
 
 ### Fixed
 
 - Snowfall was only recognised from moderate snow upwards, so the lightest of the game's four snow states never counted as snowing.
+- Fog was measured by density alone, which is why it read as foggy on any clear night: that value climbs after sunset all by itself, and heavy snow pushes it higher than real fog does. Fog now also requires a dry sky, so it means fog rather than darkness or a snowstorm.
 - Cost messages named materials by their internal id: a missing Pal Souls read as "PalUpgradeStone". Items now use the name the game itself shows, in your game language. The mod's own Evolution and Adaptation Stones go through the same path and are localized too, instead of being English everywhere.
 
-### Removed
-
-- The `foggy` condition is gone. Fog density in Palworld does not describe fog: it climbs every night on a clear sky, and the game's own weather definitions put real fog as low as 0.01 while snow reaches 0.4 and rain 0.1. No threshold separates fog from everything else, so the condition could not be made to mean what its name promises. A pair that still lists `foggy` keeps working and simply drops that requirement.
 
 ## [1.4.1] - 2026-07-27
 
