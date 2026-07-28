@@ -74,13 +74,49 @@ function TechLevel.apply()
         return
     end
 
-    local out = io.open(path, "wb")
+    -- Never truncate the live file. Opening it for writing would empty it before
+    -- a single byte lands, so an interrupted write leaves PalSchema with a
+    -- building definition it cannot parse, and the next run cannot repair it
+    -- either because the LevelCap field is gone. Write a sibling file, confirm
+    -- every step, then swap.
+    local tmp = path .. ".new"
+    local out = io.open(tmp, "wb")
     if not out then
-        Log("Tech level: PalSchema building file not writable - stage unchanged")
+        Log("Tech level: cannot write next to the PalSchema building file - stage unchanged")
         return
     end
-    out:write(patched)
-    out:close()
+    local wrote = out:write(patched)
+    local closed = out:close()
+    if not (wrote and closed) then
+        os.remove(tmp)
+        Log("Tech level: write failed - stage unchanged")
+        return
+    end
+
+    -- verify the replacement before it replaces anything
+    local check = io.open(tmp, "rb")
+    local verify = check and check:read("*a") or nil
+    if check then check:close() end
+    if not verify or #verify ~= #patched or not verify:match('"LevelCap"%s*:%s*' .. tostring(want)) then
+        os.remove(tmp)
+        Log("Tech level: written file did not verify - stage unchanged")
+        return
+    end
+
+    local backup = path .. ".bak"
+    os.remove(backup)
+    if not os.rename(path, backup) then
+        os.remove(tmp)
+        Log("Tech level: could not set the old file aside - stage unchanged")
+        return
+    end
+    if not os.rename(tmp, path) then
+        os.rename(backup, path) -- put the original back
+        os.remove(tmp)
+        Log("Tech level: could not swap the new file in - stage unchanged")
+        return
+    end
+    os.remove(backup)
     Log(string.format(
         "Tech level: workbench unlock stage changed from %d to %d - active after the next game start",
         current, want))

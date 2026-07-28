@@ -85,13 +85,17 @@ end
 -- Localized item name through the game's own text system, so cost lines read
 -- "Pal Souls" instead of the raw "PalUpgradeStone". The mod's own items go the
 -- same way, because PalSchema registers them with an ITEM_NAME_ key like any
--- other item. Returns the id unchanged when the lookup fails, which is what a
--- call before the world exists does.
+-- other item.
+--
+-- Returns name, resolved. The flag matters for callers that decorate the name
+-- themselves: the per-element adaptation stones already carry their element in
+-- the registered name ("Adaptation Stone (Neutral)"), so adding it again reads
+-- as "(Neutral) (Neutral)". Only the undecorated fallback needs the suffix.
 local itemNameCache = {}
 function I18n.itemName(id, fallback)
-    if type(id) ~= "string" or id == "" then return fallback or id end
+    if type(id) ~= "string" or id == "" then return fallback or id, false end
     local cached = itemNameCache[id]
-    if cached then return cached end
+    if cached then return cached, true end
     local name = nil
     pcall(function()
         local mdt = StaticFindObject("/Script/Pal.Default__PalMasterDataTablesUtility")
@@ -107,7 +111,8 @@ function I18n.itemName(id, fallback)
     -- only successful lookups are cached, so a call made before the world is up
     -- retries later; the cache dies with the Lua state on restart
     if name then itemNameCache[id] = name end
-    return name or fallback or id
+    if name then return name, true end
+    return fallback or id, false
 end
 
 -- localized label for a boolean condition id (nil when unknown)

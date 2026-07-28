@@ -25,8 +25,11 @@ local Costs = {}
 function Costs.labelOf(entry)
     if not entry then return "?" end
     if entry.label then return entry.label end
-    local base = I18n.itemName(entry.id, entry.fallbackLabel)
-    if entry.element then
+    local base, resolved = I18n.itemName(entry.id, entry.fallbackLabel)
+    -- The element is only appended to the generic fallback name. Every
+    -- per-element stone is registered with its element already in the name, so
+    -- decorating a resolved name would repeat it.
+    if entry.element and not resolved then
         return string.format("%s (%s)", base, I18n.element(entry.element))
     end
     return base
@@ -277,7 +280,7 @@ end
 function Costs.describe(costList)
     local parts = {}
     for _, c in ipairs(costList) do
-        table.insert(parts, string.format("%dx %s", c.count, Costs.labelOf(c)))
+        table.insert(parts, I18n.msg("costEntry", c.count, Costs.labelOf(c)))
     end
     return table.concat(parts, ", ")
 end
@@ -285,7 +288,7 @@ end
 function Costs.describeMissing(missing)
     local parts = {}
     for _, m in ipairs(missing) do
-        table.insert(parts, string.format("%dx %s (have %d)", m.count, Costs.labelOf(m), m.have))
+        table.insert(parts, I18n.msg("costEntryMissing", m.count, Costs.labelOf(m), m.have))
     end
     return table.concat(parts, ", ")
 end

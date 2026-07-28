@@ -1593,6 +1593,14 @@ if user then
     if user.requireStone ~= nil then
         Config.requireStone = user.requireStone == true
     end
+    -- Clamped here rather than trusted: this value is written into the PalSchema
+    -- building file, where a junk level would break the technology entry.
+    if tonumber(user.techLevelCap) then
+        local lvl = math.floor(tonumber(user.techLevelCap))
+        if lvl < 1 then lvl = 1 end
+        if lvl > 100 then lvl = 100 end
+        Config.techLevelCap = lvl
+    end
     if type(user.costs) == "table" then
         for _, k in ipairs({ "enabled", "slots", "minRate", "countScale", "maxCount" }) do
             if user.costs[k] ~= nil then Config.costs[k] = user.costs[k] end
