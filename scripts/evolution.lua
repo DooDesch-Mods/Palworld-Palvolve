@@ -192,16 +192,24 @@ local displayNameCache = {}
 local function palDisplayName(id)
     local cached = displayNameCache[id]
     if cached then return cached end
+    -- Alphas carry a BOSS_ prefix that the text table does not know: it keys
+    -- one entry per species, exactly like the Paldeck. Asking for the prefixed
+    -- key returns the key itself ("PAL_NAME_BOSS_CubeTurtle_Neutral"), so the
+    -- prefix is stripped for the lookup while the cache stays keyed by the
+    -- original id.
+    local lookupId = id:gsub("^BOSS_", "")
     local name = nil
     pcall(function()
         local mdt = StaticFindObject("/Script/Pal.Default__PalMasterDataTablesUtility")
         local ctx = FindFirstOf("PalPlayerCharacter")
         if not (mdt and mdt:IsValid() and ctx and ctx:IsValid()) then return end
         -- EPalLocalizeTextCategory::PalMonsterName = 4
-        local txt = mdt:GetLocalizedText(ctx, 4, FName("PAL_NAME_" .. id))
+        local txt = mdt:GetLocalizedText(ctx, 4, FName("PAL_NAME_" .. lookupId))
         if txt then
             local s = txt:ToString()
-            if s and s ~= "" then name = s end
+            -- An unknown key comes back as the key. Treating that as a name
+            -- would also cache it, so the raw key would stick for the session.
+            if s and s ~= "" and s:sub(1, 9) ~= "PAL_NAME_" then name = s end
         end
     end)
     if Config.devMode then
@@ -295,18 +303,126 @@ end
 
 -- ---------------------------------------------------------------- snapshots (rollback)
 
--- Persisted as executable Lua (simplest robust format without a JSON lib).
+-- Recalls and re-summons the Pal after a rollback so the model matches the
+-- species again. The parameter change alone is invisible: the spawned actor
+-- keeps the mesh it was built with, so without this the player has to recall
+-- the pal by hand to see the result.
+--
+-- Only for the pal that is actually out, and only for a local player: a remote
+-- client on a dedicated server drives its own presentation, and reaching into
+-- its otomo lifecycle from the host is the sequence that belongs to the evolve
+-- path, not here. Every step is optional - if anything fails the rollback has
+-- still happened and the pal simply keeps its old model until recalled by hand.
+local function resummonAfterRollback(playerCtx, param)
+    -- Every exit logs its reason: the sequence has half a dozen ways to decline
+    -- legitimately, and a silent decline reads exactly like a broken one.
+    local function bail(reason)
+        Log("Resummon skipped: " .. reason)
+        return false
+    end
+    if not (playerCtx and playerCtx.pc and playerCtx.pc:IsValid()) then
+        return bail("no player controller")
+    end
+    if playerCtx.isLocal == false then return bail("remote player, client drives its own otomo") end
+
+    local holder = findHolderFor(playerCtx, nil)
+    if not (holder and holder:IsValid()) then return bail("no otomo holder") end
+    local mgr = findManager(playerCtx.pc)
+    if not mgr then return bail("no character manager") end
+
+    -- Party slot of an individual, via its handle. Both lookups return plain
+    -- values (an object pointer and an int), so neither can hit the
+    -- struct-by-value return that kills the process from Lua.
+    local function slotOf(p)
+        local slot = -1
+        pcall(function()
+            local handle = mgr:GetIndividualHandleFromCharacterParameter(p)
+            slot = holder:GetSlotIndexByIndividualHandle(handle)
+        end)
+        if type(slot) ~= "number" then return -1 end
+        return slot
+    end
+
+    local slot = slotOf(param)
+    if slot < 0 then return bail("pal has no party slot") end
+
+    -- Only act when this exact pal is the one that is out. Identified by slot
+    -- index rather than by comparing the two parameter objects: those come back
+    -- as separate Lua wrappers, and equality between them is the binding's
+    -- business, not something this should depend on. Slots are integers.
+    local spawned, spawnedSlot = nil, -1
+    pcall(function() spawned = holder:TryGetSpawnedOtomo() end)
+    if not (spawned and spawned:IsValid()) then return bail("no pal is out") end
+    pcall(function()
+        local sp = spawned.CharacterParameterComponent:GetIndividualParameter()
+        if sp and sp:IsValid() then spawnedSlot = slotOf(sp) end
+    end)
+    if spawnedSlot < 0 or spawnedSlot ~= slot then
+        return bail(string.format("a different pal is out (slot %d, rolled back %d)",
+            spawnedSlot, slot))
+    end
+
+    local okOff, errOff = pcall(function() holder:InactivateCurrentOtomo() end)
+    if not okOff then return bail("recall failed: " .. tostring(errOff)) end
+
+    -- The recall needs a moment before the slot can be loaded again; a single
+    -- delayed shot, not a poller, so nothing keeps ticking if it does not work.
+    local fired = false
+    LoopAsync(700, function()
+        if fired then return true end
+        fired = true
+        ExecuteInGameThread(function()
+            local ok, err = pcall(function()
+                if not (holder and holder:IsValid()
+                    and playerCtx.pc and playerCtx.pc:IsValid()) then return end
+                playerCtx.pc:SetOtomoSlot(slot)
+                holder:SpawnOtomoByLoad(slot)
+            end)
+            if ok then
+                Log(string.format("Resummoned slot %d after rollback", slot))
+            else
+                Log("Resummon failed: " .. tostring(err))
+            end
+        end)
+        return true
+    end)
+    return true
+end
+
+-- Rollback reaches back to the start of this session and no further.
+--
+-- Restore points live in memory. The file is still written, as executable Lua
+-- (simplest robust format without a JSON lib), so the session's restore points
+-- stay inspectable from outside the game, but it is never read back: a rollback
+-- returns what the evolution cost, and a restore point that outlives the
+-- session would hand back stones for an evolution made days ago, on a Pal that
+-- has been levelled, bred or traded since. Undoing what you just did is the
+-- promise; undoing your history is not.
 local snapshots = {}
 
 local function loadSnapshots()
-    local ok = pcall(function()
-        local chunk = loadfile(STATE_FILE)
-        if chunk then
-            local data = chunk()
-            if type(data) == "table" then snapshots = data end
-        end
+    snapshots = {}
+    -- Start the file over so old entries cannot be mistaken for this session's.
+    -- The file exists from the second launch onwards, so its mere presence says
+    -- nothing; only a file with entries in it means something was discarded.
+    local existed, hadEntries = false, false
+    pcall(function()
+        local f = io.open(STATE_FILE, "r")
+        if not f then return end
+        existed = true
+        local body = f:read("*a") or ""
+        f:close()
+        hadEntries = body:find("{ key =", 1, true) ~= nil
     end)
-    if not ok then snapshots = {} end
+    if existed then
+        pcall(function()
+            local f = io.open(STATE_FILE, "w")
+            if f then f:write("return {\n}\n"); f:close() end
+        end)
+    end
+    if hadEntries then
+        Log("Rollback restore points from earlier sessions discarded - rollback covers this session")
+    end
 end
 
 local function saveSnapshots()
@@ -314,11 +430,18 @@ local function saveSnapshots()
         local f = assert(io.open(STATE_FILE, "w"))
         f:write("return {\n")
         for _, s in ipairs(snapshots) do
+            local cost = ""
+            for _, c in ipairs(s.cost or {}) do
+                -- floored: material counts come from the user config verbatim,
+                -- and "%d" on a non-integer number raises rather than rounding
+                cost = cost .. string.format("{ id = %q, count = %d }, ",
+                    c.id, math.floor(tonumber(c.count) or 0))
+            end
             f:write(string.format(
-                "  { key = %q, from = %q, to = %q, level = %d, nickname = %q, ivHP = %d, ivMelee = %d, ivShot = %d, ivDefense = %d, uid = %q },\n",
+                "  { key = %q, from = %q, to = %q, level = %d, nickname = %q, ivHP = %d, ivMelee = %d, ivShot = %d, ivDefense = %d, uid = %q, cost = { %s} },\n",
                 s.key or "", s.from, s.to, s.level, s.nickname or "",
                 s.ivHP or -1, s.ivMelee or -1, s.ivShot or -1, s.ivDefense or -1,
-                s.uid or ""))
+                s.uid or "", cost))
         end
         f:write("}\n")
         f:close()
@@ -982,6 +1105,18 @@ local function performEvolution(p)
             -- whose pal the snapshot belongs to)
             uid = playerCtx and playerCtx.playerUId
                 and guidString(playerCtx.playerUId) or nil,
+            -- what this evolution actually cost, so a rollback can hand it
+            -- back. Recorded here rather than re-derived later: material costs
+            -- depend on the pal's level at the time, which has since moved on.
+            cost = (function()
+                local paid = {}
+                for _, c in ipairs(costList or {}) do
+                    if c.id and c.count then
+                        table.insert(paid, { id = c.id, count = c.count })
+                    end
+                end
+                return paid
+            end)(),
         })
         saveSnapshots()
         -- Always the unprefixed id: the capture record is keyed by EPalTribeID, which has one
@@ -2114,9 +2249,14 @@ function Evolution.onNetSignal(kind)
 end
 
 function Evolution.rollbackLast(playerCtx)
+    -- Role.ack, not Role.chat: the EnterChat hook fires on the sender's client
+    -- AND on the authority, so on a dedicated server this function runs twice.
+    -- The client run works against an empty local snapshot list and would
+    -- answer "no snapshot available" moments before the server's real reply
+    -- lands, leaving two contradicting lines on screen.
     local function say(msg)
+        if playerCtx then return Role.ack(playerCtx, msg) end
         Log(msg)
-        if playerCtx then Role.chat(playerCtx, msg) end
     end
     if lockBusy() then
         say(I18n.msg("rollbackBlocked"))
@@ -2193,19 +2333,30 @@ function Evolution.rollbackLast(playerCtx)
                     pcall(function() p:FullRecoveryHP() end)
                     refreshWorkSuitability(p, nil)
                     reverted = true
+                    pcall(function() resummonAfterRollback(playerCtx, p) end)
                 end
                 break
             end
         end
     end
     if reverted then
+        -- Give the price back: the evolution is undone, so keeping the stones
+        -- would charge for something that no longer happened. Only after the
+        -- restore actually succeeded, and only what this evolution recorded.
+        local refunded = false
+        pcall(function()
+            if last.cost and #last.cost > 0 then
+                refunded = Costs.refund(playerCtx, last.cost)
+                Log(refunded and ("Rollback refunded: " .. Costs.describe(last.cost))
+                    or "Rollback refund PARTIALLY FAILED - please report")
+            end
+        end)
         table.remove(snapshots, snapIdx)
         saveSnapshots()
-        say(string.format("Rollback %s -> %s: restored including IVs (resummon to see the model)",
+        say(I18n.msg(refunded and "rollbackDoneRefunded" or "rollbackDone",
             palDisplayName(last.to), palDisplayName(last.from)))
     else
-        say(string.format("Rollback %s -> %s: no matching pal found (snapshot kept; bring the pal nearby and retry)",
-            palDisplayName(last.to), palDisplayName(last.from)))
+        say(I18n.msg("rollbackNoMatch", palDisplayName(last.to)))
     end
 end
 
@@ -2387,8 +2538,8 @@ function Evolution.init()
                 if not Config.devMode then return end
                 local okProbes, probes = pcall(require, "probes")
                 if not (okProbes and probes.cycleTimeScale) then return end
-                -- the chat hook already runs on the game thread, like the other
-                -- probe commands here, so the call is direct and the result usable
+                -- chat handlers run on the game thread, like the other probe
+                -- commands here, so the call is direct and the result usable
                 local rate = probes.cycleTimeScale()
                 Role.ack(senderCtx, rate and string.format("world clock at %.0fx", rate)
                     or "time scale unchanged - see log")
@@ -2570,10 +2721,10 @@ function Evolution.init()
                 Role.ack(senderCtx, I18n.msg("helpLine"))
             end,
         })
-        if okCmd then Log("Chat commands active: /palvolve rollback") end
+        if okCmd then Log("Chat commands active: !palvolve rollback") end
     end)
 
-    Log(string.format("Evolution core active: %s = check/confirm, chat: /palvolve rollback",
+    Log(string.format("Evolution core active: %s = check/confirm, chat: !palvolve rollback",
         Config.confirmKey))
 end
 

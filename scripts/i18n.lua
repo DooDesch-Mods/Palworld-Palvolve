@@ -105,7 +105,10 @@ function I18n.itemName(id, fallback)
         local txt = mdt:GetLocalizedText(ctx, 11, FName("ITEM_NAME_" .. id))
         if txt then
             local s = txt:ToString()
-            if s and s ~= "" then name = s end
+            -- An unknown key comes back as the key itself. Accepting that would
+            -- print "ITEM_NAME_Foo" to the player, cache it for the session, and
+            -- report the lookup as resolved so callers skip their own fallback.
+            if s and s ~= "" and s:sub(1, 10) ~= "ITEM_NAME_" then name = s end
         end
     end)
     -- only successful lookups are cached, so a call made before the world is up

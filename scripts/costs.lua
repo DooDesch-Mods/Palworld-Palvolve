@@ -263,6 +263,22 @@ function Costs.resolve(pair, level, worldCtx)
     return merged
 end
 
+-- Gives a recorded cost back, used when a finished evolution is rolled back.
+-- Separate from the transaction refund, which only ever undoes a consume that
+-- has not been committed yet: by the time a rollback happens the transaction is
+-- long closed, so the list travels in the snapshot instead.
+-- Returns true when every entry landed.
+function Costs.refund(playerCtx, list)
+    if type(list) ~= "table" then return true end
+    local allOk = true
+    for _, c in ipairs(list) do
+        if c.id and c.count and c.count > 0 then
+            if not giveItems(playerCtx, c.id, c.count) then allOk = false end
+        end
+    end
+    return allOk
+end
+
 -- Returns ok, missing[] where missing entries keep the naming fields so the
 -- description can resolve the item name when the message is actually built
 function Costs.check(playerCtx, costList)
