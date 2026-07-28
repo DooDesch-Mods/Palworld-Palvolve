@@ -6,9 +6,17 @@
 
 - The player level that unlocks the Pal Alchemy Workbench is now yours to set. It sits in the configurator next to the other global settings and defaults to 10, the level it has always been. Some players want the workbench earlier, others later, and until now the only way to move it was editing a mod file that the next update overwrote. The setting lives in your config instead, so it survives updates, and the mod restores it on every start. A change applies the next time you start the game, because the technology tree reads its levels once at load.
 - Four weather conditions are now available in the configurator: raining, snowing, thunderstorm and foggy. They already existed in the mod but stayed hidden while their thresholds were guesses. They are checked against the game's own weather definitions now, so a pair that asks for rain fires in rain and nowhere else.
+- A rollback hands back what the evolution cost. The stones go to the player who owns the Pal, and the reply names them. Reported by JJCool.
+- Rolling back also recalls and re-summons the Pal when it is the one you have out. The species changes in the save either way, but the Pal standing in front of you keeps the model it was spawned with, which meant recalling it by hand to see the result.
+
+### Changed
+
+- Chat commands answer to `!palvolve` now. Palworld reads any chat line starting with a slash as an admin command and replies "You are not an Admin" before a mod is ever involved, and that reply cannot be intercepted. `/palvolve` still works for anyone used to it, it just comes with the game's complaint attached. `!` is the prefix the other Palworld command mods use for the same reason.
+- Rollbacks now reach back to the start of your session and no further. Restore points are no longer read from disk on startup. The promise is undoing what you just did, and a restore point from three sessions ago would hand back stones for an evolution on a Pal that has been levelled, bred or traded since.
 
 ### Fixed
 
+- The Evolve entry could be missing from the radial wheel for a whole session. Its hooks are registered when the wheel's widget is first built, and that registration ran on a timer that UE4SS can shut down mid-session. The registration no longer depends on that timer.
 - Snowfall was only recognised from moderate snow upwards, so the lightest of the game's four snow states never counted as snowing.
 - Fog was measured by density alone, which is why it read as foggy on any clear night: that value climbs after sunset all by itself, and heavy snow pushes it higher than real fog does. Fog now also requires a dry sky, so it means fog rather than darkness or a snowstorm.
 - Cost messages named materials by their internal id: a missing Pal Souls read as "PalUpgradeStone". Items now use the name the game itself shows, in your game language. The mod's own Evolution and Adaptation Stones go through the same path and are localized too, instead of being English everywhere.

@@ -11,7 +11,7 @@
 - **Keeps identity and progress:** every learned move carries over, even ones the new form could never learn on its own, and level, nickname, gender, passives, IVs, souls and condenser rank all stay. Alphas evolve into Alpha forms, Luckys stay Lucky.
 - **Conditional evolutions:** a pair can require day or night, water, a status effect, a location, a party member, a known move element, or a trainer-level, trust-rank or IV threshold. Greyed options name what is still missing, in your game language.
 - **Web configurator:** build your own evolution tree at [palvolve.doodesch.de](https://palvolve.doodesch.de) - rewire pairs, set levels and conditions, share it as a short link, and download the config. 17 languages.
-- **Reversible by design:** every evolution is snapshotted first, `/palvolve rollback` restores the previous form, and an aborted transformation refunds what it used.
+- **Reversible by design:** every evolution is snapshotted first, `!palvolve rollback` restores the previous form, and an aborted transformation refunds what it used.
 - **Earned, not free:** evolutions cost stones from the buildable Pal Alchemy Workbench, and an optional egg filter can keep eggs hatching base forms.
 
 ## Requirements
@@ -48,10 +48,10 @@ Clients join with the normal Workshop install.
 - Build and share your own tree in the [web configurator](https://palvolve.doodesch.de).
 - Put the exported `config_user.lua` in `%LocalAppData%\Pal\Saved\Palvolve\`. It replaces the default tree and survives updates.
 
-## Known Issues
+## Known issues
 
 - Work suitability shows the pre-evolution form until you relog. Job skill book bonuses are not affected.
-- Removing the mod needs a cleanup step: run `/palvolve uninstall`, then keep the `PalSchema\mods\Palvolve` data folder or run the [Save Cleaner](https://github.com/DooDesch-Mods/Palworld-Palvolve/blob/main/UNINSTALL.md).
+- Removing the mod needs a cleanup step: run `!palvolve uninstall`, then keep the `PalSchema\mods\Palvolve` data folder or run the [Save Cleaner](https://github.com/DooDesch-Mods/Palworld-Palvolve/blob/main/UNINSTALL.md).
 
 ## FAQ
 
@@ -65,7 +65,7 @@ Same cause: UE4SS or PalSchema is not active. The tell is no UE4SS output in the
 On the server **and** every client. UE4SS, PalSchema and Palvolve have to be active on both sides; a client-only install does not work.
 
 **How do I uninstall it safely? My world crashes after I remove the mod.**
-Run `/palvolve uninstall` first, then keep the `PalSchema\mods\Palvolve` data folder or run the Save Cleaner. Back up your saves first. Full steps: [UNINSTALL.md](https://github.com/DooDesch-Mods/Palworld-Palvolve/blob/main/UNINSTALL.md).
+Run `!palvolve uninstall` first, then keep the `PalSchema\mods\Palvolve` data folder or run the Save Cleaner. Back up your saves first. Full steps: [UNINSTALL.md](https://github.com/DooDesch-Mods/Palworld-Palvolve/blob/main/UNINSTALL.md).
 
 **Breeding changed, or an evolved variant will not hatch?**
 The egg filter is off by default, so eggs hatch what they normally would. If you turned it on (it makes eggs hatch base forms only), turn it back off in the config or the configurator.
@@ -74,7 +74,13 @@ The egg filter is off by default, so eggs hatch what they normally would. If you
 Evolution turns a Pal into a different Pal (Pengullet to Penking). Adaptation changes its element (Pengullet to Pengullet Lux).
 
 **How do I evolve a Pal?**
-Build the Pal Alchemy Workbench (level 10), forge an Evolution Stone from skill-fruit essences, then hold 4 and pick Evolve. `/palvolve rollback` undoes it.
+Build the Pal Alchemy Workbench (unlocks at level 10, adjustable), forge an Evolution Stone from skill-fruit essences, then hold 4 and pick Evolve. `!palvolve rollback` undoes it.
+
+**The workbench unlocks too late (or too early) for my run?**
+Set `techLevelCap` in the configurator or in `config_user.lua` to the player level you want, anywhere from 1 to 100. The mod rewrites its own technology entry on startup, so the setting survives mod updates.
+
+**Why `!palvolve` and not `/palvolve`?**
+A leading slash is the game's own admin sigil: Palworld answers every such line with "You are not an Admin" before any mod ever sees it, and that reply cannot be intercepted from a mod. `/palvolve` still works if that is what you are used to - `!palvolve` is the quiet one, and the same prefix the other Palworld command mods use.
 
 **Compatible with other mods?**
 Known conflicts: Dynamic Pals and PalMagic. Keep every mod updated, and send your mod list if an option stays greyed out.

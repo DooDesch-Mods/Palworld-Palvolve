@@ -8,7 +8,7 @@ Removes every Palvolve trace from a Palworld world save, so the world loads on a
 
 A world that used Palvolve keeps references to the mod's items in its save files: item stacks in chests, the placed workbench, and crafting statistics inside each player file. Without the mod's item definitions those references stop resolving and the world refuses to load. That hits you when you uninstall the mod completely, reinstall the game (Steam syncs saves, not mods), or move to another PC.
 
-The in-game command `/palvolve uninstall` cleans what a running game can reach. This tool cleans what it cannot: the crafting statistics, stacks in containers whose chest no longer exists, and a placed workbench on a save you can no longer open.
+The in-game command `!palvolve uninstall` cleans what a running game can reach. This tool cleans what it cannot: the crafting statistics, stacks in containers whose chest no longer exists, and a placed workbench on a save you can no longer open.
 
 ## Usage
 

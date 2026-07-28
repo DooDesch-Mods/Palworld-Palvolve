@@ -16,7 +16,7 @@ Two ways to go, pick one:
 
 With the mod still installed, in single player or as the host:
 
-1. Open the chat and run `/palvolve uninstall`.
+1. Open the chat and run `!palvolve uninstall`.
 2. It deletes every Palvolve item from your inventory for real, removes the technology unlock, scans every container in the world and names the exact spot of every remaining stack, and lists placed workbenches. Do not use the game's own discard for mod items - discarding drops them on the ground, and base pals haul the drops into chests.
 3. Collect what it names, empty and demolish the workbenches it lists, pick up what drops, and run the command again.
 4. When it reports the world clean: save, then quit.
