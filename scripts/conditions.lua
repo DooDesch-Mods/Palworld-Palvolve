@@ -84,9 +84,12 @@ local HP_FULL_RATE = 0.999
 local HUNGRY_RATE = 0.3
 local WELL_FED_RATE = 0.9
 local TRUST_RANK_MIN = 5      -- GetFriendshipRank threshold
-local RAIN_MIN = 0.05         -- WeatherFXSettings thresholds
-local SNOW_MIN = 0.05
-local FOG_MIN = 0.05
+-- WeatherFXSettings thresholds, read off the sky plugin's own weather presets
+-- (DT_PPSC_Weather_*). Every non-rain preset has RainAmount exactly 0 and the
+-- weakest rain state is 0.2, so any small positive value separates them. Snow
+-- needs a lower bar: the lightest snowfall state sits at 0.01.
+local RAIN_MIN = 0.05
+local SNOW_MIN = 0.005
 
 -- ---------------------------------------------------------------- ue helpers
 
@@ -352,10 +355,12 @@ BOOL_EVAL.thunderstorm = function(ctx)
     local fx = weatherFx(ctx)
     return fx.EnableLightnings == true
 end
-BOOL_EVAL.foggy = function(ctx)
-    local _, sky = weatherFx(ctx)
-    return sky.WeatherSettings.ExponentialHeightFogSettings.FogDensity > FOG_MIN
-end
+
+-- There is deliberately no `foggy`. FogDensity cannot express it: the sky
+-- plugin's own presets put real fog anywhere between 0.01 and 0.4, while snow
+-- reaches 0.4, rain 0.1 and even a clear daylight preset sits at 0.08. The
+-- ranges overlap completely, so no threshold separates fog weather from the
+-- rest, and density also rises every night on a clear sky.
 
 local function hpRate(ctx)
     local hp, maxHp = nil, nil
@@ -558,8 +563,9 @@ Conditions.ORDER = {
     "isMale", "isFemale",
     "hpLow", "hpFull", "hungry", "wellFed", "highTrust",
     "isGliding", "inOwnBase", "inCombat",
+    "raining", "snowing", "thunderstorm",
     -- available to hand-written configs only
-    "raining", "snowing", "thunderstorm", "foggy", "isRiding",
+    "isRiding",
 }
 
 Conditions.LABELS = {
@@ -579,7 +585,6 @@ Conditions.LABELS = {
     isMale = "Male", isFemale = "Female",
     isGliding = "Gliding", inOwnBase = "In your own base", inCombat = "In combat",
     raining = "Raining", snowing = "Snowing", thunderstorm = "Thunderstorm",
-    foggy = "Foggy",
     hpLow = "Low HP", hpFull = "Full HP",
     hungry = "Hungry", wellFed = "Well fed", highTrust = "High trust",
     isRiding = "Being ridden",
