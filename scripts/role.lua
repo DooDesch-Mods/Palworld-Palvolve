@@ -161,6 +161,13 @@ function Role.chat(playerCtx, msg)
     return ok
 end
 
+-- Length limit for both paths above: the chat DROPS a line that runs too long
+-- instead of truncating it, so a message past roughly a hundred characters
+-- never appears on screen even though the log shows it. Player-facing messages
+-- are therefore kept short at the source rather than split here - splitting
+-- means cutting a Lua string by BYTES, which lands inside a multi-byte
+-- character in German, Russian or Japanese and hands the chat malformed text.
+
 -- Reply to a CHAT COMMAND. The EnterChat hook fires on the sender's client
 -- (RPC stub) AND on the world authority, so command handlers run twice on
 -- dedicated servers. The authority owns the visible reply (private system

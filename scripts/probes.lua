@@ -17,8 +17,8 @@
 --   F1 = finale asset probe (verdicts + component capture check)
 --   BACKSPACE = FULL evolution run, one press per element stage: the
 --               summoned pal evolves into a random stage target
---   Chat commands for compact keyboards (devMode only): /palvolve free
---   (= END), /palvolve kit (= INSERT), /palvolve fx (standalone finale
+--   Chat commands for compact keyboards (devMode only): !palvolve free
+--   (= END), !palvolve kit (= INSERT), !palvolve fx (standalone finale
 --   cycle at the summoned pal)
 --
 local M = {}
@@ -162,7 +162,7 @@ RegisterKeyBind(Key.F7, Debounced("speciesswap", function()
     end)
 end))
 
--- END or chat "/palvolve free": free-evolution toggle for FX test sessions -
+-- END or chat "!palvolve free": free-evolution toggle for FX test sessions -
 -- disables stone AND material costs at runtime (the resolve cache is
 -- dropped so armed pairs reprice immediately). Exposed on M for the chat
 -- command path: compact keyboards have no END key.
@@ -175,7 +175,7 @@ function M.toggleFreeMode()
             savedCosts = { stone = cfg.requireStone, costs = cfg.costs.enabled }
             cfg.requireStone = false
             cfg.costs.enabled = false
-            Log("[probe-costs] FREE MODE ON - evolutions cost nothing (END or /palvolve free toggles back)")
+            Log("[probe-costs] FREE MODE ON - evolutions cost nothing (END or !palvolve free toggles back)")
         else
             cfg.requireStone = savedCosts.stone
             cfg.costs.enabled = savedCosts.costs
@@ -362,7 +362,7 @@ function M.cycleTimeScale()
     return ok and rate or nil
 end
 
--- Exposed on M for the chat command path ("/palvolve kit"): compact
+-- Exposed on M for the chat command path ("!palvolve kit"): compact
 -- keyboards have no INSERT key.
 function M.giveTestKit()
     local suc, e = pcall(function()
@@ -545,7 +545,7 @@ end
 
 -- World state (time of day, weather) + the evaluated view of every
 -- boolean condition for the summoned pal. Exported so the chat probe
--- (/palvolve xcond) can trigger it on keyboards without a nav cluster.
+-- (!palvolve xcond) can trigger it on keyboards without a nav cluster.
 function M.worldProbe()
     local util = StaticFindObject("/Script/Pal.Default__PalUtility")
     local playerCtx = Role.localPlayerCtx()
@@ -828,7 +828,7 @@ bindProbeKey("F1", "probe-finale-assets", function()
     end
 end)
 
--- Chat "/palvolve fx": play the layered finale standalone at the summoned
+-- Chat "!palvolve fx": play the layered finale standalone at the summoned
 -- pal - one call per stage, cycling the nine single elements and then
 -- three dual-element samples. Quick per-element tuning without running an
 -- evolution; the sample pal's capsule half feeds the same anchoring and
@@ -879,8 +879,8 @@ end
 -- and configured pairs are all bypassed; free mode is forced so costs stay
 -- zero). The real sequence runs from dissolve to finale on the pal as it
 -- stands - no morphing, no resummon. Stages cover all nine reveal elements
--- plus three true dual-element targets (verified against
--- elements_static.lua); a failed start keeps the stage for a retry.
+-- plus three true dual-element targets (sourced from elements_static.lua);
+-- a failed start keeps the stage for a retry.
 local FULL_CYCLE = {
     { note = "Normal",           targets = { "CubeTurtle_Neutral", "WhiteMoth_Neutral" } },
     { note = "Fire",             targets = { "Suzaku", "KingBahamut" } },
@@ -1026,7 +1026,7 @@ LoopAsync(15000, function()
     return true
 end)
 
-Log(string.format("Probes active: F3 revert(own), F4 arm radial probes, F5 overlay, F6 VFX, F7 morph FX bases, F8 fanfare, F9 freeze, F10 give EXP, END free mode, test kit on %s, conditions on HOME/PAGE_UP/PAGE_DOWN, NUM7 day/night, NUM8 status cycle, F1 finale assets, BACKSPACE full evolution run (random target, 12 stages), chat /palvolve free|kit|fx; weather recorder writes [weather] lines on every change",
+Log(string.format("Probes active: F3 revert(own), F4 arm radial probes, F5 overlay, F6 VFX, F7 morph FX bases, F8 fanfare, F9 freeze, F10 give EXP, END free mode, test kit on %s, conditions on HOME/PAGE_UP/PAGE_DOWN, NUM7 day/night, NUM8 status cycle, F1 finale assets, BACKSPACE full evolution run (random target, 12 stages), chat !palvolve free|kit|fx; weather recorder writes [weather] lines on every change",
     Key.INS and "INSERT" or "POS1"))
 
 return M
