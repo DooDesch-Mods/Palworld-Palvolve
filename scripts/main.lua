@@ -31,6 +31,14 @@ if Role.isDedicated() then
     Log("dedicated server detected: UI modules disabled")
 end
 
+-- Workbench unlock stage: PalSchema data, so this only writes the file and the
+-- new stage applies on the next start. Runs on every launch, which also repairs
+-- the value after a Workshop update replaced the PalSchema folder.
+do
+    local okTech, errTech = pcall(function() require("techlevel").apply() end)
+    if not okTech then Log("tech level: " .. tostring(errTech)) end
+end
+
 -- Evolution core
 local Evolution = nil
 local okCore, errCore = pcall(function()
