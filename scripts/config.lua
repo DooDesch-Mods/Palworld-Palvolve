@@ -23,12 +23,19 @@ local Config = {
 
     -- Mod version, reported to connected clients by the host handshake. Keep in
     -- sync with Info.json (the release flow checks this).
-    modVersion = "1.4.1",
+    modVersion = "1.4.2",
 
     -- Unlock the catch-gated technologies (saddle, Pal gear) of the target species when a
     -- pal evolves, the same way capturing one would. Needs the native companion in
     -- dlls/main.dll; without it this is skipped and evolution works as before.
     unlockCatchTech = true,
+
+    -- Player level at which the Pal Alchemy Workbench becomes buildable in the
+    -- technology tree. The stage lives in PalSchema data, not in Lua, so this is
+    -- applied by rewriting that file and takes effect on the next game start.
+    -- Keeping it here means it survives a Workshop update, which overwrites the
+    -- PalSchema file itself. 10 is the shipped default.
+    techLevelCap = 10,
 
     -- Server check: a connected client asks the host whether Palvolve runs
     -- server-side and which version. Without a host-side answer, evolution and
