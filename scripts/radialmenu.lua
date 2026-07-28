@@ -740,16 +740,39 @@ function RadialMenu.init(evolutionApi)
     -- appears rather than polling for a class that is not loaded yet.
     -- NotifyOnNewObject flags a registration pass; a single idle-guarded LoopAsync
     -- performs it on the game thread (RegisterHook needs the game thread). This is
-    -- the canonical GC-safe pattern (UE4SS-LESSONS 1/4): it never polls forever (the
-    -- "evolve tab disappears until relaunch" trap) and never gives up early (it
-    -- re-arms every time the UI reappears, fixing the "hooks unavailable" give-up
-    -- that left single-player with no Evolve entry).
+    -- the canonical GC-safe pattern (UE4SS-LESSONS 1/4): it never polls forever
+    -- (which strands the wheel without an Evolve tab until relaunch) and never
+    -- gives up early, because it re-arms every time the UI reappears.
+    --
+    -- The notify keeps to that rule and only sets the flag, with one exception:
+    -- when the drain loop has stopped ticking. UE4SS can tear down its Lua tick
+    -- hook mid-session ("Ref was not function ... removing hook!"), and every
+    -- LoopAsync in the process dies with it, including this one, which left the
+    -- wheel without an Evolve entry until the next relaunch. Starting another
+    -- LoopAsync would not help there, because the machinery that runs them is
+    -- what died. The notify fires from the game thread while the widget is
+    -- built, so on that path it can register itself. `lastTick` separates the
+    -- two cases: a live loop refreshes it every second, so the inline branch
+    -- stays dormant while the normal path works.
     if not doneRegistering then
         local wantRegister = true -- one retry after load, then armed by the notify
+        local lastTick = os.clock()
+        local TICK_DEAD_AFTER = 3.0
         pcall(function()
-            NotifyOnNewObject(MENU_WBP, function() wantRegister = true end)
+            NotifyOnNewObject(MENU_WBP, function()
+                if doneRegistering then return end
+                wantRegister = true
+                if os.clock() - lastTick < TICK_DEAD_AFTER then return end
+                pcall(function()
+                    if tryHooks() then
+                        doneRegistering = true
+                        Log("Radial menu integration active (drain loop gone): Evolve entry in the hold-4 wheel")
+                    end
+                end)
+            end)
         end)
         LoopAsync(1000, function()
+            lastTick = os.clock()
             if doneRegistering then return true end -- all hooks in -> stop looping
             if not wantRegister then return false end -- idle: nothing pending, ref-free
             ExecuteInGameThread(function()
