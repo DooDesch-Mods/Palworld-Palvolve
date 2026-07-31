@@ -1803,6 +1803,21 @@ function Evolution.isArmed()
     return pending ~= nil and (os.clock() - pending.armedAt) <= Config.confirmWindowSeconds
 end
 
+-- Reason the radial entry was last greyed, or nil while it was offered. canOffer
+-- runs on every wheel rebuild, so the reason is written only when it CHANGES -
+-- logging every call would put one line per frame in the file. Logging nothing
+-- is worse: "not your pal", "nothing configured for this species" and "host not
+-- confirmed" produce the same grey entry and are otherwise indistinguishable.
+local lastOfferReason = nil
+
+local function offerVerdict(reason)
+    if reason ~= lastOfferReason then
+        lastOfferReason = reason
+        Log(reason and ("Evolve unavailable: " .. reason) or "Evolve available")
+    end
+    return reason
+end
+
 -- Light-weight availability for the radial label: an owned pal is
 -- summoned and has at least one configured option. Level and costs are
 -- only checked in the submenu - this runs on every wheel rebuild.
@@ -1810,35 +1825,40 @@ function Evolution.canOffer()
     -- grey the radial entry while the host is unconfirmed as a Palvolve host; the
     -- reason is surfaced when the player opens it (listOptions) or presses F2, not
     -- as a preemptive banner
-    if ServerCheck.blocked() then return false end
-    local why = Config.devMode and {} or nil
-    local function verdict(name, v)
-        if why then table.insert(why, name .. "=" .. tostring(v)) end
-        return v
+    if ServerCheck.blocked() then
+        offerVerdict("this host is not confirmed as a Palvolve host")
+        return false
     end
-    local ok, res = pcall(function()
+    -- returns nil when the entry may be offered, otherwise the reason it may not
+    local ok, reason = pcall(function()
         local playerCtx = Role.localPlayerCtx()
         local holder = findHolderFor(playerCtx, nil)
-        if not verdict("holder", holder ~= nil) then return false end
+        if not holder then return "no otomo holder for the local player" end
         local actor = nil
         pcall(function() actor = holder:TryGetSpawnedOtomo() end)
-        if not verdict("actor", (actor and actor:IsValid()) == true) then return false end
+        if not (actor and actor:IsValid()) then return "no pal summoned" end
         local param = paramOf(actor)
-        if not verdict("param+owned",
-            (param and isOwnedBy(param, playerCtx and playerCtx.playerUId)) ~= nil
-            and param ~= nil and isOwnedBy(param, playerCtx and playerCtx.playerUId)) then return false end
+        if not param then return "the summoned pal has no individual parameter" end
         local id = baseCharacterId(param:GetCharacterID():ToString())
+        if not isOwnedBy(param, playerCtx and playerCtx.playerUId) then
+            -- a traded or gifted pal keeps the original catcher in its save
+            -- record, so it reads as someone else's while sitting in this
+            -- player's own party
+            return string.format("pal '%s' is not owned by this player", id)
+        end
         local n = #Config.findPairs(id)
-        if why then table.insert(why, string.format("id='%s' pairs=%d", id, n)) end
-        if n == 0 then return false end
+        if n == 0 then
+            return string.format("no enabled pair configured for '%s'", id)
+        end
         prewarmNames(id)
-        return true
+        return nil
     end)
-    if why and not (ok and res == true) then
-        Log(string.format("[canOffer] GREY: pcallOk=%s res=%s | %s",
-            tostring(ok), tostring(res), table.concat(why, " ")))
+    if not ok then
+        offerVerdict("availability check failed: " .. tostring(reason))
+        return false
     end
-    return ok and res == true
+    offerVerdict(reason)
+    return reason == nil
 end
 
 -- All evolution/adaptation options for the currently summoned pal with

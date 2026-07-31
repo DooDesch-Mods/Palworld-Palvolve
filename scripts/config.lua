@@ -1526,6 +1526,15 @@ function Config.baseFormOf(characterId)
     return (Config.baseFormsOf(characterId))[1]
 end
 
+-- Where the mod's scripts folder would find its own config_user.lua, or nil.
+-- The AppData copy wins over this one, so an edit here changes nothing and
+-- reads as the mod ignoring the config - worth naming in the log.
+local function scriptsConfigPath()
+    local found = nil
+    pcall(function() found = package.searchpath("config_user", package.path) end)
+    return found
+end
+
 -- Optional user overlay: the configurator at palvolve.doodesch.de generates
 -- a config_user.lua. It replaces the pair map wholesale and merges a
 -- whitelist of globals. Preferred location (identical on every PC, works for
@@ -1533,14 +1542,30 @@ end
 --   %LocalAppData%\Pal\Saved\Palvolve\config_user.lua
 -- Fallback: next to this file. Mod updates never touch the user file.
 local function loadUserConfig()
+    local checked = {}
     local localAppData = os.getenv("LOCALAPPDATA")
     if localAppData then
         local dir = localAppData .. "\\Pal\\Saved\\Palvolve"
         local path = dir .. "\\config_user.lua"
-        local chunk = loadfile(path)
-        if chunk then
-            local okChunk, result = pcall(chunk)
-            if okChunk and type(result) == "table" then return result, path end
+        table.insert(checked, path)
+        -- existence is probed separately from loadfile so a file that IS there
+        -- but does not compile reports its syntax error instead of silently
+        -- falling through as if nothing had been dropped in the folder
+        local present = io.open(path, "r")
+        if present then
+            present:close()
+            local chunk, loadErr = loadfile(path)
+            if not chunk then
+                print(string.format("[Palvolve] user config at %s does not compile: %s\n",
+                    path, tostring(loadErr)))
+            else
+                local okChunk, result = pcall(chunk)
+                if okChunk and type(result) == "table" then
+                    return result, path, checked
+                end
+                print(string.format("[Palvolve] user config at %s did not return a table: %s\n",
+                    path, tostring(result)))
+            end
         else
             -- make the documented drop folder exist so users only have to
             -- paste the path; probe first to avoid a shell call on every start
@@ -1553,12 +1578,14 @@ local function loadUserConfig()
             end
         end
     end
+    local fallback = scriptsConfigPath()
+    table.insert(checked, fallback or "scripts\\config_user.lua")
     local okReq, result = pcall(require, "config_user")
-    if okReq and type(result) == "table" then return result, "scripts" end
-    return nil
+    if okReq and type(result) == "table" then return result, fallback or "scripts", checked end
+    return nil, nil, checked
 end
 
-local user, userSource = loadUserConfig()
+local user, userSource, userChecked = loadUserConfig()
 if user then
     if type(user.map) == "table" then
         local cleaned = {}
@@ -1590,6 +1617,12 @@ if user then
     if type(user.eggFilter) == "table" and user.eggFilter.enabled ~= nil then
         Config.eggFilter.enabled = user.eggFilter.enabled == true
     end
+    -- Whitelisted on purpose: the diagnostics that name a CharacterID sit behind
+    -- devMode, and the copy next to the mod belongs to Steam on a Workshop
+    -- install, where the next update reverts an edit to it.
+    if user.devMode ~= nil then
+        Config.devMode = user.devMode == true
+    end
     if user.requireStone ~= nil then
         Config.requireStone = user.requireStone == true
     end
@@ -1607,6 +1640,17 @@ if user then
         end
     end
     print(string.format("[Palvolve] user config loaded (%d pairs, %s)\n", #Config.map, tostring(userSource)))
+    local shadowed = scriptsConfigPath()
+    if shadowed and shadowed ~= userSource then
+        print(string.format("[Palvolve] a second config_user.lua sits at %s and is IGNORED while the one above loads\n",
+            shadowed))
+    end
+else
+    -- Without this line a config that never arrived is indistinguishable from one
+    -- that loaded: the mod just runs its built-in tree, and the only symptom is a
+    -- species the player configured showing no evolution at all.
+    print(string.format("[Palvolve] no user config found, running the built-in tree (%d pairs). Checked: %s\n",
+        #Config.map, table.concat(userChecked or {}, ", ")))
 end
 
 return Config
