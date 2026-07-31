@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.4.3] - 2026-07-31
+
+### Fixed
+
+- A greyed-out Evolve entry now says why in the log. Until now the entry looked the same whether no Pal was out, the Pal belonged to another player, nothing was configured for its species, or the host had not confirmed it runs Palvolve. The reason is written once whenever it changes, so a log from a stuck player names the cause. Found while working through a report by HenryFrost, with first triage by Ryan.
+- The mod says when it is running its built-in tree because no config file was found, and names the folders it looked in. A config that never arrived used to be indistinguishable from one that loaded, and the only symptom was one species showing no evolution at all.
+- A `config_user.lua` that sits in the right folder but does not compile now reports its syntax error instead of being skipped in silence.
+- If a second `config_user.lua` sits next to the mod's scripts, the log names it and says it is ignored. The copy in `%LocalAppData%\Pal\Saved\Palvolve` wins, which is why editing the other one changed nothing.
+- The header comment inside a downloaded `config_user.lua` named the mod's scripts folder, the path that loses against that copy. It names `%LocalAppData%\Pal\Saved\Palvolve` now, the same folder the website and the README have always given.
+
+### Added
+
+- `devMode = true` can go into your own `config_user.lua`. The diagnostics that name the Pal id behind a refusal sit behind that switch, and it used to live only in a file that belongs to Steam on a Workshop install, where the next update undoes the edit. Now it sits with the rest of your settings.
+
 ## [1.4.2] - 2026-07-28
 
 ### Added
