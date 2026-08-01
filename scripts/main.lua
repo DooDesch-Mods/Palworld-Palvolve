@@ -76,6 +76,16 @@ if Evolution and not Role.isDedicated() then
     end
 end
 
+-- Survival Guide pages describing the loaded tree. PalSchema data like the
+-- workbench stage above, so this writes a file and the pages appear on the next
+-- start. Pointless on a dedicated server, which has no guide to read them.
+if Evolution and not Role.isDedicated() then
+    local okGuide, errGuide = pcall(function()
+        require("guidepages").init(Evolution.displayName)
+    end)
+    if not okGuide then Log("guide pages failed to load: " .. tostring(errGuide)) end
+end
+
 -- Egg filter (config-gated inside)
 local okEgg, errEgg = pcall(function()
     require("eggfilter").init()

@@ -1,6 +1,16 @@
 # Changelog
 
-## [1.4.3] - 2026-07-31
+## [1.5.0] - 2026-08-01
+
+### Added
+
+- The Survival Guide now carries the evolution tree your world actually runs. It lists every species that can evolve, what each target needs, and what it costs, in the game's own guide screen rather than a separate window. The pages are built from your configuration, so a downloaded tree describes itself; like every other guide entry they are read at startup, which means a config you just installed shows up the next time you start the game.
+- The evolve wheel names what a target asks for. Each entry now carries the level, the conditions and the materials under the species name, so choosing between three targets no longer means trying each one to find out what it wants.
+- `!palvolve tree` answers which tree a world is running: a short identity, the number of pairs, and whether it is the built-in one. On a server it is the fastest way to tell whether everyone is playing by the same rules.
+
+### Changed
+
+- A greyed-out Evolve entry now tells the player why, not just the log. The four causes read apart: the host is not confirmed as a Palvolve host, no Pal is out, the Pal belongs to another player, or nothing is configured for its species. The line arrives once per cause per session, so it explains without turning into chat noise.
 
 ### Fixed
 

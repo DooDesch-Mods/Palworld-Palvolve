@@ -23,7 +23,7 @@ local Config = {
 
     -- Mod version, reported to connected clients by the host handshake. Keep in
     -- sync with Info.json (the release flow checks this).
-    modVersion = "1.4.3",
+    modVersion = "1.5.0",
 
     -- Unlock the catch-gated technologies (saddle, Pal gear) of the target species when a
     -- pal evolves, the same way capturing one would. Needs the native companion in
@@ -1363,6 +1363,56 @@ end
 
 -- ALL enabled options for a species (evolution + adaptations) - the choice
 -- menu presents these filtered by affordability.
+-- Identity of a tree, as a short hex string. FNV-1a over the canonicalized pair
+-- list: sorted, so two configs that hold the same pairs in a different order
+-- hash the same, and only the fields that decide what an evolution DOES take
+-- part. A host and a client comparing this can tell whether they are playing by
+-- the same rules without moving the tree itself across the wire.
+function Config.treeHash(map)
+    map = map or Config.map
+    if type(map) ~= "table" then return "0" end
+
+    local lines = {}
+    for _, p in ipairs(map) do
+        if p.enabled then
+            local conds = ""
+            if type(p.conditions) == "table" and #p.conditions > 0 then
+                local sorted = {}
+                for _, c in ipairs(p.conditions) do table.insert(sorted, tostring(c)) end
+                table.sort(sorted)
+                conds = table.concat(sorted, ",")
+            end
+            table.insert(lines, string.format("%s>%s|%s|%d|%s|%s",
+                tostring(p.from), tostring(p.to), tostring(p.category or ""),
+                tonumber(p.minLevel) or 0, tostring(p.stone or ""), conds))
+        end
+    end
+    table.sort(lines)
+
+    -- FNV-1a, with the 32-bit multiply split into 16-bit halves. The plain
+    -- form overflows into a float on the way, and a float has no integer
+    -- representation for the next xor - which means the same tree would hash
+    -- differently depending on where it ran.
+    -- Hex literals, because a decimal constant past 2^31 can arrive as a float
+    -- in a Lua that maps numbers onto doubles, and a float cannot be xored.
+    local PRIME = 0x01000193
+    local hash = 0x811C9DC5
+
+    local function mix(byte)
+        hash = hash ~ byte
+        -- every intermediate stays under 2^33 on purpose
+        local lo = ((hash & 0xFFFF) * PRIME) & 0xFFFFFFFF
+        local hi = ((((hash >> 16) & 0xFFFF) * PRIME) & 0xFFFF) << 16
+        hash = (lo + hi) & 0xFFFFFFFF
+    end
+
+    for _, line in ipairs(lines) do
+        for i = 1, #line do mix(line:byte(i)) end
+        mix(10)     -- record separator, so concatenation cannot forge a match
+    end
+    return string.format("%08x", hash), #lines
+end
+
 function Config.findPairs(characterId)
     local result = {}
     for _, pair in ipairs(Config.map) do
@@ -1610,6 +1660,12 @@ if user then
             end
         end
         if #cleaned > 0 then
+            -- Keep the shipped tree reachable. Two processes running the same
+            -- mod version ship the same built-in map, so a client that knows
+            -- the host runs the built-in tree already holds it byte for byte
+            -- and needs nothing transferred. Dropping the reference here would
+            -- make that impossible for anyone who loaded their own config.
+            Config.builtinMap = Config.builtinMap or Config.map
             Config.map = cleaned
             evoParentsCache = nil
         end

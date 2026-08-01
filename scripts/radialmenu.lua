@@ -395,8 +395,16 @@ end
 
 -- ---------------------------------------------------------------- submenu
 
+-- Name on the first line, what it asks for on the second. The requirements were
+-- computed before this ticket too, but only ever surfaced in the refusal after
+-- a failed attempt, which meant the wheel could not answer "what does this
+-- cost" without the player spending the attempt.
 local function optionLabel(opt)
-    return opt.label or (opt.pair and opt.pair.to) or "?"
+    local name = opt.label or (opt.pair and opt.pair.to) or "?"
+    if opt.requirement and opt.requirement ~= "" then
+        return name .. "\n" .. opt.requirement
+    end
+    return name
 end
 
 local function buildSubmenu(menu)

@@ -1026,7 +1026,130 @@ LoopAsync(15000, function()
     return true
 end)
 
-Log(string.format("Probes active: F3 revert(own), F4 arm radial probes, F5 overlay, F6 VFX, F7 morph FX bases, F8 fanfare, F9 freeze, F10 give EXP, END free mode, test kit on %s, conditions on HOME/PAGE_UP/PAGE_DOWN, NUM7 day/night, NUM8 status cycle, F1 finale assets, BACKSPACE full evolution run (random target, 12 stages), chat !palvolve free|kit|fx; weather recorder writes [weather] lines on every change",
+-- ---------------------------------------------------------------- work suitability
+
+-- EPalWorkSuitability, from the object dump. None and the two trailing markers
+-- are left out: they are not work types a pal can have a rank in.
+local WORK_SUITABILITIES = {
+    { 1, "EmitFlame" }, { 2, "Watering" }, { 3, "Seeding" }, { 4, "GenerateElectricity" },
+    { 5, "Handcraft" }, { 6, "Collection" }, { 7, "Deforest" }, { 8, "Mining" },
+    { 9, "OilExtraction" }, { 10, "ProductMedicine" }, { 11, "Cool" }, { 12, "Transport" },
+    { 13, "MonsterFarm" },
+}
+
+local function readSuitabilities(param)
+    local out = {}
+    for _, entry in ipairs(WORK_SUITABILITIES) do
+        local value = nil
+        pcall(function() value = param:GetWorkSuitabilityRank(entry[1]) end)
+        out[entry[1]] = value
+    end
+    return out
+end
+
+-- Experiment E0 for "work suitability keeps the old species until relog".
+-- SetWorkSuitabilityAddRank is a reflected setter on the parameter object that
+-- has never been tried, and its naming siblings are the getters the Team and
+-- Palbox screens read. If a write moves the getter, the whole fix is a handful
+-- of Lua lines and needs no native component at all.
+--
+-- Reads every rank, writes +3 on one work type, reads everything back. Run it
+-- right after an evolution, then open the Palbox detail panel and compare.
+function M.probeWorkSuitability(work, delta)
+    work = tonumber(work) or 5          -- Handcraft: every pal has some rank in it
+    delta = tonumber(delta) or 3
+
+    local pal = firstOwnedMonster()
+    if not pal then
+        Log("[probe-worksuit] no pal found - summon one first")
+        return
+    end
+    local param = nil
+    pcall(function() param = pal:GetIndividualParameter() end)
+    if not (param and param:IsValid()) then
+        Log("[probe-worksuit] pal has no individual parameter")
+        return
+    end
+
+    local id = "?"
+    pcall(function() id = param:GetCharacterID():ToString() end)
+
+    local before = readSuitabilities(param)
+    local mapBefore = nil
+    pcall(function() mapBefore = param:GetWorkSuitabilityRanksWithCharacterRank() end)
+
+    local wrote, writeErr = pcall(function()
+        param:SetWorkSuitabilityAddRank(work, delta)
+    end)
+
+    local after = readSuitabilities(param)
+    local mapAfter = nil
+    pcall(function() mapAfter = param:GetWorkSuitabilityRanksWithCharacterRank() end)
+
+    Log(string.format("[probe-worksuit] pal=%s write(work=%d, delta=%+d) ok=%s%s",
+        id, work, delta, tostring(wrote),
+        wrote and "" or (" err=" .. tostring(writeErr))))
+
+    for _, entry in ipairs(WORK_SUITABILITIES) do
+        local k, name = entry[1], entry[2]
+        local b, a = before[k], after[k]
+        if b ~= nil or a ~= nil then
+            Log(string.format("[probe-worksuit]   %-20s before=%s after=%s%s",
+                name, tostring(b), tostring(a),
+                (b ~= a) and "   CHANGED" or ""))
+        end
+    end
+
+    Log(string.format("[probe-worksuit] map getter answered: before=%s after=%s",
+        tostring(mapBefore ~= nil), tostring(mapAfter ~= nil)))
+    Log("[probe-worksuit] now open the Palbox detail panel and compare the icons")
+end
+
+-- ---------------------------------------------------------------- net payload
+
+-- Measures what the host-to-client channel actually carries, which decides
+-- whether the host's tree can be sent to a client at all. Nothing here touches
+-- the transport: it rides Role.notify, which already goes out over
+-- SendScreenLogToClient and is already hooked on the client side, so a failed
+-- measurement cannot break the evolve path.
+--
+-- Run from a CONNECTED CLIENT on a dedicated server ("!palvolve xnet"). The
+-- host sends the ladder, the client logs what arrives. Compare the two logs:
+-- the largest size present in both is the usable payload.
+local LADDER = { 64, 128, 256, 512, 1024, 2048 }
+
+function M.probeNetPayload(playerCtx)
+    local Role = require("role")
+    if not playerCtx then
+        Log("[probe-xnet] no player context - run this from a connected client")
+        return
+    end
+    if playerCtx.isLocal then
+        Log("[probe-xnet] sender is local, so nothing crosses the wire - run it from a client")
+        return
+    end
+
+    local step = 0
+    Log(string.format("[probe-xnet] sending %d sizes", #LADDER))
+    LoopAsync(400, function()
+        step = step + 1
+        local size = LADDER[step]
+        if not size then return true end
+
+        -- ASCII only and self-describing: a truncated line is recognizable by
+        -- its missing tail marker, a dropped one by its absent sequence number.
+        local head = string.format("xnet|%d|%d|", step, size)
+        local tail = "|end"
+        local fill = string.rep("ABCDEFGHIJ", math.ceil(size / 10)):sub(1, math.max(0, size - #head - #tail))
+        local payload = head .. fill .. tail
+
+        Log(string.format("[probe-xnet] send seq=%d size=%d actual=%d", step, size, #payload))
+        pcall(Role.notify, playerCtx, payload)
+        return false
+    end)
+end
+
+Log(string.format("Probes active: F3 revert(own), F4 arm radial probes, F5 overlay, F6 VFX, F7 morph FX bases, F8 fanfare, F9 freeze, F10 give EXP, END free mode, test kit on %s, conditions on HOME/PAGE_UP/PAGE_DOWN, NUM7 day/night, NUM8 status cycle, F1 finale assets, BACKSPACE full evolution run (random target, 12 stages), chat !palvolve free|kit|fx|worksuit|xnet; weather recorder writes [weather] lines on every change",
     Key.INS and "INSERT" or "POS1"))
 
 return M

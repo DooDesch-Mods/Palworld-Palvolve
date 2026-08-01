@@ -221,6 +221,10 @@ local function palDisplayName(id)
     return name or id
 end
 
+-- Exported for the guide pages, which name every species in the configured
+-- tree and must use the same localized names the wheel shows.
+Evolution.displayName = palDisplayName
+
 -- Warms the submenu labels while the MAIN wheel is still open: the localized
 -- name lookups cost ~30 ms each on first use, so doing them here means the
 -- Evolve click later builds its options from the cache without delay.
@@ -1810,10 +1814,24 @@ end
 -- confirmed" produce the same grey entry and are otherwise indistinguishable.
 local lastOfferReason = nil
 
-local function offerVerdict(reason)
+-- Player-facing half of the verdict. The log line names the cause for support;
+-- this names it for the person looking at a grey entry, who otherwise gets
+-- nothing to act on. One line per distinct cause per session: canOffer runs on
+-- every wheel rebuild, so anything less selective would be chat spam.
+local toldReasons = {}
+local function tellPlayer(msg)
+    if not msg or toldReasons[msg] then return end
+    toldReasons[msg] = true
+    local playerCtx = Role.localPlayerCtx()
+    if not playerCtx then return end
+    pcall(Role.chat, playerCtx, "[Palvolve] " .. msg)
+end
+
+local function offerVerdict(reason, playerMsg)
     if reason ~= lastOfferReason then
         lastOfferReason = reason
         Log(reason and ("Evolve unavailable: " .. reason) or "Evolve available")
+        if reason then tellPlayer(playerMsg) end
     end
     return reason
 end
@@ -1826,29 +1844,39 @@ function Evolution.canOffer()
     -- reason is surfaced when the player opens it (listOptions) or presses F2, not
     -- as a preemptive banner
     if ServerCheck.blocked() then
-        offerVerdict("this host is not confirmed as a Palvolve host")
+        offerVerdict("this host is not confirmed as a Palvolve host",
+            I18n.msg("serverNoPalvolveShort"))
         return false
     end
-    -- returns nil when the entry may be offered, otherwise the reason it may not
-    local ok, reason = pcall(function()
+    -- returns nil when the entry may be offered, otherwise the log reason and
+    -- the line the player gets to see
+    local ok, reason, playerMsg = pcall(function()
         local playerCtx = Role.localPlayerCtx()
         local holder = findHolderFor(playerCtx, nil)
-        if not holder then return "no otomo holder for the local player" end
+        if not holder then
+            return "no otomo holder for the local player", I18n.msg("noPalSummoned")
+        end
         local actor = nil
         pcall(function() actor = holder:TryGetSpawnedOtomo() end)
-        if not (actor and actor:IsValid()) then return "no pal summoned" end
+        if not (actor and actor:IsValid()) then
+            return "no pal summoned", I18n.msg("noPalSummoned")
+        end
         local param = paramOf(actor)
-        if not param then return "the summoned pal has no individual parameter" end
+        if not param then
+            return "the summoned pal has no individual parameter", I18n.msg("noPalSummoned")
+        end
         local id = baseCharacterId(param:GetCharacterID():ToString())
         if not isOwnedBy(param, playerCtx and playerCtx.playerUId) then
             -- a traded or gifted pal keeps the original catcher in its save
             -- record, so it reads as someone else's while sitting in this
             -- player's own party
-            return string.format("pal '%s' is not owned by this player", id)
+            return string.format("pal '%s' is not owned by this player", id),
+                I18n.msg("greyNotYours")
         end
         local n = #Config.findPairs(id)
         if n == 0 then
-            return string.format("no enabled pair configured for '%s'", id)
+            return string.format("no enabled pair configured for '%s'", id),
+                I18n.msg("hasNoEvolution", palDisplayName(id))
         end
         prewarmNames(id)
         return nil
@@ -1857,13 +1885,35 @@ function Evolution.canOffer()
         offerVerdict("availability check failed: " .. tostring(reason))
         return false
     end
-    offerVerdict(reason)
+    offerVerdict(reason, playerMsg)
     return reason == nil
 end
 
 -- All evolution/adaptation options for the currently summoned pal with
 -- affordability info - feeds the radial submenu. Returns nil, reason when
 -- nothing is available.
+-- "Lv 30 - Night - 1x Evolution Stone": the requirements of one target, with
+-- the target's own name left out because the wheel entry already carries it.
+-- Costs resolve against the pair's minimum level, the earliest point the price
+-- applies, which is the same level the guide pages quote.
+local function requirementLine(pair, level, worldCtx)
+    local parts = {}
+    local minLevel = tonumber(pair.minLevel) or 0
+    if minLevel > 0 then table.insert(parts, I18n.msg("guideLevelShort", minLevel)) end
+
+    local cond = Conditions.describe(pair)
+    if cond and cond ~= "" then table.insert(parts, cond) end
+
+    local okCost, costList = pcall(Costs.resolve, pair, minLevel, worldCtx)
+    if okCost and type(costList) == "table" and #costList > 0 then
+        local okDesc, text = pcall(Costs.describe, costList)
+        if okDesc and text and text ~= "" then table.insert(parts, text) end
+    end
+
+    if #parts == 0 then return nil end
+    return table.concat(parts, " - ")
+end
+
 function Evolution.listOptions()
     if ServerCheck.blocked() then return nil, I18n.msg("serverNoPalvolveShort") end
     if lockBusy() then return nil, I18n.msg("evolutionRunning") end
@@ -1889,6 +1939,11 @@ function Evolution.listOptions()
         -- token a connected client sends over the net channel (the host
         -- re-derives the pair from its own config at this index)
         local opt = { pair = pair, index = i, label = palDisplayName(pair.to) }
+        -- What this target asks for, short enough for a wheel segment and
+        -- phrased the same way the guide pages phrase it. Without this the
+        -- wheel names targets and nothing else, so the only way to learn what
+        -- an evolution costs was to try it and read the refusal.
+        opt.requirement = requirementLine(pair, level, holder)
         if isAlpha and not swapTargetId(pair, true) then
             opt.blocked = I18n.msg("noAlphaFormShort", opt.label)
         elseif level < pair.minLevel then
@@ -2542,6 +2597,37 @@ function Evolution.init()
                 local okProbes, probes = pcall(require, "probes")
                 if okProbes and probes.worldProbe then probes.worldProbe() end
                 Role.ack(senderCtx, "condition probe done - see log")
+            end,
+            -- work suitability experiment E0: writes an add-rank on the summoned
+            -- pal and reports whether the getters the Team and Palbox screens
+            -- read move with it. Run right after an evolution.
+            worksuit = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeWorkSuitability) then return end
+                probes.probeWorkSuitability()
+                Role.ack(senderCtx, "work suitability probe done - see log")
+            end,
+            -- measures the host-to-client payload ceiling; run from a client
+            xnet = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeNetPayload) then return end
+                probes.probeNetPayload(senderCtx)
+            end,
+            -- Which tree is this world running. Answers the support question
+            -- "are we even playing by the same rules" in one line, and it is
+            -- the same identity a host and a client would compare.
+            tree = function(senderCtx)
+                local hash, n = Config.treeHash()
+                local origin = "custom"
+                if not Config.builtinMap then
+                    origin = "built-in"
+                elseif hash == Config.treeHash(Config.builtinMap) then
+                    origin = "built-in"
+                end
+                Role.ack(senderCtx, string.format("[Palvolve] tree %s / %d pairs / %s",
+                    hash, n, origin))
             end,
             -- dumps the sky plugin's weather presets, which carry the rain, snow,
             -- fog and lightning values of every weather state. Needs a loaded
