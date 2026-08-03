@@ -88,9 +88,12 @@ jobs:
           NEXUS_KEY: ${{ secrets.NEXUSMODS_API_KEY }}
           FILE_ID: ${{ vars.NEXUS_FILE_GROUP_ID }}
         run: |
-          # The mod id comes from the repo, not from a variable: it is public,
-          # it never changes, and publish-config.json is where it is already kept.
-          MOD_ID=$(jq -r '.nexus.modId // empty' publishing/publish-config.json)
+          # NOT nexus.modId. That is the classic per-game page id (3976) and the
+          # Upload API does not know it - asking it for /mods/3976/changelogs
+          # answers "Mod not found". The Upload API uses global 7-digit ids, the
+          # same space NEXUS_FILE_GROUP_ID lives in. Until that id is filled in,
+          # uploadModId stays empty and the changelog step is simply skipped.
+          MOD_ID=$(jq -r '.nexus.uploadModId // empty' publishing/publish-config.json)
           MISSING=""
           [ -z "$FILE_ID" ] && MISSING="the NEXUS_FILE_GROUP_ID repo variable"
           [ -z "$NEXUS_KEY" ] && MISSING="${MISSING:+$MISSING and }the NEXUSMODS_API_KEY secret"

@@ -52,10 +52,15 @@ Repo/org variable:
 Config (`publishing/publish-config.json`):
 
 - `thunderstore.team`: must match the Thunderstore team/namespace exactly.
-- `nexus.modId`: page reference (nexusmods.com/palworld/mods/3976). Note the
-  id spaces: the page has the classic mod id (3976), the v1 API lists file ids
-  like 17389, and the Upload API's file GROUP id (the NEXUS_FILE_GROUP_ID
-  variable, shown in "API Info" on the Files tab) is a 7-digit global id.
+- `nexus.modId`: page reference (nexusmods.com/palworld/mods/3976). Documentation
+  only, nothing reads it.
+- `nexus.uploadModId`: the mod's GLOBAL id, needed to post an entry to the mod
+  page's changelog tab. Leave it null and the upload still runs, only without
+  that entry. Do not put the page id here: three id spaces exist and mixing them
+  answers "Mod not found". The page has the classic per-game id (3976), the v1
+  API lists file ids like 17389, and the Upload API uses 7-digit global ids, the
+  same space as the file GROUP id in the NEXUS_FILE_GROUP_ID variable ("API Info"
+  on the Files tab).
 
 ## Publish policy
 
