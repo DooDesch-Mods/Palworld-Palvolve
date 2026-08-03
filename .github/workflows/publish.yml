@@ -88,6 +88,9 @@ jobs:
           NEXUS_KEY: ${{ secrets.NEXUSMODS_API_KEY }}
           FILE_ID: ${{ vars.NEXUS_FILE_GROUP_ID }}
         run: |
+          # The mod id comes from the repo, not from a variable: it is public,
+          # it never changes, and publish-config.json is where it is already kept.
+          MOD_ID=$(jq -r '.nexus.modId // empty' publishing/publish-config.json)
           MISSING=""
           [ -z "$FILE_ID" ] && MISSING="the NEXUS_FILE_GROUP_ID repo variable"
           [ -z "$NEXUS_KEY" ] && MISSING="${MISSING:+$MISSING and }the NEXUSMODS_API_KEY secret"
@@ -102,6 +105,7 @@ jobs:
           fi
           echo "configured=true" >> "$GITHUB_OUTPUT"
           echo "file_id=$FILE_ID" >> "$GITHUB_OUTPUT"
+          echo "mod_id=$MOD_ID" >> "$GITHUB_OUTPUT"
 
       - name: Extract changelog for this version as BBCode
         id: changelog
@@ -138,7 +142,7 @@ jobs:
 
       - name: Upload to Nexus Mods
         if: ${{ steps.nexus.outputs.configured == 'true' }}
-        uses: Nexus-Mods/upload-action@v1.0.0-beta.9
+        uses: Nexus-Mods/upload-action@v1.0.0-beta.10
         with:
           api_key: ${{ secrets.NEXUSMODS_API_KEY }}
           file_id: ${{ steps.nexus.outputs.file_id }}
@@ -146,6 +150,11 @@ jobs:
           version: ${{ steps.ver.outputs.version }}
           display_name: Palvolve ${{ steps.ver.outputs.version }}
           description: ${{ steps.changelog.outputs.notes }}
+          # beta.10 added these two. They fill the mod page's changelog tab, which
+          # the file description alone never did. The action rejects a changelog
+          # without a mod id, so both are sent together or neither is.
+          mod_id: ${{ steps.nexus.outputs.mod_id }}
+          changelog: ${{ steps.nexus.outputs.mod_id && steps.changelog.outputs.notes || '' }}
           category: main
           primary_mod_manager_download: true
           allow_mod_manager_download: true
