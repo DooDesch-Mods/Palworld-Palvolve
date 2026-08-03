@@ -88,11 +88,12 @@ jobs:
           NEXUS_KEY: ${{ secrets.NEXUSMODS_API_KEY }}
           FILE_ID: ${{ vars.NEXUS_FILE_GROUP_ID }}
         run: |
-          # NOT nexus.modId. That is the classic per-game page id (3976) and the
-          # Upload API does not know it - asking it for /mods/3976/changelogs
-          # answers "Mod not found". The Upload API uses global 7-digit ids, the
-          # same space NEXUS_FILE_GROUP_ID lives in. Until that id is filled in,
-          # uploadModId stays empty and the changelog step is simply skipped.
+          # The changelog call needs the mod's id in the Upload API's own id space,
+          # which is NOT the classic per-game page id in nexus.modId (3976) - asking
+          # for /mods/3976/changelogs answers "Mod not found". That id is not on the
+          # mod page in any obvious place, so it is read from the file group instead:
+          # GET /mod-files/{id} returns the file together with the mod it belongs to.
+          # uploadModId in publish-config.json overrides the lookup if it is ever set.
           MOD_ID=$(jq -r '.nexus.uploadModId // empty' publishing/publish-config.json)
           MISSING=""
           [ -z "$FILE_ID" ] && MISSING="the NEXUS_FILE_GROUP_ID repo variable"
@@ -106,6 +107,20 @@ jobs:
             echo "::error::Nexus upload requested but missing: $MISSING - create the mod page and first file manually, then store its ids"
             exit 1
           fi
+          if [ -z "$MOD_ID" ]; then
+            RESP=$(curl -sS --max-time 30 \
+              -H "apikey: $NEXUS_KEY" -H "accept: application/json" \
+              "https://api.nexusmods.com/v1/uploads/mod-files/$FILE_ID" || true)
+            MOD_ID=$(printf '%s' "$RESP" | jq -r '.mod.id // empty' 2>/dev/null || true)
+            if [ -n "$MOD_ID" ]; then
+              echo "::notice::Resolved Nexus mod id $MOD_ID from file group $FILE_ID"
+            else
+              # Not fatal. Without it the file still uploads, only the changelog
+              # entry on the mod page is skipped.
+              echo "::warning::Could not resolve the Nexus mod id from file group $FILE_ID - uploading without a changelog entry"
+            fi
+          fi
+
           echo "configured=true" >> "$GITHUB_OUTPUT"
           echo "file_id=$FILE_ID" >> "$GITHUB_OUTPUT"
           echo "mod_id=$MOD_ID" >> "$GITHUB_OUTPUT"
