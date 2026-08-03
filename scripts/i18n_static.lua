@@ -144,6 +144,7 @@ return {
             ["guideTreeIntro"] = "Every evolution this world is set up for. Each line names the target, the level it needs, any conditions, and what it costs.",
             ["guideLevelShort"] = "Lv %d",
             ["greyNotYours"] = "This Pal belongs to another player",
+            ["costItemCount"] = "%d different materials",
         },
     },
     ["de"] = {
@@ -288,6 +289,7 @@ return {
             ["guideTreeIntro"] = "Alle Entwicklungen, für die diese Welt eingerichtet ist. Jede Zeile nennt das Ziel, das nötige Level, die Bedingungen und die Kosten.",
             ["guideLevelShort"] = "Lv %d",
             ["greyNotYours"] = "Dieses Pal gehört einem anderen Spieler",
+            ["costItemCount"] = "%d verschiedene Materialien",
         },
     },
     ["ja"] = {

@@ -1064,8 +1064,13 @@ function M.probeWorkSuitability(work, delta)
         Log("[probe-worksuit] no pal found - summon one first")
         return
     end
+    -- same route the mod itself uses: the parameter hangs off the character
+    -- parameter component, not off the actor
     local param = nil
-    pcall(function() param = pal:GetIndividualParameter() end)
+    pcall(function() param = pal.CharacterParameterComponent:GetIndividualParameter() end)
+    if not (param and param:IsValid()) then
+        pcall(function() param = pal:GetIndividualParameter() end)
+    end
     if not (param and param:IsValid()) then
         Log("[probe-worksuit] pal has no individual parameter")
         return
@@ -1073,6 +1078,28 @@ function M.probeWorkSuitability(work, delta)
 
     local id = "?"
     pcall(function() id = param:GetCharacterID():ToString() end)
+
+    -- Name the actor, not just the species. An evolution leaves the previous
+    -- actor in the world for a moment, and firstOwnedMonster takes whichever
+    -- otomo it meets first - a measurement that silently used the old pal
+    -- looks like a result instead of a mistake.
+    local actorName, candidates = "?", 0
+    pcall(function() actorName = pal:GetFullName() end)
+    pcall(function()
+        local util = StaticFindObject("/Script/Pal.Default__PalUtility")
+        for _, other in ipairs(FindAllOf("BP_MonsterBase_C") or {}) do
+            if other:IsValid() then
+                local isOtomo = false
+                pcall(function() isOtomo = util:IsPlayersOtomo(other) end)
+                if isOtomo then candidates = candidates + 1 end
+            end
+        end
+    end)
+    Log(string.format("[probe-worksuit] actor=%s (otomo candidates in world: %d)",
+        tostring(actorName), candidates))
+    if candidates > 1 then
+        Log("[probe-worksuit] WARNING: more than one summoned pal - recall all but the one under test")
+    end
 
     local before = readSuitabilities(param)
     local mapBefore = nil

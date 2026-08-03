@@ -79,9 +79,21 @@ end
 -- Survival Guide pages describing the loaded tree. PalSchema data like the
 -- workbench stage above, so this writes a file and the pages appear on the next
 -- start. Pointless on a dedicated server, which has no guide to read them.
+--
+-- Generation hangs off the world-entry callback rather than a timer, because
+-- the species names it prints do not exist before a world is up. The slot is
+-- already taken by the server check, so the existing handler is chained rather
+-- than replaced.
 if Evolution and not Role.isDedicated() then
     local okGuide, errGuide = pcall(function()
-        require("guidepages").init(Evolution.displayName)
+        local GuidePages = require("guidepages")
+        GuidePages.init(Evolution.displayName)
+        local NetChannel = require("netchannel")
+        local previous = NetChannel.onLocalEnterWorld
+        NetChannel.onLocalEnterWorld = function(char)
+            if previous then pcall(previous, char) end
+            pcall(GuidePages.onEnterWorld, char)
+        end
     end)
     if not okGuide then Log("guide pages failed to load: " .. tostring(errGuide)) end
 end

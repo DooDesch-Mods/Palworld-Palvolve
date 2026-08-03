@@ -1,12 +1,13 @@
 # Changelog
 
-## [1.5.0] - 2026-08-01
+## [1.5.0] - 2026-08-03
 
 ### Added
 
 - The Survival Guide now carries the evolution tree your world actually runs. It lists every species that can evolve, what each target needs, and what it costs, in the game's own guide screen rather than a separate window. The pages are built from your configuration, so a downloaded tree describes itself; like every other guide entry they are read at startup, which means a config you just installed shows up the next time you start the game.
 - The evolve wheel names what a target asks for. Each entry now carries the level, the conditions and the materials under the species name, so choosing between three targets no longer means trying each one to find out what it wants.
 - `!palvolve tree` answers which tree a world is running: a short identity, the number of pairs, and whether it is the built-in one. On a server it is the fastest way to tell whether everyone is playing by the same rules.
+- `devMode = true` can go into your own `config_user.lua`. The diagnostics that name the Pal id behind a refusal sit behind that switch, and it used to live only in a file that belongs to Steam on a Workshop install, where the next update undoes the edit. Now it sits with the rest of your settings.
 
 ### Changed
 
@@ -14,15 +15,13 @@
 
 ### Fixed
 
+- Work suitability follows the evolution at the Pal, not just on the status screen. Evolve a Pengullet up to a Penking and it starts mining; evolve it down to a Chikipi and it stops. Until now the base camp kept handing out work by the species the Pal used to be, and only a relog fixed it. The game asks a Pal what it can do through a path that never reaches the scripting layer, which is why every earlier attempt corrected the icons and changed nothing about the behaviour; the answer now comes from the mod's native part instead. That read is located at startup and checked against the game's own answer across every work type before anything is changed. If a game update moves it, the mod leaves it alone and writes that to the log rather than guessing.
 - A greyed-out Evolve entry now says why in the log. Until now the entry looked the same whether no Pal was out, the Pal belonged to another player, nothing was configured for its species, or the host had not confirmed it runs Palvolve. The reason is written once whenever it changes, so a log from a stuck player names the cause. Found while working through a report by HenryFrost, with first triage by Ryan.
 - The mod says when it is running its built-in tree because no config file was found, and names the folders it looked in. A config that never arrived used to be indistinguishable from one that loaded, and the only symptom was one species showing no evolution at all.
 - A `config_user.lua` that sits in the right folder but does not compile now reports its syntax error instead of being skipped in silence.
 - If a second `config_user.lua` sits next to the mod's scripts, the log names it and says it is ignored. The copy in `%LocalAppData%\Pal\Saved\Palvolve` wins, which is why editing the other one changed nothing.
 - The header comment inside a downloaded `config_user.lua` named the mod's scripts folder, the path that loses against that copy. It names `%LocalAppData%\Pal\Saved\Palvolve` now, the same folder the website and the README have always given.
 
-### Added
-
-- `devMode = true` can go into your own `config_user.lua`. The diagnostics that name the Pal id behind a refusal sit behind that switch, and it used to live only in a file that belongs to Steam on a Workshop install, where the next update undoes the edit. Now it sits with the rest of your settings.
 
 ## [1.4.2] - 2026-07-28
 

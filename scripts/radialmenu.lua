@@ -395,16 +395,67 @@ end
 
 -- ---------------------------------------------------------------- submenu
 
--- Name on the first line, what it asks for on the second. The requirements were
--- computed before this ticket too, but only ever surfaced in the refusal after
--- a failed attempt, which meant the wheel could not answer "what does this
--- cost" without the player spending the attempt.
+-- Segments carry the name alone. Requirements go to the middle of the wheel
+-- instead: with several targets open, a second line per segment turns the ring
+-- into a wall of text, and the segments are narrow enough that it wraps.
 local function optionLabel(opt)
-    local name = opt.label or (opt.pair and opt.pair.to) or "?"
-    if opt.requirement and opt.requirement ~= "" then
-        return name .. "\n" .. opt.requirement
+    return opt.label or (opt.pair and opt.pair.to) or "?"
+end
+
+-- ---------------------------------------------------------------- center text
+
+-- The requirements of whatever the player is hovering, shown once in the middle
+-- of the ring. WBP_CommonRadialMenuBase carries a CenterWidget slot, but its
+-- inner structure is not ours to rely on, so this places its own label into the
+-- wheel's inner canvas at the center offset - the same widget class and the
+-- same canvas-slot route the segment labels already use.
+local centerWidget = nil
+
+local function innerCanvasOf(wheel)
+    local canvas = nil
+    pcall(function() canvas = wheel.CanvasPanel_Inner end)
+    if canvas and canvas:IsValid() then return canvas end
+    return nil
+end
+
+local function clearCenter()
+    if centerWidget and centerWidget:IsValid() then
+        pcall(function() centerWidget:RemoveFromParent() end)
     end
-    return name
+    centerWidget = nil
+end
+
+local function setCenterText(menu, text)
+    local wheel = wheelOf(menu)
+    if not wheel then return end
+
+    if not (centerWidget and centerWidget:IsValid()) then
+        local canvas = innerCanvasOf(wheel)
+        if not canvas then return end
+        centerWidget = makeLabelWidget(menu, text or "")
+        if not (centerWidget and centerWidget:IsValid()) then
+            centerWidget = nil
+            return
+        end
+        local placed = pcall(function()
+            canvas:AddChildToCanvas(centerWidget)
+            local slot = canvasSlot(centerWidget)
+            -- anchored to the middle of the canvas, then centered on itself, so
+            -- the text grows in both directions instead of off to one side
+            slot:SetAnchors({ Minimum = { X = 0.5, Y = 0.5 }, Maximum = { X = 0.5, Y = 0.5 } })
+            slot:SetAlignment({ X = 0.5, Y = 0.5 })
+            slot:SetAutoSize(true)
+            slot:SetPosition({ X = 0.0, Y = 0.0 })
+        end)
+        if not placed then
+            clearCenter()
+            return
+        end
+        return
+    end
+
+    local label = toText(text or "")
+    if label then pcall(function() centerWidget:SetText(label) end) end
 end
 
 local function buildSubmenu(menu)
@@ -437,6 +488,10 @@ local function buildSubmenu(menu)
         end
     end
 
+    -- the center starts empty and fills on the first hover, so an unhovered
+    -- wheel does not claim a target the player has not pointed at yet
+    setCenterText(menu, "")
+
     if Config.devMode then
         Log(string.format("[radial] submenu built with %d options", #options))
     end
@@ -453,6 +508,7 @@ local function subCommit()
     subMode = false
     subOptions = nil
     subHoverIdx = nil
+    clearCenter()
     if Config.devMode then
         Log(string.format("[radial] submenu commit: %s",
             opt and optionLabel(opt) or "no selection"))
@@ -484,6 +540,7 @@ local function injectEntry(menu)
             subMode = false
             subOptions = nil
             subHoverIdx = nil
+            clearCenter()
         end
         if subMode then
             buildSubmenu(menu)
@@ -533,6 +590,7 @@ function RadialMenu.init(evolutionApi)
                 if not okOpen then
                     subMode = false
                     subOptions = nil
+                    clearCenter()
                 end
             end)
         end)
@@ -560,6 +618,10 @@ function RadialMenu.init(evolutionApi)
                     if newHover ~= subHoverIdx then
                         local wasMuted = savedHoverSound ~= nil
                         subHoverIdx = newHover
+                        -- the middle of the ring follows the hover: one target's
+                        -- requirements at a time, where there is room for them
+                        local hovered = newHover and subOptions and subOptions[newHover + 1] or nil
+                        setCenterText(menuRef, hovered and hovered.requirement or "")
                         if Config.devMode then
                             Log(string.format("[radial] sub hover idx=%s", tostring(newHover)))
                         end
@@ -654,6 +716,7 @@ function RadialMenu.init(evolutionApi)
                         subMode = false
                         subOptions = nil
                         subHoverIdx = nil
+                        clearCenter()
                     elseif subMode then
                         subCommit()
                     else

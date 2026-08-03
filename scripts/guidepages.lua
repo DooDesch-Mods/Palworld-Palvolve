@@ -65,17 +65,19 @@ local function jsonEscape(s)
     return s
 end
 
--- Line breaks the guide renders. These go straight into the JSON body, so this
--- is the escape sequence the file carries, not a raw newline. Text coming from
--- the message catalog carries real newlines instead and is escaped by
--- jsonEscape; both end up as line breaks once PalSchema parses the file.
-local BR = "\\n"
+-- A real line break, never the two-character escape sequence. The whole body
+-- runs through jsonEscape, which doubles a backslash - writing the escape here
+-- put a visible backslash-n into the guide text instead of a line break.
+-- jsonEscape turns this character into a proper JSON escape on its own.
+local BR = "\n"
 
 -- ---------------------------------------------------------------- page text
 
 -- One "-> Target - Lv 30 - Night - 1x Evolution Stone" line.
 local function targetLine(displayName, pair, worldCtx)
-    local parts = { "  -> " .. displayName(pair.to) }
+    -- some species names carry a trailing space in the game's own text table
+    local name = (displayName(pair.to) or ""):gsub("%s+$", "")
+    local parts = { "  -> " .. name }
 
     local level = tonumber(pair.minLevel) or 0
     if level > 0 then
@@ -161,7 +163,7 @@ function GuidePages.build(displayName, worldCtx)
     local function entry(id, title, body)
         table.insert(entries, string.format(
             '\t"%s": {\n\t\t"Texture": "%s",\n\t\t"Title": "%s",\n\t\t"Description": "%s"\n\t}',
-            jsonEscape(id), TEXTURE, jsonEscape(title), BR .. jsonEscape(body)))
+            jsonEscape(id), TEXTURE, jsonEscape(title), jsonEscape(BR .. body)))
     end
 
     entry(ID_PREFIX .. "00_About",
@@ -239,51 +241,51 @@ end
 
 -- ---------------------------------------------------------------- entry point
 
-local started = false
+local nameResolver = nil
+local generated = false
 
--- Runs once, after the text tables answer. Species names come from the game's
--- own localization, which is empty until a world is up, and a guide full of
--- raw ids would be worse than no guide at all.
-function GuidePages.init(displayName)
-    if started then return end
-    started = true
+-- Called when the local player's character finishes entering a world. Species
+-- names come from the game's own localization, which answers nothing until
+-- then, and a guide full of raw ids would be worse than no guide at all.
+--
+-- This used to be a timer, which was the wrong shape: whatever window it had
+-- expired while the player was still in the menu, and the guide then never
+-- updated for the rest of the session.
+function GuidePages.onEnterWorld(worldCtx)
+    if generated or not nameResolver then return end
+    generated = true
 
-    local done = false
-    local attempts = 0
-    LoopAsync(2000, function()
-        if done then return true end
-        attempts = attempts + 1
-        -- Bounded on purpose: an endless poller on a client that never finishes
-        -- loading keeps churning transient callback refs.
-        if attempts > 30 then
-            done = true
-            Log("guide pages: no localized names after 60s - pages unchanged")
-            return true
-        end
-
-        local ready = false
-        local worldCtx = nil
-        pcall(function()
-            worldCtx = FindFirstOf("PalPlayerCharacter")
-            ready = worldCtx ~= nil and worldCtx:IsValid()
+    -- One short delay, not a poll: the character is up, but the text tables
+    -- answer a moment later, and a name lookup that misses gets cached as the
+    -- raw id for the session.
+    local ran = false
+    LoopAsync(3000, function()
+        if ran then return true end
+        ran = true
+        ExecuteInGameThread(function()
+            local ctx = worldCtx
+            if not (ctx and ctx:IsValid()) then
+                pcall(function() ctx = FindFirstOf("PalPlayerCharacter") end)
+            end
+            local okBuild, text, reason = pcall(GuidePages.build, nameResolver, ctx)
+            if not okBuild then
+                Log("guide pages: " .. tostring(text))
+                return
+            end
+            if not text then
+                Log("guide pages: " .. tostring(reason))
+                return
+            end
+            if GuidePages.write(text) then
+                Log("guide pages: survival guide updated, visible after the next start")
+            end
         end)
-        if not ready then return false end
-
-        done = true
-        local okBuild, text, reason = pcall(GuidePages.build, displayName, worldCtx)
-        if not okBuild then
-            Log("guide pages: " .. tostring(text))
-            return true
-        end
-        if not text then
-            Log("guide pages: " .. tostring(reason))
-            return true
-        end
-        if GuidePages.write(text) then
-            Log("guide pages: survival guide updated, visible after the next start")
-        end
         return true
     end)
+end
+
+function GuidePages.init(displayName)
+    nameResolver = displayName
 end
 
 return GuidePages

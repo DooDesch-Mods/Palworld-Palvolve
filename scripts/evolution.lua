@@ -571,14 +571,44 @@ end
 
 -- The base work suitability the Team/Palbox UI shows is a native cache built only
 -- when the individual param is CONSTRUCTED (deserialized), which is why it reads
--- the new species only after a relog. Every in-session re-derive was ruled out:
--- writing SaveParameter.CraftSpeeds, OnRep_SaveParameter, the character-database
--- apply, and the actor rebuild all leave the cache stale; the only true fix is
--- reconstructing the param (CreateIndividual*), which hard-crashes when called
--- from Lua (native delegate/struct marshalling). The swap already persists the new
--- CharacterID, so the save is correct and a relog shows the right suitability.
--- Kept as a no-op hook so the swap sites have a single place to revisit this.
-local function refreshWorkSuitability(param, playerCtx, actor)
+-- the new species only after a relog. Every WRITE path was ruled out: CraftSpeeds,
+-- OnRep_SaveParameter, the character-database apply, the actor rebuild, and the one
+-- reflected setter (SetWorkSuitabilityAddRank reports success and moves nothing).
+--
+-- So the native companion fixes the READ instead: it post-hooks the getter the Team
+-- and Palbox screens call and answers with the ranks of the species the Pal is now.
+-- Without the companion this stays what it was, a no-op, and the relog workaround
+-- still applies - exactly the shipped behaviour before this.
+local workNativeAnnounced = false
+local function refreshWorkSuitability(param, playerCtx, actor, previousId)
+    if type(PalvolveNative_SetWorkSuitability) ~= "function" then
+        if not workNativeAnnounced then
+            workNativeAnnounced = true
+            Log("Work suitability: native companion missing - values update after a relog")
+        end
+        return
+    end
+    if not (param and param:IsValid()) then return end
+
+    -- The parameter object goes over as-is. An earlier version sent a key built here, and
+    -- individualKey falls back to GetFullName when the struct read fails - the native side
+    -- then got a name where it expected an instance id and installed nothing at all.
+    local called, ok, msg = pcall(PalvolveNative_SetWorkSuitability, param)
+    if not called then
+        Log("Work suitability: native call failed: " .. tostring(ok))
+        return
+    end
+    if not ok then
+        Log("Work suitability: " .. tostring(msg))
+        return
+    end
+    -- the native side answers with the species it resolved, which is the one the getters
+    -- will report from here on
+    Log(string.format("Work suitability: now reading as %s", tostring(msg)))
+    -- Both halves are covered from here: the reflected getters feed the UI, and a native
+    -- inline hook answers the base camp, which reads the pal through a direct C++ call that
+    -- never passes ProcessEvent. Details and the eight disproven routes: SUPPORT-CASES.md
+    -- case 8 and CPP-MODDING.md section 8.3e.
 end
 
 -- ---------------------------------------------------------------- polling helper
@@ -614,6 +644,11 @@ end
 -- (position, attach parent, movement mode, scale, height above the player)
 local function startRevealDiagnostics(holderRef, label, playerCtx)
     if not Config.devMode then return end
+    -- Opt-in on top of devMode. Each call leaves a LoopAsync closure running for 12s with an
+    -- ExecuteInGameThread nested inside it; two evolutions in quick succession overlap two of
+    -- them and the game dies with "Ref was not function" - the callback GC trap from
+    -- UE4SS-LESSONS.md. Off by default so repeated evolutions can be tested at all.
+    if not Config.diagReveal then return end
     local ticks = 0
     LoopAsync(500, function()
         ticks = ticks + 1
@@ -1096,7 +1131,7 @@ local function performEvolution(p)
         if txn then txn.commit() end
         applyIvBonus(param)
         pcall(function() param:FullRecoveryHP() end)
-        refreshWorkSuitability(param, playerCtx, actor)
+        refreshWorkSuitability(param, playerCtx, actor, pair.from)
 
         -- Snapshot only AFTER a successful swap (no phantom rollback entries);
         -- stores the RAW ids (BOSS_ included) so a rollback restores the alpha
@@ -1287,7 +1322,7 @@ local function performEvolution(p)
                                 -- fresh actor now carries the new species; refresh
                                 -- work suitability HERE (the swap-time call ran on
                                 -- the old actor and could not re-derive the base)
-                                refreshWorkSuitability(param, playerCtx, newActor)
+                                refreshWorkSuitability(param, playerCtx, newActor, pair.from)
                                 Log("[mpseq] activated fresh " .. targetId .. " -> reveal")
                                 NetChannel.sendSignal(pcSender, "reveal")
                                 -- The evolution flash VFX (VisualEffectComponent:
@@ -1892,26 +1927,65 @@ end
 -- All evolution/adaptation options for the currently summoned pal with
 -- affordability info - feeds the radial submenu. Returns nil, reason when
 -- nothing is available.
--- "Lv 30 - Night - 1x Evolution Stone": the requirements of one target, with
--- the target's own name left out because the wheel entry already carries it.
--- Costs resolve against the pair's minimum level, the earliest point the price
--- applies, which is the same level the guide pages quote.
+-- The middle of the radial is a circle, not a line. A pair with six conditions
+-- and nine materials produces roughly 200 characters, so the text is split by
+-- kind and each kind wrapped, instead of being handed over as one run that
+-- would leave the circle on both sides.
+local CENTER_WIDTH = 30
+-- The circle has room for a handful of lines, not for a shopping list. Past
+-- this the price is summarised instead, so an absurd config cannot push the
+-- text out of the ring.
+local CENTER_MAX_LINES = 6
+
+-- Greedy word wrap. Breaks on spaces only, so an item name never gets cut in
+-- half, and a single word longer than the width stays on its own line rather
+-- than being sliced mid-character - cutting by bytes would land inside a
+-- multi-byte character in German, Russian or Japanese.
+local function wrapText(text, width, out)
+    local line = nil
+    for word in tostring(text):gmatch("%S+") do
+        if not line then
+            line = word
+        elseif #line + 1 + #word <= width then
+            line = line .. " " .. word
+        else
+            table.insert(out, line)
+            line = word
+        end
+    end
+    if line then table.insert(out, line) end
+end
+
+-- The requirements of one target as wrapped lines: level, then conditions,
+-- then price. The target's own name is left out because the wheel segment
+-- already carries it. Costs resolve against the pair's minimum level, the
+-- earliest point the price applies, which is the level the guide quotes too.
 local function requirementLine(pair, level, worldCtx)
-    local parts = {}
+    local lines = {}
     local minLevel = tonumber(pair.minLevel) or 0
-    if minLevel > 0 then table.insert(parts, I18n.msg("guideLevelShort", minLevel)) end
+    if minLevel > 0 then wrapText(I18n.msg("guideLevelShort", minLevel), CENTER_WIDTH, lines) end
 
     local cond = Conditions.describe(pair)
-    if cond and cond ~= "" then table.insert(parts, cond) end
+    if cond and cond ~= "" then wrapText(cond, CENTER_WIDTH, lines) end
 
     local okCost, costList = pcall(Costs.resolve, pair, minLevel, worldCtx)
     if okCost and type(costList) == "table" and #costList > 0 then
+        local before = #lines
         local okDesc, text = pcall(Costs.describe, costList)
-        if okDesc and text and text ~= "" then table.insert(parts, text) end
+        if okDesc and text and text ~= "" then
+            wrapText(text, CENTER_WIDTH, lines)
+            -- A price that does not fit is replaced by its own summary rather
+            -- than cut mid-list, so the player still learns there is a cost and
+            -- how big it is. The full list is on the guide page.
+            if #lines > CENTER_MAX_LINES then
+                for i = #lines, before + 1, -1 do lines[i] = nil end
+                wrapText(I18n.msg("costItemCount", #costList), CENTER_WIDTH, lines)
+            end
+        end
     end
 
-    if #parts == 0 then return nil end
-    return table.concat(parts, " - ")
+    if #lines == 0 then return nil end
+    return table.concat(lines, "\n")
 end
 
 function Evolution.listOptions()

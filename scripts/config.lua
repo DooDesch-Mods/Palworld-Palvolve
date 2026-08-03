@@ -21,6 +21,10 @@ local Config = {
     -- [diag] sequence telemetry in the log.
     devMode = false,
 
+    -- Reveal telemetry, on top of devMode. Separate because it keeps a polling
+    -- closure alive for 12s per evolution and two overlapping ones crash the game.
+    diagReveal = false,
+
     -- Mod version, reported to connected clients by the host handshake. Keep in
     -- sync with Info.json (the release flow checks this).
     modVersion = "1.5.0",
@@ -1678,6 +1682,9 @@ if user then
     -- install, where the next update reverts an edit to it.
     if user.devMode ~= nil then
         Config.devMode = user.devMode == true
+    end
+    if user.diagReveal ~= nil then
+        Config.diagReveal = user.diagReveal == true
     end
     if user.requireStone ~= nil then
         Config.requireStone = user.requireStone == true
