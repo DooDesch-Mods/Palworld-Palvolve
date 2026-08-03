@@ -569,16 +569,15 @@ local function applyIvBonus(param)
     if #parts > 0 then Log("Evolution bonus (IVs): " .. table.concat(parts, ", ")) end
 end
 
--- The base work suitability the Team/Palbox UI shows is a native cache built only
--- when the individual param is CONSTRUCTED (deserialized), which is why it reads
--- the new species only after a relog. Every WRITE path was ruled out: CraftSpeeds,
--- OnRep_SaveParameter, the character-database apply, the actor rebuild, and the one
--- reflected setter (SetWorkSuitabilityAddRank reports success and moves nothing).
+-- A pal's work suitability comes from a cache built when the individual parameter is
+-- constructed, so after a species swap it still describes the old form. Every write path
+-- into that cache was ruled out, which is why the native companion fixes the READ instead.
 --
--- So the native companion fixes the READ instead: it post-hooks the getter the Team
--- and Palbox screens call and answers with the ranks of the species the Pal is now.
--- Without the companion this stays what it was, a no-op, and the relog workaround
--- still applies - exactly the shipped behaviour before this.
+-- Two reads matter and they are separate. The Team and Palbox screens go through the
+-- reflected getters, so those are post-hooked. The base camp does not: it reaches the pal
+-- through a direct C++ call that never passes ProcessEvent, and that one needs an inline
+-- hook on the method itself. Without the companion nothing happens here and the values
+-- update on the next reload, which is the behaviour this shipped with before.
 local workNativeAnnounced = false
 local function refreshWorkSuitability(param, playerCtx, actor, previousId)
     if type(PalvolveNative_SetWorkSuitability) ~= "function" then

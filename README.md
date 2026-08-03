@@ -91,7 +91,6 @@ Run `!palvolve uninstall` in chat (single player or host) while the mod is still
 
 ## Known issues
 
-- Work suitability shows the pre-evolution form until you relog. Job skill book bonuses are not affected.
 - Removing the mod without the cleanup step above can stop the world from loading.
 
 ## FAQ
