@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.1] - 2026-08-05
+
+### Fixed
+
+- The mod now says what it hands a Pal and whether the base camp acted on it. A report that an evolved Pal would not work took a day to chase and turned out to be timing: the base camp asks about each Pal on its own schedule, so for a while after an evolution the Pal carries on with its old job. There was nothing to repair, and no way to see that from the outside. The log now names the suitabilities a Pal was given and counts how many of the base camp's questions were answered from the new species, which turns "it does not work" into one line instead of a day. Reported by NyX.
+- The key space the game's database uses for work types is checked against the one the work system expects, instead of being taken on trust. It matches today. If a game update ever moves it, the mod says so rather than quietly giving every Pal the wrong job.
+
 ## [1.5.0] - 2026-08-03
 
 ### Added
