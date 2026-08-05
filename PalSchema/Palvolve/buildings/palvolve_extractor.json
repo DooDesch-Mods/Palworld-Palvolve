@@ -2,7 +2,7 @@
     "Palvolve_ElementExtractor": {
         "BlueprintClassName": "BP_BuildObject_MedicineFacility_01",
         "BlueprintClassSoft": "/Game/Pal/Blueprint/MapObject/BuildObject/BP_BuildObject_MedicineFacility_01.BP_BuildObject_MedicineFacility_01_C",
-        "IconTexture": "$resource/Palvolve/extractor_bench",
+        "IconTexture": "$resource/Palvolve-Fork/extractor_bench",
         "Hp": 1000,
         "Defense": 2,
         "MaterialType": "Wood",

@@ -31,12 +31,47 @@ if Role.isDedicated() then
     Log("dedicated server detected: UI modules disabled")
 end
 
--- Workbench unlock stage: PalSchema data, so this only writes the file and the
--- new stage applies on the next start. Runs on every launch, which also repairs
--- the value after a Workshop update replaced the PalSchema folder.
+-- Workbench unlock stage: PalSchema data, so this only rewrites the data half's
+-- building file and the new stage applies at the NEXT start. Runs on every
+-- launch, which also repairs the value after a reinstall replaced the PalSchema
+-- folder with its shipped default. Ahead of the core on purpose: it is pure
+-- file I/O with no world state behind it, and a failure must not be able to
+-- ride along on anything the core does.
 do
     local okTech, errTech = pcall(function() require("techlevel").apply() end)
     if not okTech then Log("tech level: " .. tostring(errTech)) end
+end
+
+-- In-game options (Mod Options Framework): publishes the settings schema and
+-- applies whatever the framework has saved. OPTIONAL - without the framework
+-- installed this logs one line and config.lua/config_user.lua keep deciding
+-- everything. Registered EARLY on purpose: the framework answers inside a
+-- finite ~3.85s startup window it owns, and that window should start as soon
+-- as the config exists. The answer therefore always lands AFTER this whole
+-- file has run, which is why hook-arming options ride the options cache into
+-- the next launch instead (see the third layer in config.lua).
+-- Behind the UI gate like every other menu-touching module: the framework
+-- draws itself into the ESC menu, so headless there is nothing to open, no
+-- one to open it, and no reason to pay for the registration ladder or the
+-- shared-variable traffic.
+if not Role.isDedicated() then
+    local okOpts, errOpts = pcall(function() require("modoptions").init() end)
+    if not okOpts then Log("in-game options: " .. tostring(errOpts)) end
+end
+
+-- In-game settings page (DarnMenu): the SECOND menu onto the same 36 settings,
+-- for players who have that mod rather than the options framework (or both).
+-- Registers by writing two files into <UE4SS Mods>/shared/ and then polls the
+-- file DarnMenu's Apply writes, off the pump modoptions.lua already owns - no
+-- new loop, no timer. OPTIONAL and inert without DarnMenu installed, and it
+-- writes NOTHING config.lua reads directly: every applied value is mirrored
+-- into the one options cache, so the two menus share one store and the last
+-- Apply wins. Immediately after modoptions on purpose - it takes the row table
+-- and the value plumbing from there, so that module must have loaded first.
+-- Behind the same not-dedicated gate: DarnMenu draws into the ESC menu.
+if not Role.isDedicated() then
+    local okDarn, errDarn = pcall(function() require("darnmenu").init() end)
+    if not okDarn then Log("settings page: " .. tostring(errDarn)) end
 end
 
 -- Evolution core
@@ -76,14 +111,40 @@ if Evolution and not Role.isDedicated() then
     end
 end
 
+-- Status page evolutions (targets + requirements on the pal detail overlay)
+if Evolution and not Role.isDedicated() then
+    local okStatus, errStatus = pcall(function()
+        require("statuspage").init({
+            describe = Evolution.describeEvolutionsFor,
+        })
+    end)
+    if not okStatus then
+        Log("status page integration failed to load: " .. tostring(errStatus))
+    end
+end
+
+-- Palpedia evolutions (species entry: targets + requirements)
+if Evolution and not Role.isDedicated() then
+    local okDex, errDex = pcall(function()
+        require("palpedia").init({
+            describeSpecies = Evolution.describeEvolutionsForSpecies,
+        })
+    end)
+    if not okDex then
+        Log("palpedia integration failed to load: " .. tostring(errDex))
+    end
+end
+
 -- Survival Guide pages describing the loaded tree. PalSchema data like the
--- workbench stage above, so this writes a file and the pages appear on the next
--- start. Pointless on a dedicated server, which has no guide to read them.
+-- workbench stage above, so this only writes a file and the pages appear at the
+-- NEXT start. Pointless on a dedicated server, which has no guide to read them.
 --
--- Generation hangs off the world-entry callback rather than a timer, because
--- the species names it prints do not exist before a world is up. The slot is
--- already taken by the server check, so the existing handler is chained rather
--- than replaced.
+-- Generation hangs off the world-entry callback rather than off a timer: the
+-- species names the pages print do not exist before a world is up, and a
+-- load-time timer's window expires while the player is still in the menu. That
+-- callback slot already belongs to the server check, so the existing handler is
+-- CHAINED, never replaced - which is why this block sits after servercheck.init
+-- and not before it.
 if Evolution and not Role.isDedicated() then
     local okGuide, errGuide = pcall(function()
         local GuidePages = require("guidepages")
@@ -95,7 +156,9 @@ if Evolution and not Role.isDedicated() then
             pcall(GuidePages.onEnterWorld, char)
         end
     end)
-    if not okGuide then Log("guide pages failed to load: " .. tostring(errGuide)) end
+    if not okGuide then
+        Log("guide pages failed to load: " .. tostring(errGuide))
+    end
 end
 
 -- Egg filter (config-gated inside)
@@ -104,6 +167,17 @@ local okEgg, errEgg = pcall(function()
 end)
 if not okEgg then
     Log("egg filter failed to load: " .. tostring(errEgg))
+end
+
+-- Wild level limit (config-gated inside): a wild pal too low-level for its
+-- rolled species is devolved to the stage its level allows (or level-floored)
+-- BEFORE the actor spawns. Authority-side world logic - runs on dedicated
+-- servers too, so it is NOT behind the UI gate.
+local okWild, errWild = pcall(function()
+    require("wildfilter").init()
+end)
+if not okWild then
+    Log("wild level limit failed to load: " .. tostring(errWild))
 end
 
 -- Pal Alchemy Workbench visual (teal tint on the reused medicine bench)
@@ -130,5 +204,11 @@ if okCfg and cfg.devMode then
     local okProbes, errProbes = pcall(require, "probes")
     if not okProbes then
         Log("probes failed to load: " .. tostring(errProbes))
+    end
+    -- Saddle-tech census (v1.7.5): read-only one-shot dump feeding the
+    -- saddle-sync generator; devMode-gated like the probes
+    local okTech, errTech = pcall(function() require("techcensus").init() end)
+    if not okTech then
+        Log("techcensus failed to load/init: " .. tostring(errTech))
     end
 end

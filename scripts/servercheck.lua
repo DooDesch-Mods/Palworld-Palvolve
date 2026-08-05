@@ -48,6 +48,16 @@ local generation = 0
 -- it, and consume it the moment the world entry is classified.
 local earlyPong = nil
 local EARLY_PONG_MAX_AGE_S = 30
+-- A greet buffered from ST.REMOTE never settled, so nothing structurally
+-- drops it - an unsettled buffer must not outlive its one legitimate use
+-- (the reconnect re-greet, consumed by onEnterWorld within milliseconds).
+-- 30s of survival would let a REMOTE-origin greet false-settle the NEXT
+-- world, vanilla hosts included (the raw-carrier-RPC hazard). 8, not 3:
+-- the measured interval spans the client's own spawn-in (region streaming
+-- hitches count against it), and the failure directions are asymmetric -
+-- too tight re-breaks the laggy-server reconnect fix this buffer exists
+-- for, while anything under the ~10s+ server-hop floor costs nothing.
+local REMOTE_GREET_TTL_S = 8
 
 function ServerCheck.getStatus() return state end
 function ServerCheck.getServerVersion() return serverVersion end
@@ -152,11 +162,14 @@ local function settleLocal()
     serverVersion = Config.modVersion
 end
 
+-- Returns true when the greet was actually CONSUMED (the state moved to REMOTE),
+-- false when it was ignored as a duplicate. onPong uses that to decide whether
+-- the buffered copy may be dropped.
 local function settleRemote(ver)
     -- accepted while resolving (the normal case) and out of ABSENT, so a greet
     -- that only makes it through after the timeout still rescues the session
     -- instead of forcing a relog. Any other state ignores duplicates.
-    if state ~= ST.RESOLVING and state ~= ST.ABSENT then return end
+    if state ~= ST.RESOLVING and state ~= ST.ABSENT then return false end
     if state == ST.ABSENT then
         -- a late greet rescued a soft-gated session; recovery is silent because
         -- the soft-gate never showed a banner - the greyed radial entry simply
@@ -178,6 +191,7 @@ local function settleRemote(ver)
             Role.chat(Role.localPlayerCtx(), I18n.msg("clientVersionMatch", mine))
         end)
     end
+    return true
 end
 
 -- Soft-gate the session, silently. A host greet that only arrives after the
@@ -233,7 +247,7 @@ function ServerCheck.onEnterWorld(wc)
         return
     end
     state = ST.RESOLVING -- connected client: wait for the host's greet
-    if buffered and (os.clock() - buffered.at) <= EARLY_PONG_MAX_AGE_S then
+    if buffered and (os.clock() - buffered.at) <= (buffered.ttl or EARLY_PONG_MAX_AGE_S) then
         settleRemote(buffered.ver) -- the greet already arrived during the join
         return
     end
@@ -242,17 +256,42 @@ end
 
 -- Wired into NetChannel.initClient: the host's hidden greet carrying its version.
 function ServerCheck.onPong(ver)
+    -- A greet observed while WE are the world authority is our OWN outgoing
+    -- pong to a joining guest, looping back through the client-side hook (the
+    -- pong branch has no for-us filter). Never buffer it - and do not log it
+    -- as "received" (it was sent): a stale self-greet inherited within the
+    -- age window would false-settle REMOTE against the NEXT host - vanilla
+    -- included, which is the state that lets a carrier RPC go out to a host
+    -- that reads it as a plain otomo selection.
+    if state == ST.LOCAL or Role.hasWorldAuthority() then
+        -- devMode-only: a genuine client greet eaten by a false-positive
+        -- authority read would otherwise vanish without a trace
+        if Config.devMode then
+            Log("(greet dropped: authority-side loop-back, state " .. state .. ")")
+        end
+        return
+    end
     Log("Handshake: host greet received (v" .. tostring(ver) .. ") while " .. state)
-    -- Always buffer the greet. On a reconnect within the same client session
-    -- (e.g. the server restarted) the host re-greets while state is still REMOTE
-    -- from the previous world, BEFORE onEnterWorld re-baselines to RESOLVING.
-    -- settleRemote ignores a greet in REMOTE, so without buffering it the greet
-    -- is lost, the re-baselined session finds no greet and times out to a false
-    -- "server does not run Palvolve". Buffering lets the imminent onEnterWorld
-    -- consume it (the EARLY_PONG_MAX_AGE_S guard drops stale ones).
-    earlyPong = { ver = ver, at = os.clock() }
-    if state == ST.IDLE then return end
-    settleRemote(ver)
+    if state == ST.IDLE then
+        earlyPong = { ver = ver, at = os.clock() }
+        return
+    end
+    -- Settle FIRST; buffer only a greet that could NOT settle. The buffered
+    -- case this exists for (upstream 1.3.10): the host re-greets after a server
+    -- restart while state is still REMOTE from the previous world, BEFORE
+    -- onEnterWorld re-baselines to RESOLVING - settleRemote ignores greets in
+    -- REMOTE, so the buffer lets the imminent onEnterWorld consume it (the
+    -- EARLY_PONG_MAX_AGE_S guard drops stale ones). A greet that DID settle
+    -- must never survive into the next world entry (the vanilla-host hazard
+    -- above), which settle-first guarantees structurally.
+    if settleRemote(ver) then
+        earlyPong = nil
+        return
+    end
+    -- REMOTE-origin buffer: short TTL, see REMOTE_GREET_TTL_S. The reconnect
+    -- consumer arrives within milliseconds; anything older is a hop to a
+    -- different (possibly vanilla) host and must find the buffer expired.
+    earlyPong = { ver = ver, at = os.clock(), ttl = REMOTE_GREET_TTL_S }
 end
 
 function ServerCheck.init()

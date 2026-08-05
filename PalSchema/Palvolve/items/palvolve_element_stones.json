@@ -1,7 +1,7 @@
 {
     "Palvolve_AdaptationStone_Normal": {
         "Type": "Generic",
-        "IconTexture": "$resource/Palvolve/adaptionstone_normal",
+        "IconTexture": "$resource/Palvolve-Fork/adaptionstone_normal",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
         "Rank": 2,
@@ -13,7 +13,7 @@
     },
     "Palvolve_AdaptationStone_Fire": {
         "Type": "Generic",
-        "IconTexture": "$resource/Palvolve/adaptionstone_fire",
+        "IconTexture": "$resource/Palvolve-Fork/adaptionstone_fire",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
         "Rank": 2,
@@ -25,7 +25,7 @@
     },
     "Palvolve_AdaptationStone_Water": {
         "Type": "Generic",
-        "IconTexture": "$resource/Palvolve/adaptionstone_water",
+        "IconTexture": "$resource/Palvolve-Fork/adaptionstone_water",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
         "Rank": 2,
@@ -37,7 +37,7 @@
     },
     "Palvolve_AdaptationStone_Leaf": {
         "Type": "Generic",
-        "IconTexture": "$resource/Palvolve/adaptionstone_leaf",
+        "IconTexture": "$resource/Palvolve-Fork/adaptionstone_leaf",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
         "Rank": 2,
@@ -49,7 +49,7 @@
     },
     "Palvolve_AdaptationStone_Electricity": {
         "Type": "Generic",
-        "IconTexture": "$resource/Palvolve/adaptionstone_electricity",
+        "IconTexture": "$resource/Palvolve-Fork/adaptionstone_electricity",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
         "Rank": 2,
@@ -61,7 +61,7 @@
     },
     "Palvolve_AdaptationStone_Ice": {
         "Type": "Generic",
-        "IconTexture": "$resource/Palvolve/adaptionstone_ice",
+        "IconTexture": "$resource/Palvolve-Fork/adaptionstone_ice",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
         "Rank": 2,
@@ -73,7 +73,7 @@
     },
     "Palvolve_AdaptationStone_Earth": {
         "Type": "Generic",
-        "IconTexture": "$resource/Palvolve/adaptionstone_earth",
+        "IconTexture": "$resource/Palvolve-Fork/adaptionstone_earth",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
         "Rank": 2,
@@ -85,7 +85,7 @@
     },
     "Palvolve_AdaptationStone_Dark": {
         "Type": "Generic",
-        "IconTexture": "$resource/Palvolve/adaptionstone_dark",
+        "IconTexture": "$resource/Palvolve-Fork/adaptionstone_dark",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
         "Rank": 2,
@@ -97,7 +97,7 @@
     },
     "Palvolve_AdaptationStone_Dragon": {
         "Type": "Generic",
-        "IconTexture": "$resource/Palvolve/adaptionstone_dragon",
+        "IconTexture": "$resource/Palvolve-Fork/adaptionstone_dragon",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
         "Rank": 2,

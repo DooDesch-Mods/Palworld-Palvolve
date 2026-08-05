@@ -3,10 +3,18 @@
 -- "adaptation" (element variant). stone: "evolution" | "adaptation" - item costs
 -- only apply while requireStone is true.
 --
+-- Optional per-pair field `free = true`: THAT pair costs nothing at all (no
+-- stone, no materials) regardless of the global switches, so a tree can mix
+-- level-only evolutions with costed ones. Free pairs are exactly the ones
+-- auto-evolve fires on its own; costed pairs always keep the prompt flows.
+-- Example: { from = "Penguin", to = "CaptainPenguin", minLevel = 20, free = true },
+--
 -- Optional per-pair field `conditions = { "night", "knowsMove:Dragon", ... }`:
 -- every listed condition must hold at evolve time (AND). An either/or split is
 -- two pairs with the same from/to and different conditions - the gates try all
--- same-target candidates. Vocabulary and colon syntax ("knowsMove:<Element>",
+-- same-target candidates - or the in-pair form `anyOf = { ... }`: same
+-- vocabulary, at least one listed id must hold (see conditions.lua).
+-- Vocabulary and colon syntax ("knowsMove:<Element>",
 -- "inParty:<CharacterID>") live in conditions.lua; unknown ids are dropped at
 -- load with a log line.
 --
@@ -16,30 +24,102 @@
 -- _Tower ids must NEVER be targets (boss/spawn logic is attached to them).
 local Conditions = require("conditions")
 
+-- ============================== FORK FEATURES ==============================
+-- Everything this fork adds over DooDesch's Palvolve, and the switch that
+-- turns each one off. Every switch below is also settable from
+-- config_user.lua, so a stock-Palvolve-plus-nothing session is one user file
+-- away - no reinstall needed.
+--   auto-evolve (free evolutions fire on their own) ..... autoEvolve.enabled
+--   base workers auto-evolve ............................ autoEvolve.basePals
+--   transformation protection (no mid-evolve deaths) .... evolveProtection.enabled
+--   Primed Pals (wild pals evolve at low HP) ............ primedPals.enabled
+--   wild level limit / devolve-at-spawn ................. wildLevelLimit.enabled
+--   gender-faithful wild spawns ......................... wildLevelLimit.genderFaithful
+--   NPC-companion pals obey the same rules .............. wildLevelLimit.npcOtomo
+--   cross-species adaptations gate eggs ................. eggFilter.gateCrossAdaptations
+--   in-session work-suitability refresh at evolve ....... worksuitRefresh
+--   saddle-tech census dump (RETIRED on build 933,
+--     switch inert - see the declaration below) ......... techCensus
+--   workbench unlock level (applies next launch) ........ techLevelCap
+--   withdraw-to-cancel (recall aborts + refunds) ........ withdrawCancels
+--   status-page evolution list .......................... statusEvolutions.enabled
+--   Palpedia Evolutions tab ............................. palpediaEvolutions.enabled
+--   evolution prompts (toast + chat line) ............... evolveNotify.enabled
+--   "What's this?" pre-evolution beat + pause ........... evolveNotify.flavorLine
+--   DarnToasts delivery (that mod's toasts + a progress
+--     panel instead of the vanilla notice feed, only
+--     while DarnToasts is installed) .................... evolveNotify.darnToasts
+--   primed-stone naming & labels ........................ stoneNames.primedNaming
+--   material costs on top of the stone .................. costs.enabled
+--   in-game options menu (Mod Options Framework, if it
+--     is installed - 36 of the switches on this list,
+--     precedence config.lua < config_user.lua < menu;
+--     rows marked "Applies at next launch." arm a hook
+--     at startup and reach the game through the cache
+--     file, see the third-layer pass at the bottom) ..... modoptions.lua
+--   in-game settings page (DarnMenu, if THAT mod is
+--     installed - the same 36 switches on a second
+--     menu, rendered from the same row table; both
+--     menus merge their CHANGED KEYS into the ONE
+--     options cache above, so the last Apply OF A KEY
+--     wins and neither menu can revert the other's
+--     untouched rows; nothing here reads a DarnMenu
+--     file) ............................................. darnmenu.lua
+-- DATA-HALF feature, no runtime switch (PalSchema loads it before any Lua
+-- runs): saddle-tech tree sync - gear techs move to your map's begin
+-- levels via Mods/PalSchema/mods/Palvolve-Fork/raw/palvolve_saddletech.jsonc.
+-- To remove it, delete that file from the installed data half (and re-run
+-- tools/gen-saddletech.js after map edits to refresh it). The same
+-- data-half caveat covers the stone item names further below.
+-- The egg filter exists upstream too; the fork keeps it ON by default
+-- (eggFilter.enabled) and extends its semantics (gateCrossAdaptations
+-- above is fork-only). Everything NOT listed - rollback, the radial info,
+-- the bench and its recipes, conditions, the layered grand finale
+-- (finale.style / digimon.elementColors), the catch-tech unlock
+-- (unlockCatchTech) - is upstream behavior with upstream's own switches.
+-- ===========================================================================
+
 local Config = {
     -- Dev mode: enables the diagnostic key bindings (probes.lua) and the
     -- [diag] sequence telemetry in the log.
     devMode = false,
 
-    -- Reveal telemetry, on top of devMode. Separate because it keeps a polling
-    -- closure alive for 12s per evolution and two overlapping ones crash the game.
+    -- Reveal telemetry, on top of devMode. Its own switch because it keeps a
+    -- polling closure alive for the whole reveal, and two overlapping runs of
+    -- it have killed the game with "Ref was not function".
     diagReveal = false,
 
     -- Mod version, reported to connected clients by the host handshake. Keep in
     -- sync with Info.json (the release flow checks this).
-    modVersion = "1.5.1",
+    modVersion = "1.10.0",
+
+    -- In-session work-suitability refresh: after a species swap the pal's
+    -- work-style cache (CraftSpeeds, Transient) still describes the OLD form
+    -- until the param is rebuilt at world load, so the party panel shows the
+    -- wrong styles for the rest of the session. With this on, the ranks are
+    -- rebuilt in place from the new species' database row at the swap. The
+    -- SAVE is never affected either way (the cache is never serialized);
+    -- false = the stock behavior, new work styles show after a save & reload.
+    worksuitRefresh = true,
+
+    -- Saddle-tech census: RETIRED on build 100933 - the runtime read route
+    -- was convicted of two CTDs by crumb forensics (see techcensus.lua for
+    -- the record). The module no-ops regardless of this flag now; it stays
+    -- for config compatibility and for a future build's revalidation run.
+    techCensus = false,
+
+    -- Workbench unlock level: the technology stage the Pal Alchemy Workbench is
+    -- unlocked at (1-100). This is PalSchema DATA, read once when PalSchema
+    -- loads, so it can never change for the running session - techlevel.lua
+    -- rewrites the data half's building file at every launch and the new stage
+    -- applies at the NEXT one. The same pass repairs the value after a
+    -- reinstall replaced the data half with its shipped default.
+    techLevelCap = 10,
 
     -- Unlock the catch-gated technologies (saddle, Pal gear) of the target species when a
     -- pal evolves, the same way capturing one would. Needs the native companion in
     -- dlls/main.dll; without it this is skipped and evolution works as before.
     unlockCatchTech = true,
-
-    -- Player level at which the Pal Alchemy Workbench becomes buildable in the
-    -- technology tree. The stage lives in PalSchema data, not in Lua, so this is
-    -- applied by rewriting that file and takes effect on the next game start.
-    -- Keeping it here means it survives a Workshop update, which overwrites the
-    -- PalSchema file itself. 10 is the shipped default.
-    techLevelCap = 10,
 
     -- Server check: a connected client asks the host whether Palvolve runs
     -- server-side and which version. Without a host-side answer, evolution and
@@ -71,6 +151,80 @@ local Config = {
                                -- element layer (its base layer still runs)
     },
 
+    -- Transformation protection: an evolving pal cannot die while the
+    -- sequence runs. The staging freezes the pal but leaves it damageable,
+    -- and no stage checks for death - mid-combat a kill during the dissolve
+    -- reads as a despawn, and the new form can be shot down mid-reveal. While
+    -- the window is open the current actor (old body, then the freshly
+    -- spawned target body) is flagged undamageable and the individual's HP is
+    -- re-topped on a short pump; the window closes with one final full heal,
+    -- so an evolution always ends at full HP even under fire.
+    evolveProtection = {
+        enabled = true,
+        healPumpMs = 250,       -- HP re-top + flag re-assert interval
+        maxWindowSeconds = 90,  -- hard deadline backstop; every normal
+                                -- sequence end releases much earlier
+    },
+
+    -- Primed Pals: a wild pal whose level already satisfies one of its
+    -- species' evolutions has a chance to be PRIMED - when its HP drops
+    -- below the threshold in a fight, it evolves right there. The roll is
+    -- deterministic per individual (hashed from its instance id), so a
+    -- Primed Pal stays primed across save/load with no stored state.
+    -- During the short telegraph before the swap the pal is death-protected
+    -- but NOT healed and stays fully catchable: sphere it then (at its juicy
+    -- low-HP catch odds) and you catch the UN-evolved form - the evolution
+    -- aborts; let it finish and you face a full-HP evolved pal worth more
+    -- (it gets the same benefits as player evolutions: IV bonus, full heal,
+    -- protection through the reveal). Pairs with environment conditions
+    -- (desert, cave, night, weather...) participate: region checks use the
+    -- nearby fighting player's position as the pal's proxy (the pal is
+    -- within range of them by definition), and player-pawn checks like
+    -- playerLevel read that same nearby player ("a player at least this
+    -- strong is around"); party/trust/riding conditions never match wild
+    -- pals. Authority-side only (host/server); costs never apply to wild
+    -- pals.
+    primedPals = {
+        enabled = true,
+        chance = 10,             -- percent chance a wild pal is primed
+        hpThreshold = 0.35,      -- evolves when HP fraction drops below this
+        scanIntervalSeconds = 2, -- scanner cadence (runs ONLY during combat)
+        range = 8000,            -- only pals within this range of a player
+        levelGrace = 0,          -- also allow pairs up to N levels above the
+                                 -- pal's level ("pushed over the edge")
+        maxPerScan = 12,         -- nearby wild candidates fully examined per
+                                 -- tick; the sweep stops once this budget is
+                                 -- spent, and the rotating start guarantees
+                                 -- every pal gets its turn within a few ticks
+        telegraphMs = 1800,      -- catch-window staging before the swap
+        -- per-environment chance overrides: while the pal itself satisfies
+        -- the condition, the HIGHEST matching entry replaces `chance`,
+        -- e.g. { inDesert = 25, inCave = 25, night = 15 }
+        environmentChance = {},
+        -- GLOBAL situational gate, same vocabulary as the per-pair conditions
+        -- in `map` ("!" negation included): ALL of `conditions`, plus at least
+        -- one member of `anyOf` when that list is non-empty, must hold before
+        -- a wild pal can become primed-eligible at all. It sits ON TOP of
+        -- hpThreshold, the level gates and the chance roll, and the pair's own
+        -- conditions still apply afterwards - this only decides whether the
+        -- pal is a candidate. Evaluated against the WILD pal itself (its
+        -- moves, gender, status effects, HP); region questions are answered
+        -- through the nearby player's position (that player stands in for the
+        -- pal, which is within range of them by definition) and day/night and
+        -- weather are read from the world. A failing gate is not remembered:
+        -- the same pal is reconsidered on the next sweep, so a gate that
+        -- describes the world (night, a storm) simply opens when it does.
+        -- Player-BODY ids do not describe the wild pal and must not be used
+        -- here: isRiding fails closed on every wild pal, isGliding answers for
+        -- the nearby player instead of the pal, and inWater answers only from
+        -- the pal's own swim state (the player fallback is refused). Empty
+        -- lists - the default - change nothing.
+        -- e.g. conditions = { "night", "!raining" }, anyOf = { "inDesert",
+        -- "inVolcano" }
+        conditions = {},
+        anyOf = {},
+    },
+
     -- Layered grand finale at the reveal (finale_recipes.lua + finale.lua)
     finale = {
         style = "layered",     -- "layered" | "legacy" (legacy = the old
@@ -83,6 +237,150 @@ local Config = {
     confirmKey = "F2",
     confirmWindowSeconds = 10,
     debounceSeconds = 0.5,
+
+    -- Auto-evolve: the summoned pal evolves on its own - no radial prompt, no
+    -- F2 confirm - the moment every gate passes (level, conditions, alpha
+    -- form) AND the evolution is completely free: no stone and no materials,
+    -- i.e. the resolved cost list is empty. Costed pairs never auto-fire, so
+    -- with the default requireStone=true this stays inert until evolutions
+    -- are made free. When several free targets are eligible at once the first
+    -- in map order wins (evolutions sort before adaptations) - use the radial
+    -- menu for a manual pick before the poller fires. Works mid-combat; the
+    -- transformation itself is covered by evolveProtection below.
+    autoEvolve = {
+        enabled = true,
+        intervalSeconds = 5,   -- how often the summoned pal is re-checked
+        cooldownSeconds = 30,  -- per-individual spacing between attempts; kept
+                               -- above the worst-case ~26s dedicated-server
+                               -- presentation so chained free evolutions can
+                               -- never overlap the previous reveal (failed
+                               -- attempts additionally back off exponentially)
+        -- Base pals evolve on their own too: a pal ASSIGNED TO A CAMP (not a
+        -- party member, not the summoned pal) transforms on the spot the
+        -- moment it reaches the level of a FREE pair that has NO conditions.
+        -- Conditioned pairs are deliberately excluded - a condition deserves
+        -- its moment in front of the player - and costed pairs never
+        -- auto-fire, exactly like the summoned-pal poller above. This is an
+        -- AUTHORITY feature (single player, listen host, dedicated server):
+        -- it runs where the base itself is simulated, and connected clients
+        -- just see the result. The transformation rebuilds the pal's body,
+        -- which drops its current work assignment - the camp AI re-picks a
+        -- task moments later, the same way it does after a world reload.
+        basePals = true,
+        baseIntervalSeconds = 45, -- camp sweep cadence (clamped to >= 15s);
+                               -- deliberately slow - a base evolution has no
+                               -- prompt to race and no player waiting on it
+    },
+
+    -- Evolution prompts: when one of YOUR pals finishes evolving, you are told
+    -- on screen - "Cattiva evolved into Naughty Cat! (Lv 19)". The line goes
+    -- into the game's own notice stream (the corner feed that reports catches
+    -- and level-ups), so it looks native and never interrupts play. Covers
+    -- every owned context: your manual F2/radial evolutions, auto-evolve, and
+    -- base-camp workers - which is the whole point, since a camp evolution
+    -- happens off-screen. On a server the prompt reaches the pal's OWNER
+    -- wherever they are: the host relays the sentence over the mod's own
+    -- channel and the owner's client renders its own toast, backed by a private
+    -- chat line. Wild and primed evolutions stay silent - those pals are not
+    -- yours.
+    --
+    -- chatFallback (on) sends that private chat line ALONGSIDE the notice, not
+    -- only when the notice fails: whether the game actually drew the notice is
+    -- not observable from a mod (the widget is spawned Blueprint-side), so the
+    -- chat line is what guarantees you are told at all. Turn it off for the
+    -- notice alone and no duplicated sentence - on every path, local and
+    -- server alike. enabled = false silences both surfaces, and the evolution
+    -- is still recorded in the UE4SS log.
+    --
+    -- On a SERVER the two settings sit on different machines: your own
+    -- enabled = false stops the notice being drawn on your screen (the relayed
+    -- prompt is checked against YOUR config, not the host's), while the private
+    -- chat line that backs it up is the host's call via its chatFallback - the
+    -- host cannot read your config, and a mod cannot unsend a system chat line.
+    -- The sentence is built on the host, so it arrives in the HOST's game
+    -- language (see i18n.lua).
+    evolveNotify = {
+        enabled = true,
+        chatFallback = true,
+        -- The anime beat: the moment an evolution is committed, the notice
+        -- feed reads "What's this? <name> is evolving?" (adaptation pairs:
+        -- "... is adapting to its environment!") and the actual
+        -- transformation starts flavorLeadMs later (the pal keeps acting
+        -- normally through the pause and freezes when the sequence proper
+        -- begins). 0 keeps the flavor line but starts the sequence
+        -- immediately; the pause is clamped to 5000ms. Applies to the F2
+        -- confirm, the radial pick, a connected client's request (the host
+        -- paces the whole sequence, so both sides share the beat) and
+        -- auto-evolve. Wild and primed evolutions stay silent as always;
+        -- base-camp evolutions skip the beat - nobody is watching a camp
+        -- three regions away.
+        flavorLine = true,
+        flavorLeadMs = 1500,
+        -- DarnToasts delivery: when the DarnToasts mod is installed alongside
+        -- this one, the notices above are drawn on ITS channel (styled toasts
+        -- with a per-mod lane, plus a sticky progress panel through the
+        -- transformation) instead of the game's own notice feed - one surface,
+        -- never both. Without that mod this switch does nothing at all, which
+        -- is why it ships on: the integration is inert without the framework
+        -- and costs nothing to leave enabled. Style, position and MUTING live
+        -- on DarnToasts' own Toasts page, not here; muting Palvolve there
+        -- silences these notices completely (the chat line above and the
+        -- UE4SS log entry are unaffected - a mod cannot unsend a chat line
+        -- and the log is the record). Off = the vanilla notice feed as before,
+        -- even with DarnToasts installed.
+        darnToasts = true,
+    },
+
+    -- Evolution info on the pal status page: the detail overlay (a pal's
+    -- stats screen) lists what the pal can evolve into and what each target
+    -- needs - level, conditions, and stone/materials at its current level
+    -- (free pairs simply show their level). Placement is in design-
+    -- resolution pixels from the page's top-left; nudge x/y if a game
+    -- update or another mod moves the layout. Purely cosmetic and fails
+    -- closed: any structural surprise collapses the block for the session.
+    -- Covers BOTH pal-detail screens: the standalone status overlay and the
+    -- main menu's Party tab. Default position is the free centre-bottom
+    -- area under the pal model (1920x1080 design space).
+    -- SUPERSEDED by palpediaEvolutions below (off by default; flip back on
+    -- if you also want the block on the per-pal detail screens).
+    statusEvolutions = {
+        enabled = false,
+        x = 820,         -- left edge of the block
+        y = 840,         -- top edge of the block
+        lineHeight = 26, -- vertical spacing per line
+        maxLines = 8,    -- header + up to 7 targets
+    },
+
+    -- The Evolutions tab on the Palpedia: a CLICKABLE tab-style label sits
+    -- beside the game's Stats/Habitat tabs (at tabX/tabY); clicking it
+    -- opens a panel listing what the selected species evolves into and
+    -- what each target needs (level, conditions, costs at the pair's
+    -- minimum level - the Paldex shows species, not individuals), each
+    -- target tagged as an Evolution or an (element) Adaptation. Clicking
+    -- Stats/Habitat closes it; the toggle key is the keyboard shortcut.
+    -- Positions are viewport pixels (1920x1080). Cosmetic, fails closed.
+    palpediaEvolutions = {
+        enabled = true,
+        toggleKey = "V", -- keyboard shortcut for the tab
+        tabX = 1560,     -- tab-label position (screen-space)
+        tabY = 118,
+        x = 700,         -- panel top-left (the free area under the model)
+        y = 280,
+        lineHeight = 30, -- vertical spacing per line (scaled by textScale)
+        maxLines = 19,   -- header + up to 6 targets (spacer + name + reqs)
+        textScale = 0.8, -- render scale of the panel labels (1 = game default;
+                         -- the tab label is never scaled)
+        wrapChars = 56,  -- soft-wrap requirement lines longer than this at
+                         -- their " + " separators (0 = never wrap)
+    },
+
+    -- Withdrawing (recalling) your pal during the dissolve cancels the
+    -- evolution: any stone/materials already taken are refunded, and
+    -- auto-evolve leaves that pal alone until its next level-up (manual
+    -- F2/radial evolution stays available immediately). Single player and
+    -- co-op host only - on a dedicated server the species swap commits
+    -- before a recall could ever land.
+    withdrawCancels = true,
 
     -- Multiplayer request channel (host-side limits per requesting player)
     net = {
@@ -99,8 +397,9 @@ local Config = {
     stoneCount = 1,
     stoneItemIds = {
         evolution = "Palvolve_EvolutionStone",
-        -- per-element adaptation stones (crafted from Evolution Stone +
-        -- MeteorDrop + the matching element essence)
+        -- per-element PRIMED evolution stones (crafted from an Unprimed
+        -- Evolution Stone + the matching element essence; the unprimed stone
+        -- itself is crystal + MeteorDrop + PalFluid)
         adaptation = {
             Normal      = "Palvolve_AdaptationStone_Normal",
             Fire        = "Palvolve_AdaptationStone_Fire",
@@ -117,15 +416,32 @@ local Config = {
         adaptationFallback = "Palvolve_AdaptionStone",
     },
     stoneNames = {
-        evolution = "Evolution Stone",
-        adaptation = "Adaptation Stone"
+        -- primed-stone economy (2026-07-25), the fork's presentation preset:
+        -- the plain stone is the crafting base; elemental stones are "primed"
+        -- evolution stones (costs.lua appends " (Element)" to the adaptation
+        -- name, giving e.g. "Primed Evolution Stone (Fire)"), and the
+        -- Palpedia/status lists tag entries by what a pair IS (its category).
+        -- primedNaming = false reverts BOTH to the classic upstream
+        -- presentation: the names below are replaced by the classic pair and
+        -- the list tags follow the STONE a pair charges (pre-economy
+        -- behavior). Explicitly set evolution/adaptation strings in
+        -- config_user always win over either preset. NOTE: inventory and
+        -- bench item names come from the PalSchema data half and keep the
+        -- fork's names either way - this switch covers the mod's own prompts,
+        -- cost lines and list labels.
+        primedNaming = true,
+        evolution = "Unprimed Evolution Stone",
+        adaptation = "Primed Evolution Stone",
+        classicEvolution = "Evolution Stone",
+        classicAdaptation = "Adaptation Stone",
     },
 
-    -- Material costs on top of the stone. Materials derive from drop tables
-    -- (evolutions price the BASE pal's drops, adaptations the TARGET form's);
-    -- a per-pair `materials = { { id = "...", count = n }, ... }` overrides.
-    -- Off by default: the stone + essence chain already carries the price,
-    -- extra per-pal materials are opt-in for players who want more grind.
+    -- Material costs on top of the stone. DERIVED materials come from drop
+    -- tables (evolutions price the BASE pal's drops, adaptations the TARGET
+    -- form's), and `enabled` gates exactly that derivation. An explicit
+    -- per-pair `materials = { { id = "...", count = n }, ... }` is part of
+    -- the pair's own design and charges whether the switch is on or off.
+    -- Off by default: the stone + essence chain already carries the price.
     costs = {
         enabled = false,
         slots = 2,        -- max distinct material types taken from a drop row
@@ -137,11 +453,51 @@ local Config = {
         },
     },
 
-    -- Egg filter, opt-in (off by default): when enabled, eggs only ever hatch
-    -- base forms (evolved forms are normalized back to their base species while
-    -- hatching); funchain results stay allowed.
+    -- Eggs only ever hatch base forms (evolved forms are normalized back to
+    -- their base species while hatching); funchain results stay allowed.
     eggFilter = {
-        enabled = false,
+        enabled = true,
+        -- An "adaptation" edge that CHANGES SPECIES (Dinossom -> Braloha)
+        -- gates eggs like an evolution: the reached species is earn-only and
+        -- its eggs hatch the base family instead. Same-species element
+        -- variants (Kelpie -> Kelpie_Fire) are exempt and keep hatching
+        -- unchanged - the map's own naming (to = from .. "_Suffix") is the
+        -- discriminator. false restores the pre-1.7.3 evolution-chains-only
+        -- rule, under which a Braloha egg hatches a Braloha.
+        gateCrossAdaptations = true,
+    },
+
+    -- Wild level limit: when a WILD pal rolls a species its level could not
+    -- legitimately have reached (its rolled level is below the minimum the map
+    -- requires to reach that species), the spawn is rewritten BEFORE any actor
+    -- exists. "devolve" (default) spawns it as the chain stage its level does
+    -- allow; "levelFloor" instead raises the level to that species' floor and
+    -- leaves the species alone. Evolution parents always gate; adaptation
+    -- parents gate while includeAdaptations is true (funchain links never do).
+    -- Alphas (BOSS_) are left alone by default. Authority-side (host/server);
+    -- wild pals only (owned pals are never touched).
+    --
+    -- genderFaithful applies the same idea to gender: gender persists through
+    -- evolution, so a species every one of whose ancestry paths demands one
+    -- gender (e.g. Vanwyrm, reachable only via an isFemale pair) can only
+    -- legitimately exist as that gender - a wild male one is as illegitimate as
+    -- an under-levelled one. Those spawns have their rolled gender corrected
+    -- before the actor exists. Species with any un-gendered or disagreeing
+    -- ancestry path (both a male and a female route) keep their random roll.
+    wildLevelLimit = {
+        enabled = true,
+        mode = "devolve",          -- "devolve" | "levelFloor"
+        includeAdaptations = true,
+        exemptAlphas = true,
+        genderFaithful = true,     -- gender-correct fully gender-gated species
+        -- NPC-companion pals (settlement guards', merchants' and faction
+        -- NPCs' pals) obey the same level floors and gender rules: they
+        -- lottery like wilds but build through their own initializer, which
+        -- previously bypassed the filter entirely. A unique (story) NPC's
+        -- authored companion is always left untouched. Already-spawned NPC
+        -- pals fix themselves on their next area reload - spawn-time rules
+        -- never rewrite an existing individual.
+        npcOtomo = true,
     },
 
     -- Map schema version; 5 = negatable conditions ("!" prefix), 4 = per-pair
@@ -1367,28 +1723,67 @@ end
 
 -- ALL enabled options for a species (evolution + adaptations) - the choice
 -- menu presents these filtered by affordability.
+function Config.findPairs(characterId)
+    local result = {}
+    for _, pair in ipairs(Config.map) do
+        if pair.enabled and pair.from == characterId then
+            table.insert(result, pair)
+        end
+    end
+    return result
+end
+
 -- Identity of a tree, as a short hex string. FNV-1a over the canonicalized pair
 -- list: sorted, so two configs that hold the same pairs in a different order
 -- hash the same, and only the fields that decide what an evolution DOES take
 -- part. A host and a client comparing this can tell whether they are playing by
 -- the same rules without moving the tree itself across the wire.
+--
+-- The canonical line EXTENDS upstream's (from>to|category|minLevel|stone|conds)
+-- by the three fork-only fields that change what a pair does - free, anyOf and
+-- an explicit materials list - because two fork maps differing only in them are
+-- different trees and must never hash the same. nil and {} stay distinct for
+-- materials (an empty list is a pair's way of buying out of the derived bill),
+-- which is what the "-" marker is for. The at-most/counted conditions
+-- (hpBelow:N, inParty:Id:N) need nothing extra: they ARE condition ids and
+-- travel inside the two sorted lists.
+--
+-- minLevel prints with %g, never %d: a config_user number can arrive as 2.5 and
+-- %d raises on a float in Lua 5.4 (house rule), while %g stays deterministic.
 function Config.treeHash(map)
     map = map or Config.map
     if type(map) ~= "table" then return "0" end
 
+    -- a condition list as one sorted term: order inside the list is authoring
+    -- noise, not meaning
+    local function sortedList(list)
+        if type(list) ~= "table" or #list == 0 then return "" end
+        local out = {}
+        for _, c in ipairs(list) do table.insert(out, tostring(c)) end
+        table.sort(out)
+        return table.concat(out, ",")
+    end
+
     local lines = {}
     for _, p in ipairs(map) do
         if p.enabled then
-            local conds = ""
-            if type(p.conditions) == "table" and #p.conditions > 0 then
-                local sorted = {}
-                for _, c in ipairs(p.conditions) do table.insert(sorted, tostring(c)) end
-                table.sort(sorted)
-                conds = table.concat(sorted, ",")
+            local mats = "-"
+            if type(p.materials) == "table" then
+                local items = {}
+                for _, m in ipairs(p.materials) do
+                    table.insert(items, string.format("%s*%g",
+                        tostring(m.id), tonumber(m.count) or 0))
+                end
+                table.sort(items)
+                mats = table.concat(items, ",")
             end
-            table.insert(lines, string.format("%s>%s|%s|%d|%s|%s",
+            table.insert(lines, string.format("%s>%s|%s|%g|%s|%s|%s|%s|%s",
                 tostring(p.from), tostring(p.to), tostring(p.category or ""),
-                tonumber(p.minLevel) or 0, tostring(p.stone or ""), conds))
+                tonumber(p.minLevel) or 0, tostring(p.stone or ""),
+                sortedList(p.conditions),
+                p.free and "free" or "",
+                sortedList(p.anyOf),
+                mats))
         end
     end
     table.sort(lines)
@@ -1417,55 +1812,63 @@ function Config.treeHash(map)
     return string.format("%08x", hash), #lines
 end
 
-function Config.findPairs(characterId)
-    local result = {}
-    for _, pair in ipairs(Config.map) do
-        if pair.enabled and pair.from == characterId then
-            table.insert(result, pair)
-        end
-    end
-    return result
-end
-
--- Reverse maps for the egg filter, split by category so eggs follow EVOLUTION
--- chains only. Funchain links are always excluded. Both maps point at parents:
--- the walk below only ever moves towards the base of a chain.
---   evoParents[to] = { evolution froms }
---   adaParents[to] = { adaptation froms }
-local evoParentsCache, adaParentsCache = nil, nil
+-- Reverse/forward maps for the egg filter, split by category so eggs follow
+-- EVOLUTION chains only. Funchain links are always excluded.
+--   evoParents[to]    = { evolution froms }
+--   adaParents[to]    = { adaptation froms }
+--   adaChildren[from] = { adaptation tos } (element variants of a base)
+local evoParentsCache, adaParentsCache, adaChildrenCache = nil, nil, nil
 local function eggParents()
     if evoParentsCache == nil then
-        evoParentsCache, adaParentsCache = {}, {}
+        evoParentsCache, adaParentsCache, adaChildrenCache = {}, {}, {}
         local function add(map, k, v)
             local list = map[k]
             if not list then list = {}; map[k] = list end
             for _, x in ipairs(list) do if x == v then return end end
             table.insert(list, v)
         end
+        -- v1.7.3 (eggFilter.gateCrossAdaptations, default on): an adaptation
+        -- that CHANGES SPECIES is an earned form like any evolution and joins
+        -- the evolution-parent map, so eggs of it normalize to the base
+        -- family. Only same-species element variants (to = from .. "_Suffix",
+        -- the map's own naming convention) keep the never-gated adaptation
+        -- treatment. With the switch off the classification is bit-identical
+        -- to pre-1.7.3.
+        local gateCross = not (Config.eggFilter
+            and Config.eggFilter.gateCrossAdaptations == false)
         for _, pair in ipairs(Config.map) do
             if pair.enabled then
                 if pair.category == "evolution" then
                     add(evoParentsCache, pair.to, pair.from)
                 elseif pair.category == "adaptation" then
-                    add(adaParentsCache, pair.to, pair.from)
+                    local variant = type(pair.to) == "string"
+                        and type(pair.from) == "string"
+                        and pair.to:sub(1, #pair.from + 1) == (pair.from .. "_")
+                    if variant or not gateCross then
+                        add(adaParentsCache, pair.to, pair.from)
+                        add(adaChildrenCache, pair.from, pair.to)
+                    else
+                        add(evoParentsCache, pair.to, pair.from)
+                    end
                 end
             end
         end
     end
-    return evoParentsCache, adaParentsCache
+    return evoParentsCache, adaParentsCache, adaChildrenCache
 end
 
 -- Raw base candidates for an egg of `characterId`, following EVOLUTION chains
 -- only. First, peel the id's own adaptation layers to reach the evolution chain
 -- beneath it. Then walk evolution parents STRICTLY below the seeds; every node
 -- reached that is an adaptation form OR an evolution root is a "family point".
--- Finally, expand each family point to that point itself plus the plain base it
--- adapted from. So an interleaved chain contributes candidates at every
--- adaptation form it passes through, not only at the very bottom. A pure
--- adaptation with no evolution beneath yields nothing, so element variants
--- hatch unchanged. Config.baseFormsOf below resolves these to terminal forms.
+-- Finally, expand each family point to its base family - the plain base reached
+-- by peeling that point's adaptation, plus every element adaptation of that
+-- base. So an interleaved chain contributes a base family at every adaptation
+-- form it passes through, not only at the very bottom. A pure adaptation with
+-- no evolution beneath yields nothing, so element variants hatch unchanged.
+-- Config.baseFormsOf below resolves these to terminal forms.
 local function rawBaseForms(characterId)
-    local evoParents, adaParents = eggParents()
+    local evoParents, adaParents, adaChildren = eggParents()
 
     -- plain base(s) of Y: peel Y's adaptation layers to forms with no adaptation
     -- parent (Y itself when it is not an adaptation form)
@@ -1486,17 +1889,17 @@ local function rawBaseForms(characterId)
         return out
     end
 
-    -- A candidate is the reached form itself plus the forms that can be adapted INTO it,
-    -- never its sibling variants. Adaptation runs one way (base -> variant), so handing out
-    -- a sibling strands the player: from Kelpsea Ignis there is no way back to Kelpsea, while
-    -- Kelpsea can still become Ignis and is therefore a fair stand-in for it.
     local family, famSet = {}, {}
     local function addFamily(pointId)
-        local function add(id)
-            if not famSet[id] then famSet[id] = true; table.insert(family, id) end
+        for _, b in ipairs(plainBases(pointId)) do
+            if not famSet[b] then famSet[b] = true; table.insert(family, b) end
+            local kids = adaChildren[b]
+            if kids then
+                for _, k in ipairs(kids) do
+                    if not famSet[k] then famSet[k] = true; table.insert(family, k) end
+                end
+            end
         end
-        add(pointId)
-        for _, b in ipairs(plainBases(pointId)) do add(b) end
     end
 
     -- seeds: characterId plus its adaptation ancestors
@@ -1580,8 +1983,32 @@ function Config.baseFormOf(characterId)
     return (Config.baseFormsOf(characterId))[1]
 end
 
--- Where the mod's scripts folder would find its own config_user.lua, or nil.
--- The AppData copy wins over this one, so an edit here changes nothing and
+-- Set by the stoneNames merge below and read by the preset resolution at the
+-- bottom of this file: an explicit user-set name string must survive a
+-- primedNaming = false preset flip PER KEY (renaming one stone must not pin
+-- the other to the primed default). Module scope - the resolution runs even
+-- when no user file exists.
+--
+-- Also read by costs.lua (same table, filled by the merge below): the primed
+-- preset's strings are exactly what the data half registers as the item names,
+-- so a cost line can safely take the game's own LOCALIZED name there - but a
+-- name the user set explicitly is a deliberate override OF that data half and
+-- has to beat it.
+local userNamedStones = {}
+Config.stoneNames.userNamed = userNamedStones
+
+-- The mod's own folder under the game's Saved tree. ONE definition: the user
+-- overlay below, the in-game options cache further down and modoptions.lua's
+-- writer all hang off it, so a layout change can never move only half of them.
+-- nil when the environment has no LOCALAPPDATA (every caller falls back).
+Config.userDir = (function()
+    local localAppData = os.getenv("LOCALAPPDATA")
+    if not localAppData then return nil end
+    return localAppData .. "\\Pal\\Saved\\Palvolve"
+end)()
+
+-- Where this mod's own scripts folder would find a config_user.lua, or nil.
+-- The AppData copy wins over that one, so an edit there changes nothing and
 -- reads as the mod ignoring the config - worth naming in the log.
 local function scriptsConfigPath()
     local found = nil
@@ -1595,16 +2022,19 @@ end
 -- Workshop installs where the mod folder is managed by Steam):
 --   %LocalAppData%\Pal\Saved\Palvolve\config_user.lua
 -- Fallback: next to this file. Mod updates never touch the user file.
+--
+-- Returns the table, the path it came from, and every path this pass actually
+-- LOOKED at - the fallback notice below names them, so "the mod ignores my
+-- config" answers itself from the log instead of from a support thread.
 local function loadUserConfig()
     local checked = {}
-    local localAppData = os.getenv("LOCALAPPDATA")
-    if localAppData then
-        local dir = localAppData .. "\\Pal\\Saved\\Palvolve"
+    local dir = Config.userDir
+    if dir then
         local path = dir .. "\\config_user.lua"
         table.insert(checked, path)
         -- existence is probed separately from loadfile so a file that IS there
-        -- but does not compile reports its syntax error instead of silently
-        -- falling through as if nothing had been dropped in the folder
+        -- but does not compile reports its syntax error, instead of falling
+        -- through silently as if nothing had been dropped in the folder
         local present = io.open(path, "r")
         if present then
             present:close()
@@ -1649,6 +2079,20 @@ if user then
                 p.minLevel = tonumber(p.minLevel) or 1
                 p.stone = p.stone or (p.category == "adaptation" and "adaptation" or "evolution")
                 if p.enabled == nil then p.enabled = true end
+                if p.free ~= nil then p.free = p.free == true end
+                -- a scalar in either list-shaped field would sanitize to
+                -- empty/empty and vanish with zero console evidence - the one
+                -- malformation the drop log below cannot see
+                if p.conditions ~= nil and type(p.conditions) ~= "table" then
+                    print(string.format("[Palvolve] %s -> %s: conditions must be an array - ignored\n",
+                        p.from, p.to))
+                    p.conditions = nil
+                end
+                if p.anyOf ~= nil and type(p.anyOf) ~= "table" then
+                    print(string.format("[Palvolve] %s -> %s: anyOf must be an array - ignored\n",
+                        p.from, p.to))
+                    p.anyOf = nil
+                end
                 if p.conditions ~= nil then
                     -- unknown ids are dropped (fail open: a config written for
                     -- a newer vocabulary must not brick this pair entirely);
@@ -1657,6 +2101,16 @@ if user then
                     p.conditions = (#clean > 0) and clean or nil
                     if #dropped > 0 then
                         print(string.format("[Palvolve] %s -> %s: dropped unknown conditions: %s\n",
+                            p.from, p.to, table.concat(dropped, ", ")))
+                    end
+                end
+                if p.anyOf ~= nil then
+                    -- same fail-open drop as the AND list above; an emptied
+                    -- group must go back to nil so the pair reads unconditioned
+                    local clean, dropped = Conditions.sanitize(p.anyOf)
+                    p.anyOf = (#clean > 0) and clean or nil
+                    if #dropped > 0 then
+                        print(string.format("[Palvolve] %s -> %s: dropped unknown anyOf conditions: %s\n",
                             p.from, p.to, table.concat(dropped, ", ")))
                     end
                 end
@@ -1674,8 +2128,13 @@ if user then
             evoParentsCache = nil
         end
     end
-    if type(user.eggFilter) == "table" and user.eggFilter.enabled ~= nil then
-        Config.eggFilter.enabled = user.eggFilter.enabled == true
+    if type(user.eggFilter) == "table" then
+        if user.eggFilter.enabled ~= nil then
+            Config.eggFilter.enabled = user.eggFilter.enabled == true
+        end
+        if user.eggFilter.gateCrossAdaptations ~= nil then
+            Config.eggFilter.gateCrossAdaptations = user.eggFilter.gateCrossAdaptations == true
+        end
     end
     -- Whitelisted on purpose: the diagnostics that name a CharacterID sit behind
     -- devMode, and the copy next to the mod belongs to Steam on a Workshop
@@ -1689,17 +2148,159 @@ if user then
     if user.requireStone ~= nil then
         Config.requireStone = user.requireStone == true
     end
-    -- Clamped here rather than trusted: this value is written into the PalSchema
-    -- building file, where a junk level would break the technology entry.
-    if tonumber(user.techLevelCap) then
-        local lvl = math.floor(tonumber(user.techLevelCap))
-        if lvl < 1 then lvl = 1 end
-        if lvl > 100 then lvl = 100 end
-        Config.techLevelCap = lvl
+    if user.withdrawCancels ~= nil then
+        Config.withdrawCancels = user.withdrawCancels == true
+    end
+    if user.techCensus ~= nil then
+        Config.techCensus = user.techCensus == true
+    end
+    -- Integer 1..100, clamped HERE and not at the read site: the read site
+    -- REWRITES a data file, so a stray 0, a float or a string must never reach
+    -- it. Anything that is not a number leaves the default standing.
+    if user.techLevelCap ~= nil then
+        local cap = tonumber(user.techLevelCap)
+        if cap then
+            cap = math.floor(cap)
+            if cap < 1 then cap = 1 end
+            if cap > 100 then cap = 100 end
+            Config.techLevelCap = cap
+        end
+    end
+    if user.worksuitRefresh ~= nil then
+        Config.worksuitRefresh = user.worksuitRefresh == true
+    end
+    if user.unlockCatchTech ~= nil then
+        Config.unlockCatchTech = user.unlockCatchTech == true
+    end
+    if type(user.stoneNames) == "table" then
+        if user.stoneNames.primedNaming ~= nil then
+            Config.stoneNames.primedNaming = user.stoneNames.primedNaming == true
+        end
+        for _, k in ipairs({ "evolution", "adaptation" }) do
+            if type(user.stoneNames[k]) == "string" and user.stoneNames[k] ~= "" then
+                Config.stoneNames[k] = user.stoneNames[k]
+                userNamedStones[k] = true
+            end
+        end
+    end
+    if type(user.statusEvolutions) == "table" then
+        if user.statusEvolutions.enabled ~= nil then
+            Config.statusEvolutions.enabled = user.statusEvolutions.enabled == true
+        end
+        for _, k in ipairs({ "x", "y", "lineHeight", "maxLines" }) do
+            if user.statusEvolutions[k] ~= nil then
+                Config.statusEvolutions[k] = user.statusEvolutions[k]
+            end
+        end
+    end
+    if type(user.palpediaEvolutions) == "table" then
+        if user.palpediaEvolutions.enabled ~= nil then
+            Config.palpediaEvolutions.enabled = user.palpediaEvolutions.enabled == true
+        end
+        for _, k in ipairs({ "toggleKey", "tabX", "tabY", "x", "y", "lineHeight", "maxLines",
+                             "textScale", "wrapChars" }) do
+            if user.palpediaEvolutions[k] ~= nil then
+                Config.palpediaEvolutions[k] = user.palpediaEvolutions[k]
+            end
+        end
     end
     if type(user.costs) == "table" then
         for _, k in ipairs({ "enabled", "slots", "minRate", "countScale", "maxCount" }) do
             if user.costs[k] ~= nil then Config.costs[k] = user.costs[k] end
+        end
+    end
+    if type(user.autoEvolve) == "table" then
+        -- booleans coerced like eggFilter/requireStone above; the numeric
+        -- keys are tonumber-guarded where they are consumed
+        if user.autoEvolve.enabled ~= nil then
+            Config.autoEvolve.enabled = user.autoEvolve.enabled == true
+        end
+        if user.autoEvolve.basePals ~= nil then
+            Config.autoEvolve.basePals = user.autoEvolve.basePals == true
+        end
+        for _, k in ipairs({ "intervalSeconds", "cooldownSeconds", "baseIntervalSeconds" }) do
+            if user.autoEvolve[k] ~= nil then Config.autoEvolve[k] = user.autoEvolve[k] end
+        end
+    end
+    if type(user.evolveNotify) == "table" then
+        -- both keys are booleans, coerced like the sections above
+        if user.evolveNotify.enabled ~= nil then
+            Config.evolveNotify.enabled = user.evolveNotify.enabled == true
+        end
+        if user.evolveNotify.chatFallback ~= nil then
+            Config.evolveNotify.chatFallback = user.evolveNotify.chatFallback == true
+        end
+        if user.evolveNotify.flavorLine ~= nil then
+            Config.evolveNotify.flavorLine = user.evolveNotify.flavorLine == true
+        end
+        if user.evolveNotify.darnToasts ~= nil then
+            Config.evolveNotify.darnToasts = user.evolveNotify.darnToasts == true
+        end
+        -- clamping happens at the read site (startEvolutionWithFlavor)
+        local flavorLead = tonumber(user.evolveNotify.flavorLeadMs)
+        if flavorLead ~= nil then
+            Config.evolveNotify.flavorLeadMs = flavorLead
+        end
+    end
+    if type(user.evolveProtection) == "table" then
+        if user.evolveProtection.enabled ~= nil then
+            Config.evolveProtection.enabled = user.evolveProtection.enabled == true
+        end
+        for _, k in ipairs({ "healPumpMs", "maxWindowSeconds" }) do
+            if user.evolveProtection[k] ~= nil then Config.evolveProtection[k] = user.evolveProtection[k] end
+        end
+    end
+    if type(user.primedPals) == "table" then
+        if user.primedPals.enabled ~= nil then
+            Config.primedPals.enabled = user.primedPals.enabled == true
+        end
+        for _, k in ipairs({ "chance", "hpThreshold", "scanIntervalSeconds",
+            "range", "levelGrace", "maxPerScan", "telegraphMs" }) do
+            if user.primedPals[k] ~= nil then Config.primedPals[k] = user.primedPals[k] end
+        end
+        if type(user.primedPals.environmentChance) == "table" then
+            Config.primedPals.environmentChance = user.primedPals.environmentChance
+        end
+        -- the global situational gate, sanitized exactly like the map pairs:
+        -- deduped, unknown ids dropped fail-open with a named log line, and a
+        -- scalar called out because it would otherwise sanitize to empty and
+        -- vanish with no console evidence. An emptied list stays {} - the
+        -- no-op default - and never nil: both lists are read unguarded.
+        for _, k in ipairs({ "conditions", "anyOf" }) do
+            local raw = user.primedPals[k]
+            if raw ~= nil and type(raw) ~= "table" then
+                print(string.format("[Palvolve] primedPals.%s must be an array - ignored\n", k))
+            elseif type(raw) == "table" then
+                local clean, dropped = Conditions.sanitize(raw)
+                Config.primedPals[k] = clean
+                if #dropped > 0 then
+                    print(string.format("[Palvolve] primedPals.%s: dropped unknown conditions: %s\n",
+                        k, table.concat(dropped, ", ")))
+                end
+            end
+        end
+    end
+    if type(user.wildLevelLimit) == "table" then
+        -- booleans coerced like the sections above
+        if user.wildLevelLimit.enabled ~= nil then
+            Config.wildLevelLimit.enabled = user.wildLevelLimit.enabled == true
+        end
+        if user.wildLevelLimit.includeAdaptations ~= nil then
+            Config.wildLevelLimit.includeAdaptations = user.wildLevelLimit.includeAdaptations == true
+        end
+        if user.wildLevelLimit.exemptAlphas ~= nil then
+            Config.wildLevelLimit.exemptAlphas = user.wildLevelLimit.exemptAlphas == true
+        end
+        if user.wildLevelLimit.genderFaithful ~= nil then
+            Config.wildLevelLimit.genderFaithful = user.wildLevelLimit.genderFaithful == true
+        end
+        if user.wildLevelLimit.npcOtomo ~= nil then
+            Config.wildLevelLimit.npcOtomo = user.wildLevelLimit.npcOtomo == true
+        end
+        if user.wildLevelLimit.mode ~= nil then
+            -- validate to the two allowed strings; anything else -> "devolve"
+            Config.wildLevelLimit.mode =
+                (user.wildLevelLimit.mode == "levelFloor") and "levelFloor" or "devolve"
         end
     end
     print(string.format("[Palvolve] user config loaded (%d pairs, %s)\n", #Config.map, tostring(userSource)))
@@ -1714,6 +2315,173 @@ else
     -- species the player configured showing no evolution at all.
     print(string.format("[Palvolve] no user config found, running the built-in tree (%d pairs). Checked: %s\n",
         #Config.map, table.concat(userChecked or {}, ", ")))
+end
+
+-- ===================== In-game options (third layer) =======================
+-- Precedence, lowest to highest:
+--   config.lua defaults  <-  config_user.lua  <-  in-game options (top)
+--
+-- The Mod Options Framework publishes its values ASYNCHRONOUSLY, a second or
+-- more after this file has finished loading, so the menu cannot be read from
+-- here. modoptions.lua therefore mirrors every applied value into
+-- options_cache.lua beside config_user.lua, and THIS pass is what makes those
+-- values real - which is exactly what "Applies at next launch." means on a
+-- menu row. Live rows are written straight into this table at Apply time and
+-- ride the cache only to survive the restart.
+--
+-- Position is load-bearing: AFTER the user merge (the menu is the newer, more
+-- deliberate intent and must win over a file the player edited once) and
+-- BEFORE the preset resolution below (a primedNaming flip from the menu has to
+-- reach that pass exactly like a config_user one).
+--
+-- The cache is a file on disk like any other and is never trusted: whitelisted
+-- keys only, each coerced and clamped in the same style as the user merge, and
+-- a key is only written when config.lua already declares it (no invented
+-- settings, no invented subtables). The list mirrors modoptions.lua's ROWS -
+-- it cannot import them (modoptions requires THIS file), so a key added there
+-- and not here simply never survives a restart; it still applies live.
+--
+-- ONE pcall around the WHOLE pass, not just around the load. The cache is an
+-- executable Lua file: a corrupt or hostile copy can return a perfectly valid
+-- table whose metatable throws on __index, and every cache[key] read below
+-- would then raise INSIDE require("config") - which is the first thing every
+-- module does, so it would take the entire mod down at startup. Anything that
+-- goes wrong in here costs the in-game options layer one log line and nothing
+-- else; config.lua's own defaults and config_user.lua still stand.
+do
+    local okLayer, errLayer = pcall(function()
+        local cache = nil
+        if Config.userDir then
+            -- loadfile answers nil on a missing OR malformed file and never raises,
+            -- and the chunk itself is pcall'd: a corrupted cache is simply ignored
+            local chunk = loadfile(Config.userDir .. "\\options_cache.lua")
+            if chunk then
+                local okChunk, result = pcall(chunk)
+                if okChunk and type(result) == "table" then cache = result end
+            end
+        end
+        if cache then
+            -- "b" = boolean; { min, max, isInt } = number, clamped (floored when
+            -- isInt); { "enum", ... } = one of the listed strings; "k" = a UE4SS
+            -- key NAME, which must exist in the live Key table - RegisterKeyBind
+            -- is handed Key[name] unguarded, so a bogus name here would take a
+            -- module's whole init with it.
+            local RULES = {
+                ["autoEvolve.enabled"]                = "b",
+                ["autoEvolve.basePals"]               = "b",
+                ["autoEvolve.cooldownSeconds"]        = { 0, 600, true },
+                ["withdrawCancels"]                   = "b",
+                ["unlockCatchTech"]                   = "b",
+                ["evolveProtection.enabled"]          = "b",
+                ["confirmKey"]                        = "k",
+                ["primedPals.enabled"]                = "b",
+                ["primedPals.chance"]                 = { 0, 100, true },
+                ["primedPals.hpThreshold"]            = { 0.05, 1.0, false },
+                ["primedPals.telegraphMs"]            = { 400, 10000, true },
+                ["wildLevelLimit.enabled"]            = "b",
+                ["wildLevelLimit.mode"]               = { "enum", "devolve", "levelFloor" },
+                ["wildLevelLimit.genderFaithful"]     = "b",
+                ["wildLevelLimit.npcOtomo"]           = "b",
+                ["wildLevelLimit.exemptAlphas"]       = "b",
+                ["wildLevelLimit.includeAdaptations"] = "b",
+                ["eggFilter.enabled"]                 = "b",
+                ["eggFilter.gateCrossAdaptations"]    = "b",
+                ["evolveNotify.enabled"]              = "b",
+                ["evolveNotify.chatFallback"]         = "b",
+                ["evolveNotify.flavorLine"]           = "b",
+                ["evolveNotify.flavorLeadMs"]         = { 0, 5000, true },
+                ["evolveNotify.darnToasts"]           = "b",
+                ["finale.style"]                      = { "enum", "layered", "legacy" },
+                ["digimon.elementColors"]             = "b",
+                ["palpediaEvolutions.enabled"]        = "b",
+                ["palpediaEvolutions.toggleKey"]      = "k",
+                ["palpediaEvolutions.textScale"]      = { 0.4, 1.5, false },
+                ["statusEvolutions.enabled"]          = "b",
+                ["requireStone"]                      = "b",
+                ["costs.enabled"]                     = "b",
+                ["stoneNames.primedNaming"]           = "b",
+                ["worksuitRefresh"]                   = "b",
+                ["techLevelCap"]                      = { 1, 100, true },
+                ["devMode"]                           = "b",
+            }
+            -- dotted key -> (owning table, final key); nil unless every parent AND
+            -- the leaf already exist
+            local function slotOf(path)
+                local t, last = Config, nil
+                for part in path:gmatch("[^.]+") do
+                    if last ~= nil then
+                        t = t[last]
+                        if type(t) ~= "table" then return nil end
+                    end
+                    last = part
+                end
+                if last == nil or t[last] == nil then return nil end
+                return t, last
+            end
+            local applied, rejected = 0, 0
+            for key, rule in pairs(RULES) do
+                local raw = cache[key]
+                if raw ~= nil then
+                    local value = nil
+                    if rule == "b" then
+                        if type(raw) == "boolean" then value = raw end
+                    elseif rule == "k" then
+                        -- pcall'd: Key may not exist at all on some builds, and an
+                        -- unusable name must leave the default standing
+                        local okKey, code = pcall(function() return Key[raw] end)
+                        if type(raw) == "string" and okKey and type(code) == "number" then
+                            value = raw
+                        end
+                    elseif rule[1] == "enum" then
+                        for i = 2, #rule do
+                            if raw == rule[i] then value = raw end
+                        end
+                    else
+                        local n = tonumber(raw)
+                        if n and n == n and n ~= math.huge and n ~= -math.huge then
+                            if rule[3] then n = math.floor(n) end
+                            if n < rule[1] then n = rule[1] end
+                            if n > rule[2] then n = rule[2] end
+                            value = n
+                        end
+                    end
+                    local t, last = nil, nil
+                    if value ~= nil then t, last = slotOf(key) end
+                    if t ~= nil then
+                        t[last] = value
+                        applied = applied + 1
+                    else
+                        rejected = rejected + 1
+                    end
+                end
+            end
+            print(string.format(
+                "[Palvolve] in-game options applied (%d values%s)\n",
+                applied,
+                rejected > 0 and string.format(", %d rejected", rejected) or ""))
+        end
+    end)
+    if not okLayer then
+        print(string.format(
+            "[Palvolve] in-game options layer skipped (%s)\n",
+            tostring(errLayer)))
+    end
+end
+
+-- Presentation preset resolution: runs AFTER the defaults, the user merge and
+-- the in-game options layer, so a primedNaming flip from EITHER source takes
+-- effect (that ordering is why the cache pass sits above), and never overwrites a
+-- name string the user set explicitly (userNamedStones). costs.lua and the
+-- prompt surfaces only ever read stoneNames.evolution/adaptation, so the
+-- whole preset collapses to these two strings plus the kind-tag branch in
+-- evolution.lua.
+if Config.stoneNames.primedNaming == false then
+    if not userNamedStones.evolution then
+        Config.stoneNames.evolution = Config.stoneNames.classicEvolution
+    end
+    if not userNamedStones.adaptation then
+        Config.stoneNames.adaptation = Config.stoneNames.classicAdaptation
+    end
 end
 
 return Config

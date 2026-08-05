@@ -4,20 +4,30 @@
 -- every sender, so the same command works in singleplayer, for a co-op host
 -- and for clients on dedicated servers. The typed command stays visible as a
 -- normal chat line; the response goes back to the sender only.
---
--- "!" is the documented prefix, "/" still works. A leading slash is the game's
--- own admin sigil: it answers every such line with "You are not an Admin.
--- /AdminPassword <Password>" before any mod sees it. That refusal is emitted
--- inside the chat widget itself, not through Debug_ReceiveCheatCommand_ToClient
--- or SendSystemToPlayerChat, so no Lua hook can suppress it. Hence the same "!"
--- convention the other Palworld command mods use.
 
 local Role = require("role")
 
 local ChatCommands = {}
 
+-- "!" is the primary sigil (upstream 1.4.2): Palworld's own admin system
+-- intercepts "/"-prefixed chat before any Lua hook runs and answers "You
+-- are not an Admin" on servers - other command mods settled on "!". The
+-- "/" form stays for back-compat where the game still lets it through
+-- (singleplayer / listen hosts).
 local NAME = "palvolve"
 local SIGILS = { ["!"] = true, ["/"] = true }
+
+-- exact-token match: the first whitespace token must be sigil+name EXACTLY
+-- ("/palvolvefoo" must not trigger - the old prefix match did). Returns the
+-- lowercased subcommand, "help" when bare, nil when not ours.
+local function subcommandOf(text)
+    local first, rest = text:match("^%s*(%S+)%s*(.*)$")
+    if not first then return nil end
+    if not SIGILS[first:sub(1, 1)] then return nil end
+    if first:sub(2):lower() ~= NAME then return nil end
+    local sub = rest:match("^(%S+)")
+    return (sub and sub:lower()) or "help"
+end
 
 -- resolves the sending player's context from the chatting PlayerState
 local function senderCtxOf(ps)
@@ -30,16 +40,6 @@ local function senderCtxOf(ps)
     return Role.playerCtxFor(pc)
 end
 
--- Splits "!palvolve rollback" into its subcommand, nil for anything that is
--- not addressed to this mod.
-local function subcommandOf(lower)
-    local first = lower:match("^(%S+)")
-    if not first then return nil end
-    if not SIGILS[first:sub(1, 1)] then return nil end
-    if first:sub(2) ~= NAME then return nil end
-    return lower:match("^%S+%s+(%S+)") or "help"
-end
-
 -- handlers = { rollback = function(playerCtx) ... end, ... }; unknown
 -- subcommands fall back to handlers.help
 function ChatCommands.init(handlers)
@@ -49,27 +49,24 @@ function ChatCommands.init(handlers)
                 local text = ""
                 pcall(function() text = msgParam:get():ToString() end)
                 if type(text) ~= "string" then return end
-                local sub = subcommandOf(text:lower())
+                local sub = subcommandOf(text)
                 if not sub then return end
                 local ctx = senderCtxOf(self:get())
                 if not ctx then return end
                 local handler = handlers[sub] or handlers.help
                 if not handler then return end
-                -- Run one tick later, outside this hook. A reply sent from
-                -- inside the chat frame is swallowed: the handler runs and logs
-                -- its answer, but nothing reaches the chat box. Deferring puts
-                -- the reply in a normal frame, where it renders.
-                local ran = false
+                -- one tick deferred (upstream 1.4.2): a reply sent from
+                -- inside the chat frame is swallowed, and the widget can
+                -- free refs the handler holds. Fired-latch one-shot per the
+                -- crash-#7 law; controller revalidated on the game thread.
+                local fired = false
                 LoopAsync(1, function()
-                    if ran then return true end
-                    ran = true
+                    if fired then return true end
+                    fired = true
                     ExecuteInGameThread(function()
-                        -- re-check at the point of use: the sender can be gone
-                        -- by the time the deferred stage runs, and a UFunction
-                        -- call on a freed controller is a native crash that
-                        -- pcall does not catch
-                        if not (ctx.pc and ctx.pc:IsValid()) then return end
-                        pcall(handler, ctx)
+                        pcall(function()
+                            if ctx.pc and ctx.pc:IsValid() then handler(ctx) end
+                        end)
                     end)
                     return true
                 end)

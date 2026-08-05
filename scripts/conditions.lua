@@ -1,10 +1,18 @@
 -- Palvolve conditions: optional per-pair environment/state requirements.
 -- A pair's `conditions` field is an array of condition id strings. ALL ids of
--- a pair must hold at evolve time (AND). An either/or split is expressed as
--- two pairs with the same from/to and different conditions (the gates try
--- every same-target candidate). Parameterized ids use a colon:
+-- a pair must hold at evolve time (AND). Its optional `anyOf` field is a
+-- second array in the SAME id grammar, sanitized the same way, of which AT
+-- LEAST ONE id must hold; it stacks ON TOP of `conditions`, never replaces
+-- it. An either/or split is also expressible as two pairs with the same
+-- from/to and different conditions (the gates try every same-target
+-- candidate) - `anyOf` is the in-pair form of that. Parameterized ids use a
+-- colon:
 --   "knowsMove:Dragon"  (EPalElementType name)
 --   "inParty:Penguin"   (DT_PalMonsterParameter row name)
+--   "inParty:Penguin:2" (same, but at least 2 of them; the count is 1..4)
+-- An "inParty" id never counts the EVOLVING pal itself - slots are matched
+-- by individual identity, not species, so a same-species requirement reads
+-- as "another of my kind" rather than being satisfied by the aspirant.
 -- A leading "!" negates any id: "!night" (must not be night), "!trustRank:4"
 -- (trust rank below 4). At most one "!"; "!!x" is unknown and dropped.
 --
@@ -15,7 +23,8 @@
 -- greyed option with a reason is visible and debuggable. Negation only
 -- inverts a CLEANLY returned boolean - an eval error or unknown id stays
 -- unmet regardless of polarity, so "!" can never turn a failure into a met
--- condition.
+-- condition. An `anyOf` group needs one member that cleanly evaluates true,
+-- so a group whose members all fail is unmet like a single failing id.
 --
 -- This module must not require config.lua (config.lua requires this module
 -- for its sanitizer); devMode is read lazily via package.loaded.
@@ -84,15 +93,15 @@ local HP_FULL_RATE = 0.999
 local HUNGRY_RATE = 0.3
 local WELL_FED_RATE = 0.9
 local TRUST_RANK_MIN = 5      -- GetFriendshipRank threshold
--- WeatherFXSettings thresholds, read off the sky plugin's own weather presets
--- (DT_PPSC_Weather_*). Every non-rain preset has RainAmount exactly 0 and the
--- weakest rain state is 0.2, so any small positive value separates them. Snow
--- needs a lower bar: the lightest snowfall state sits at 0.01.
+-- WeatherFXSettings thresholds, calibrated against the game's own weather
+-- presets (upstream 1.4.2 probe data, ported 2026-07-30): every non-rain
+-- preset sits at exactly 0 rain (weakest rain state 0.2); the LIGHTEST of
+-- the four snowfall states sits at 0.010 (the old 0.05 bar never saw it);
+-- fog density fully overlaps other weather (fog presets 0.01-0.4, heavy
+-- snow 0.4, rain 0.1, and a clear NIGHT sky climbs past 0.06) - so foggy
+-- needs the higher bar AND a dry-sky guard, not a bare threshold.
 local RAIN_MIN = 0.05
 local SNOW_MIN = 0.005
--- Fog is only read together with a dry-sky check, see BOOL_EVAL.foggy. The bar
--- sits above the clear-sky band (a daylight preset reaches 0.08, a clear night
--- measured 0.06) and below the weakest fog state that is actually visible.
 local FOG_MIN = 0.1
 
 -- ---------------------------------------------------------------- ue helpers
@@ -211,6 +220,14 @@ BOOL_EVAL.inWater = function(ctx)
         palIn = waterState(ctx.actor:GetPalCharacterMovementComponent())
     end)
     if palIn == true then return true end
+    -- FORK-ONLY GUARD (upstream has no such context). The wild-spawn sweep
+    -- builds a PROXY ctx whose playerCtx is an arbitrary player standing near
+    -- an unowned pal, not its owner - that proxy is a faithful stand-in for
+    -- POSITIONAL reads (region, base, weather) but not for "is this pal in
+    -- water": a wild Kelpsea on dry land would satisfy "inWater" the moment
+    -- any nearby player went for a swim. On that context the pal's own
+    -- movement component is the only legitimate answer.
+    if ctx.wildProxy then return false end
     local playerIn = nil
     pcall(function()
         local pawn = playerPawn(ctx)
@@ -359,16 +376,9 @@ BOOL_EVAL.thunderstorm = function(ctx)
     local fx = weatherFx(ctx)
     return fx.EnableLightnings == true
 end
-
--- Fog needs more than a density threshold, because density alone does not mean
--- fog: it climbs every night on a clear sky, a clear daylight preset sits at
--- 0.08, and heavy snow reaches 0.4. What separates real fog is that the density
--- is high AND the sky is otherwise dry. Measured against the sky plugin's own
--- presets, "above 0.1 with no rain and no snow" catches Fog_01 (0.4), Fog_03
--- (0.105) and Fog_04 (0.3) while excluding Snow_02 (0.4 with full snow),
--- Rain_03 (0.1 with rain) and every clear state. Fog_02 (0.01) is missed on
--- purpose: at that density there is nothing to see anyway.
 BOOL_EVAL.foggy = function(ctx)
+    -- density alone cannot express fog (see the threshold comments): require
+    -- a DRY sky so heavy snow, rain and clear-night darkness all reject
     local fx, sky = weatherFx(ctx)
     if fx.RainAmount > 0 or fx.SnowAmount > 0 then return false end
     return sky.WeatherSettings.ExponentialHeightFogSettings.FogDensity > FOG_MIN
@@ -456,6 +466,7 @@ end
 local NUMERIC_PARAM_BOUNDS = {
     playerLevel = { min = 1, max = 80 },
     trustRank = { min = 1, max = 10 },
+    hpBelow = { min = 1, max = 99 },
     ivTotal = { min = 1, max = 400 },
     ivEach = { min = 1, max = 100 },
     ivHP = { min = 1, max = 100 },
@@ -486,6 +497,18 @@ PARAM_EVAL.trustRank = function(ctx, value)
     local rank = nil
     pcall(function() rank = ctx.param:GetFriendshipRank() end)
     return (tonumber(rank) or 0) >= need
+end
+
+-- "hpBelow:<n>": current HP is at most n percent of max - the near-death
+-- gate. Unlike every other numeric (at-LEAST thresholds) this one reads
+-- at-MOST; "!" still just inverts the clean boolean (HP above n%). A free
+-- pair gated on hpBelow:1 auto-fires the moment a pal that would have
+-- died leaves the fight alive - hpRate throws when HP is unreadable and
+-- the eval machinery counts that as NOT met, whichever polarity.
+PARAM_EVAL.hpBelow = function(ctx, value)
+    local need = tonumber(value)
+    if not need then return false end
+    return hpRate(ctx) * 100 <= need
 end
 
 local IV_FIELDS = { "Talent_HP", "Talent_Melee", "Talent_Shot", "Talent_Defense" }
@@ -536,11 +559,51 @@ PARAM_EVAL.ivMelee = ivStatEval("Talent_Melee")
 PARAM_EVAL.ivShot = ivStatEval("Talent_Shot")
 PARAM_EVAL.ivDefense = ivStatEval("Talent_Defense")
 
--- "inParty:<CharacterID>": species in any otomo slot, spawned or in the ball;
--- an Alpha (BOSS_ prefixed) individual counts as its base species
-PARAM_EVAL.inParty = function(ctx, characterId)
+-- "inParty" value grammar: "<CharacterID>" or "<CharacterID>:<n>" with n an
+-- integer 1..4 (the party holds five slots and the aspirant occupies one).
+-- Returns id, count or nil for anything else. ONE parse serves both the
+-- sanitizer and the evaluator so the accepted grammar cannot drift.
+local function parseInPartyValue(value)
+    if type(value) ~= "string" then return nil end
+    local id, countText = value:match("^([%w_]+):(.+)$")
+    if not id then
+        if value:match("^[%w_]+$") then return value, 1 end
+        return nil
+    end
+    local n = tonumber(countText)
+    if not (n and n == math.floor(n) and n >= 1 and n <= 4) then return nil end
+    return id, math.floor(n)
+end
+
+-- "inParty:<CharacterID>[:<n>]": at least n (default 1) OTHER otomo slots
+-- holding that species, spawned or in the ball; an Alpha (BOSS_ prefixed)
+-- individual counts as its base species.
+-- The evolving pal never counts as its own party member: the three
+-- same-species pairs (Alpaca>KingAlpaca, MopBaby>MopKing,
+-- NegativeKoala>BadCatgirl) would otherwise be vacuously satisfied by the
+-- aspirant matching itself, while every author intended "another of my
+-- kind". Exclusion is by INDIVIDUAL identity, never species: each
+-- individual owns a distinct UPalIndividualCharacterParameter and
+-- TryGetIndividualParameter hands back the same object for the same
+-- individual, so its GetFullName() path is an exact per-individual key.
+-- No readable self identity RAISES - evalOne's pcall counts it unmet
+-- whichever polarity, per the header law ("!" can never turn a failure
+-- into a met condition). The wild evaluators never pay for this: their
+-- ctx is only built after the param validates, and a wild pal sits in no
+-- player's party anyway (invalid holder = clean "no party members" false,
+-- which "!" MAY legitimately invert).
+PARAM_EVAL.inParty = function(ctx, value)
+    local characterId, need = parseInPartyValue(value)
+    if not characterId then return false end
     if not (ctx.holder and ctx.holder:IsValid()) then return false end
-    local found = false
+    local selfName = nil
+    pcall(function()
+        if ctx.param and ctx.param:IsValid() then selfName = ctx.param:GetFullName() end
+    end)
+    if type(selfName) ~= "string" or selfName == "" then
+        error("inParty: self identity unreadable")
+    end
+    local count, unproven = 0, false
     pcall(function()
         local n = ctx.holder:GetMaxOtomoNum()
         for i = 0, n - 1 do
@@ -550,14 +613,28 @@ PARAM_EVAL.inParty = function(ctx, characterId)
                 if p and p:IsValid() then
                     local id = p:GetCharacterID():ToString()
                     if id == characterId or id == ("BOSS_" .. characterId) then
-                        found = true
-                        return
+                        -- species hit (rare): only now pay for the identity
+                        -- read. A slot whose name is unreadable can be
+                        -- PROVEN neither self nor other - if the readable
+                        -- ones cannot settle the count on their own, the
+                        -- whole walk is unreliable and must raise, never
+                        -- hand a too-low count to a negated form.
+                        local slotName = nil
+                        pcall(function() slotName = p:GetFullName() end)
+                        if type(slotName) ~= "string" or slotName == "" then
+                            unproven = true
+                        elseif slotName ~= selfName then
+                            count = count + 1
+                            if count >= need then return end
+                        end
                     end
                 end
             end
         end
     end)
-    return found
+    if count >= need then return true end
+    if unproven then error("inParty: matched slot identity unreadable") end
+    return false
 end
 
 -- ------------------------------------------------------------------ vocabulary
@@ -575,9 +652,8 @@ Conditions.ORDER = {
     "isMale", "isFemale",
     "hpLow", "hpFull", "hungry", "wellFed", "highTrust",
     "isGliding", "inOwnBase", "inCombat",
-    "raining", "snowing", "thunderstorm", "foggy",
     -- available to hand-written configs only
-    "isRiding",
+    "raining", "snowing", "thunderstorm", "foggy", "isRiding",
 }
 
 Conditions.LABELS = {
@@ -642,7 +718,16 @@ local function positiveLabel(id)
     if Conditions.LABELS[id] then return Conditions.LABELS[id] end
     local prefix, value = splitParamId(id)
     if prefix == "knowsMove" then return I18n.msg("knowsMoveLabel", I18n.element(value)) end
-    if prefix == "inParty" then return I18n.msg("inPartyLabel", palLabel(value)) end
+    if prefix == "inParty" then
+        -- counted form gets its own template ("2+ Depresso in party"); an
+        -- unparseable value still reads as the plain form - label() stays
+        -- total as defense in depth (no live caller feeds it rejected ids)
+        local palId, count = parseInPartyValue(value)
+        if count and count > 1 then
+            return I18n.msg("inPartyCountLabel", count, palLabel(palId))
+        end
+        return I18n.msg("inPartyLabel", palLabel(palId or value))
+    end
     if prefix and NUMERIC_PARAM_BOUNDS[prefix] then
         return I18n.msg(prefix .. "Label", tonumber(value) or 0)
     end
@@ -650,9 +735,10 @@ local function positiveLabel(id)
 end
 
 -- Human label for any id (used in blocked reasons and the config drop log).
--- Negated numerics state the complementary requirement ("Trust rank < 4")
--- instead of wrapping the "%d+" form in "not"; other negated ids wrap their
--- positive label in the notLabel template ("not Night").
+-- Negated numerics state the complementary requirement ("Trust rank < 4",
+-- "HP above 1%" for the at-most hpBelow) instead of wrapping the positive
+-- form in "not"; other negated ids wrap their positive label in the
+-- notLabel template ("not Night").
 function Conditions.label(id)
     local negated, base = splitNegation(id)
     if not negated then return positiveLabel(base) end
@@ -668,7 +754,7 @@ local function isKnownBase(id)
     if BOOL_EVAL[id] then return true end
     local prefix, value = splitParamId(id)
     if prefix == "knowsMove" then return ELEMENTS[value] ~= nil end
-    if prefix == "inParty" then return value:match("^[%w_]+$") ~= nil end
+    if prefix == "inParty" then return parseInPartyValue(value) ~= nil end
     local bounds = prefix and NUMERIC_PARAM_BOUNDS[prefix]
     if bounds then
         local n = tonumber(value)
@@ -730,30 +816,65 @@ local function evalOne(id, ctx)
     return met
 end
 
--- Evaluates all conditions of a pair against ctx = { actor, param, playerCtx,
--- holder }. Returns true, or false plus a reason listing EVERY unmet condition
--- ("Night + In water").
-function Conditions.evaluate(pair, ctx)
-    local list = pair and pair.conditions
-    if type(list) ~= "table" or #list == 0 then return true end
-    local unmet = {}
+-- "(Muddy or In the desert)" for an anyOf group. The palpedia line wrap
+-- splits a requirement string on ", " before anything else, so a group must
+-- read as ONE term: neither orJoiner (17 languages) nor any label may
+-- contain ", ".
+local function groupLabel(list)
+    local labels = {}
     for _, id in ipairs(list) do
-        if not evalOne(id, ctx) then
-            table.insert(unmet, Conditions.label(id))
+        table.insert(labels, Conditions.label(id))
+    end
+    return "(" .. table.concat(labels, I18n.msg("orJoiner")) .. ")"
+end
+
+-- Evaluates all conditions of a pair against ctx = { actor, param, playerCtx,
+-- holder }: every id of `conditions`, plus one member of the `anyOf` group
+-- when that list is non-empty. Returns true, or false plus a reason listing
+-- EVERY unmet condition, the group counting as one ("Night + (Muddy or Wet)").
+function Conditions.evaluate(pair, ctx)
+    local andList = pair and pair.conditions
+    local anyList = pair and pair.anyOf
+    local hasAnd = type(andList) == "table" and #andList > 0
+    local hasAny = type(anyList) == "table" and #anyList > 0
+    if not (hasAnd or hasAny) then return true end
+    local unmet = {}
+    if hasAnd then
+        for _, id in ipairs(andList) do
+            if not evalOne(id, ctx) then
+                table.insert(unmet, Conditions.label(id))
+            end
         end
+    end
+    if hasAny then
+        local met = false
+        for _, id in ipairs(anyList) do
+            if evalOne(id, ctx) then
+                met = true
+                break
+            end
+        end
+        if not met then table.insert(unmet, groupLabel(anyList)) end
     end
     if #unmet == 0 then return true end
     return false, table.concat(unmet, I18n.msg("andJoiner"))
 end
 
--- "Night + In water" for a pair, nil when unconditional (UI/hint helper)
+-- "Night + (Muddy or Wet)" for a pair, nil when unconditional (UI/hint
+-- helper - callers branch on the string, so an empty list yields no "()")
 function Conditions.describe(pair)
-    local list = pair and pair.conditions
-    if type(list) ~= "table" or #list == 0 then return nil end
+    local andList = pair and pair.conditions
+    local anyList = pair and pair.anyOf
     local labels = {}
-    for _, id in ipairs(list) do
-        table.insert(labels, Conditions.label(id))
+    if type(andList) == "table" then
+        for _, id in ipairs(andList) do
+            table.insert(labels, Conditions.label(id))
+        end
     end
+    if type(anyList) == "table" and #anyList > 0 then
+        table.insert(labels, groupLabel(anyList))
+    end
+    if #labels == 0 then return nil end
     return table.concat(labels, I18n.msg("andJoiner"))
 end
 

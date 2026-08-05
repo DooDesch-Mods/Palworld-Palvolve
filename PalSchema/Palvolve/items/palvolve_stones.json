@@ -1,7 +1,7 @@
 {
     "Palvolve_EvolutionStone": {
         "Type": "Generic",
-        "IconTexture": "$resource/Palvolve/evolutionstone",
+        "IconTexture": "$resource/Palvolve-Fork/evolutionstone",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
         "Rank": 1,
@@ -13,7 +13,7 @@
     },
     "Palvolve_AdaptionStone": {
         "Type": "Generic",
-        "IconTexture": "$resource/Palvolve/adaptionstone",
+        "IconTexture": "$resource/Palvolve-Fork/adaptionstone",
         "TypeA": "Material",
         "TypeB": "MaterialProccessing",
         "Rank": 1,
