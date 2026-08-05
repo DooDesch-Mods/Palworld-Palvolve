@@ -249,6 +249,12 @@ namespace
     std::atomic<uintptr_t> g_rank_native{0};
     std::atomic<uintptr_t> g_hasrank_native{0};
 
+    // The database hands its rank map back in a different key space than the getter the base
+    // camp asks. Measured once per session rather than hardcoded, so a game patch that moves
+    // the enum cannot silently put every rank under the wrong work type again.
+    std::atomic<int32> g_key_offset{0};
+    std::atomic<bool> g_key_offset_known{false};
+
     std::mutex g_work_mutex;
     std::map<FWorkKey, FWorkOverride> g_work_overrides;
     // Read before the hook takes the lock: a session that never evolved anything must not pay
@@ -350,7 +356,7 @@ namespace
     auto build_species_map(UObject* WorldCtx, const std::wstring& CharacterId,
                            std::vector<uint8>& OutStorage) -> bool;
     auto flatten_ranks(const std::vector<uint8>& Storage,
-                       std::array<int32, WorkSuitabilityMax>& Out) -> bool;
+                       std::array<int32, WorkSuitabilityMax>& Out, int32 KeyOffset) -> bool;
     auto clear_work_override(UObject* Param) -> bool;
     auto probe_native_getter() -> std::wstring;
     auto install_native_rank_hook() -> void;
@@ -383,7 +389,7 @@ namespace
         std::vector<uint8> Storage;
         std::array<int32, WorkSuitabilityMax> Ranks{};
         if (!build_species_map(WorldCtx, SpeciesId, Storage)) return STR("species not in the database");
-        const bool Flat = flatten_ranks(Storage, Ranks);
+        const bool Flat = flatten_ranks(Storage, Ranks, g_key_offset.load());
         if (g_work_map_prop) g_work_map_prop->DestroyValue(Storage.data());
         if (!Flat) return STR("could not read the species ranks");
 
@@ -577,7 +583,8 @@ namespace
 
     // Flattens the stored map to rank-per-work-type, walked through FScriptMap with the
     // property's own layout rather than a mirrored struct.
-    auto flatten_ranks(const std::vector<uint8>& Storage, std::array<int32, WorkSuitabilityMax>& Out) -> bool
+    auto flatten_ranks(const std::vector<uint8>& Storage, std::array<int32, WorkSuitabilityMax>& Out,
+                       int32 KeyOffset) -> bool
     {
         Out.fill(0);
         if (!g_work_map_prop || Storage.empty()) return false;
@@ -603,6 +610,7 @@ namespace
             int32 Key = 0;
             if (KeySize == 1) Key = static_cast<int32>(*Pair);
             else std::memcpy(&Key, Pair, sizeof(int32));
+            Key -= KeyOffset;
             if (Key < 0 || Key >= static_cast<int32>(WorkSuitabilityMax)) continue;
 
             int32 Value = 0;
@@ -842,6 +850,122 @@ namespace
         return STR("call targets logged");
     }
 
+    // Works out how the database's key space lines up with the getter's.
+    //
+    // Both describe the same species, so the SET of work types carrying a rank has to match.
+    // Only the numbering can differ, and it differed by one: every rank landed one work type
+    // too high, which is how a Penking ended up gathering - a job neither it nor its previous
+    // form has. Matching key sets rather than values, because the live map carries the pal's
+    // condenser rank on top and the database map does not.
+    auto measure_key_offset(UObject* Sample) -> void
+    {
+        if (g_key_offset_known.load()) return;
+
+        // Every way out of here says so. A silent return is what made the first attempt look
+        // like it had run when it had not.
+        auto bail = [](const wchar_t* Why) {
+            Output::send<LogLevel::Warning>(STR("[PalvolveNative] key offset not measured: {}\n"), Why);
+        };
+
+        if (!Sample || !g_work_map_prop) { bail(STR("no sample or map property")); return; }
+
+        auto* WorldCtx = g_world_context.load();
+        if (!WorldCtx) { bail(STR("no world context")); return; }
+        std::wstring Species = character_name_fast(Sample).ToString();
+        if (Species == STR("None")) Species.clear();
+
+        // What the base camp sees for this pal, in the key space that decides work.
+        auto* LiveFn = find_fn(STR("/Script/Pal.PalIndividualCharacterParameter:GetWorkSuitabilityRanksWithCharacterRank"));
+        if (!LiveFn) { bail(STR("live getter not found")); return; }
+
+        // The sample has to be a pal that actually does work. The first live parameter in the
+        // world is regularly a wild pal or an NPC with no suitabilities at all, and an empty
+        // map has no keys to line up - that is what "live map unreadable" really was.
+        auto live_entries = [&](UObject* Candidate, std::array<int32, WorkSuitabilityMax>& Out) -> int32 {
+            FParamBuffer Buffer(LiveFn);
+            Buffer.Call(Candidate);
+            auto* Prop = CastField<FMapProperty>(Buffer.Find(STR("ReturnValue")));
+            if (!Prop) return 0;
+            std::vector<uint8> Copy(static_cast<size_t>(g_work_map_prop->GetSize()), 0);
+            g_work_map_prop->InitializeValue(Copy.data());
+            g_work_map_prop->CopyCompleteValue(Copy.data(), Buffer.Data.data() + Prop->GetOffset_Internal());
+            const bool Ok = flatten_ranks(Copy, Out, 0);
+            g_work_map_prop->DestroyValue(Copy.data());
+            if (!Ok) return 0;
+            int32 N = 0;
+            for (int32 v : Out) { if (v != 0) ++N; }
+            return N;
+        };
+
+        std::array<int32, WorkSuitabilityMax> Live{};
+        std::wstring UsedSpecies = Species;
+        if (Species.empty() || live_entries(Sample, Live) == 0)
+        {
+            UObject* Better = nullptr;
+            std::vector<UObject*> Params;
+            UObjectGlobals::FindAllOf(STR("PalIndividualCharacterParameter"), Params);
+            for (auto* P : Params)
+            {
+                if (!is_live(P)) continue;
+                std::array<int32, WorkSuitabilityMax> Try{};
+                if (live_entries(P, Try) == 0) continue;
+                // "None" is what an unset FName stringifies to, and it is not the empty string.
+                // Letting it through measured an offset of 0 against a species the database
+                // does not have, which looked like a result and was not one.
+                const std::wstring Name = character_name_fast(P).ToString();
+                if (Name.empty() || Name == STR("None")) continue;
+                Live = Try;
+                Better = P;
+                break;
+            }
+            if (!Better) { bail(STR("no loaded pal has any work suitability yet")); return; }
+            Sample = Better;
+            UsedSpecies = character_name_fast(Better).ToString();
+        }
+
+        // The same species straight out of the database.
+        std::vector<uint8> Storage;
+        if (!build_species_map(WorldCtx, UsedSpecies, Storage)) { bail(STR("database map unavailable")); return; }
+        std::array<int32, WorkSuitabilityMax> Db{};
+        const bool Ok = flatten_ranks(Storage, Db, 0);
+        g_work_map_prop->DestroyValue(Storage.data());
+        if (!Ok) { bail(STR("database map unreadable")); return; }
+
+        auto keys_match = [&](int32 Shift) {
+            for (int32 i = 0; i < static_cast<int32>(WorkSuitabilityMax); ++i)
+            {
+                const int32 Src = i + Shift;
+                const bool HasDb = Src >= 0 && Src < static_cast<int32>(WorkSuitabilityMax) && Db[Src] != 0;
+                if (HasDb != (Live[i] != 0)) return false;
+            }
+            return true;
+        };
+
+        int32 LiveCount = 0;
+        int32 DbCount = 0;
+        for (int32 v : Live) { if (v != 0) ++LiveCount; }
+        for (int32 v : Db) { if (v != 0) ++DbCount; }
+        Output::send<LogLevel::Normal>(
+            STR("[PalvolveNative] key offset input on '{}': live {} entries, database {} entries\n"),
+            UsedSpecies, LiveCount, DbCount);
+        if (LiveCount == 0 || DbCount == 0) { bail(STR("one of the two maps is empty")); return; }
+
+        for (int32 Shift = -2; Shift <= 2; ++Shift)
+        {
+            if (!keys_match(Shift)) continue;
+            g_key_offset.store(Shift);
+            g_key_offset_known.store(true);
+            Output::send<LogLevel::Normal>(
+                STR("[PalvolveNative] work suitability key offset measured on '{}': {:+}\n"), Species, Shift);
+            return;
+        }
+
+        Output::send<LogLevel::Warning>(
+            STR("[PalvolveNative] could not line up the database keys with the getter on '{}' - leaving them as they are\n"),
+            Species);
+        g_key_offset_known.store(true);
+    }
+
     using TRankGetter = int32(__fastcall*)(void*, uint8);
     using THasRank = bool(__fastcall*)(void*, uint8, int32);
 
@@ -904,6 +1028,8 @@ namespace
             }
         }
         if (!Sample) return;
+
+        measure_key_offset(Sample);
 
         std::array<int32, WorkSuitabilityMax> Expected{};
         for (uint8 Work = 0; Work < static_cast<uint8>(WorkSuitabilityMax); ++Work)
@@ -1106,13 +1232,15 @@ namespace
         }
 
         FWorkOverride Entry{CharacterId, std::move(Storage), {}};
-        if (!flatten_ranks(Entry.MapStorage, Entry.Ranks))
+        if (!flatten_ranks(Entry.MapStorage, Entry.Ranks, g_key_offset.load()))
         {
             // Installing the display half alone would show a Pal that can mine and then have
             // it refuse to mine, so nothing is installed.
             g_work_map_prop->DestroyValue(Entry.MapStorage.data());
             return {false, STR("species ranks unreadable (container layout changed?)")};
         }
+
+        const std::array<int32, WorkSuitabilityMax> Ranks = Entry.Ranks;
 
         {
             std::lock_guard<std::mutex> Lock(g_work_mutex);
@@ -1124,6 +1252,23 @@ namespace
             }
             g_work_overrides.emplace(Key, std::move(Entry));
             g_work_override_count.store(g_work_overrides.size());
+        }
+
+        // The ranks that were just installed, spelled out. A pal taking on work that neither
+        // its old nor its new species has means a rank landed under the wrong key, and that
+        // cannot be told apart from a correct install without seeing the numbers.
+        {
+            std::wstring Line;
+            for (size_t i = 0; i < WorkSuitabilityMax; ++i)
+            {
+                const int32 Rank = Ranks[i];
+                if (Rank == 0) continue;
+                if (!Line.empty()) Line += STR(", ");
+                Line += std::to_wstring(i) + STR("=") + std::to_wstring(Rank);
+            }
+            Output::send<LogLevel::Normal>(
+                STR("[PalvolveNative] ranks installed for '{}': {}\n"),
+                CharacterId, Line.empty() ? std::wstring(STR("none")) : Line);
         }
 
         // Nothing else has to be pushed, told or re-registered. The native hooks answer the
@@ -1346,14 +1491,18 @@ class PalvolveNative : public CppUserModBase
             // pal's answer from us. That single line is what a support report needs; the
             // camp asks this several hundred times a second, so anything periodic would
             // drown the log.
-            static std::atomic<bool> s_confirmed{false};
-            bool Expected = false;
-            if (g_hasrank_overridden.load(std::memory_order_relaxed) > 0 &&
-                s_confirmed.compare_exchange_strong(Expected, true))
+            // Both counters, not just the overridden one. "No line" used to mean either the
+            // base camp never asks or it asks and misses our override, and those need
+            // different fixes.
+            static uint64 s_lastHits = 0;
+            const uint64 Hits = g_hasrank_hits.load(std::memory_order_relaxed);
+            const uint64 Ours = g_hasrank_overridden.load(std::memory_order_relaxed);
+            if (Hits != s_lastHits)
             {
                 Output::send<LogLevel::Normal>(
-                    STR("[PalvolveNative] base camp is reading evolved work suitability ({} answers so far)\n"),
-                    g_hasrank_overridden.load(std::memory_order_relaxed));
+                    STR("[PalvolveNative] work asked: +{} call(s), {} of {} answered from the new species\n"),
+                    Hits - s_lastHits, Ours, Hits);
+                s_lastHits = Hits;
             }
         }
 
