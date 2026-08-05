@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.5.2] - 2026-08-05
+
+### Fixed
+
+- **Evolved Pals take up new work now.** Lamball to Sekhmet starts mining, Cativa to Nyafia switches to lumbering. No relog needed.
+- **Only half of it worked before.** A Pal that lost a job type dropped it right away, but a Pal that gained one never picked it up. The game asks *whether* a Pal does a job at all before it asks *how well*, and only the second question looked at the new form.
+- **The log now says when the new work takes effect.** One line at that point, plus a `WORK_DIAG` file next to the mod for the full breakdown.
+
+Reported by NyX.
+
 ## [1.5.1] - 2026-08-05
 
 ### Fixed

@@ -96,7 +96,7 @@ Run `!palvolve uninstall` in chat (single player or host) while the mod is still
 ## FAQ
 
 **Evolve is greyed out on a Pal your tree does configure, while other Pals work?**
-Move Palvolve up in the in-game Mod Management list. That list is ordered, and in the wrong order another mod can take Palvolve's evolutions out for one species without any error showing up. One player spent an evening on this with a Lamball that refused to evolve while its Lucky counterpart did; putting Palvolve first fixed it on the spot. Which mod collides, and why order flips it, is still open.
+Move Palvolve up in the in-game Mod Management list. That list is ordered, and in the wrong order another mod can take Palvolve's evolutions out for one species without any error showing up. HenryFrost spent an evening on this with a Lamball that refused to evolve while its Lucky counterpart did; putting Palvolve first fixed it on the spot. Which mod collides, and why order flips it, is still open.
 
 **No "Evolve" option in the hold-4 menu, even though the workbench and stones work?**
 UE4SS is not loading Palvolve. The workbench is PalSchema, the Evolve button is UE4SS. Check that UE4SS Experimental (Palworld) is installed and Palvolve is enabled; relaunch if it vanishes mid-session.

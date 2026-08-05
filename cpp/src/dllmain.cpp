@@ -1,13 +1,21 @@
 // PalvolveNative - native companion for the Palvolve Lua mod.
 //
-// Purpose: set the capture record of a Pal species so that catch-gated technologies (saddles,
-// Pal gear) unlock after an evolution. The data lives in replicated FastArrays that UE4SS-Lua
-// cannot map, which is why this part is native. Everything else stays in Lua.
+// Two jobs, both of which need native code:
+//   * Capture records - set the record of a Pal species so that catch-gated technologies
+//     (saddles, Pal gear) unlock after an evolution. The data lives in replicated FastArrays
+//     that UE4SS-Lua cannot map.
+//   * Work suitability - make the base camp use the work types of the species a Pal evolved
+//     INTO. The camp reads those through direct C++ calls that never pass UFunction dispatch,
+//     so only a native hook can answer them (see the work suitability section below).
+// Everything else stays in Lua.
 //
-// The mod exposes three functions to the Palvolve Lua mod through UE4SS' Lua bridge:
-//   PalvolveNative_Version()                              -> string
-//   PalvolveNative_GetCaptureRecord(characterId, uid?)    -> count, flagSet, message
-//   PalvolveNative_UnlockCaptureRecord(characterId, uid?) -> ok, message
+// Functions exposed to the Palvolve Lua mod through UE4SS' Lua bridge:
+//   PalvolveNative_Version()                                       -> string
+//   PalvolveNative_GetCaptureRecord(characterId, uid?, state?)     -> count, flagSet, message
+//   PalvolveNative_UnlockCaptureRecord(characterId, uid?, state?)  -> ok, message
+//   PalvolveNative_SetWorkSuitability(individualParameter)         -> ok, message
+//   PalvolveNative_ClearWorkSuitability(individualParameter)       -> ok
+//   PalvolveNative_ScanWorkCache(individualParameter, species)     -> message (diagnostic)
 //
 // Record layout and the FFrame/ref-parameter technique are documented in
 // Workspace/docs/CPP-MODDING.md, sections 6.4c to 6.4f.
@@ -20,10 +28,12 @@
 
 #include <array>
 #include <atomic>
+#include <bit>
 #include <filesystem>
 #include <fstream>
 #include <cstring>
 #include <cwchar>
+#include <format>
 #include <map>
 #include <mutex>
 #include <string>
@@ -58,7 +68,7 @@ using namespace RC::Unreal;
 
 namespace
 {
-    constexpr const wchar_t* ModVersionString = STR("1.5.1");
+    constexpr const wchar_t* ModVersionString = STR("1.5.2");
 
     // A world context object is required by the *_ForServer setters. The game mode is the
     // first reliable one available and exists only on the authority, which doubles as the
@@ -197,22 +207,46 @@ namespace
     // After an evolution the screens and the base camp keep using the work suitability of
     // the species the Pal evolved FROM. Those values come from a native cache built when the
     // individual parameter is CONSTRUCTED, and nothing rebuilds it while the world runs.
-    // Every write path is ruled out, most recently the one reflected setter
-    // (SetWorkSuitabilityAddRank reports success and moves nothing).
+    // No write path reaches that cache; the one reflected setter, SetWorkSuitabilityAddRank,
+    // reports success and moves nothing.
     //
-    // So this fixes the READ. The getters go through UFunction dispatch, so a post-hook can
-    // answer with the ranks of the species the Pal is NOW, taken from
-    // PalDatabaseCharacterParameter - the same table the constructor reads.
+    // So this fixes the READ instead: the ranks of the species the Pal is NOW are taken from
+    // PalDatabaseCharacterParameter - the same table the constructor reads - and handed to
+    // every caller that asks, through a post-hook where the call goes through UFunction
+    // dispatch and through a native inline hook where it does not.
     //
-    // Two rules paid for in crashes and dead ends:
-    //   * A hook must never dispatch a script call. Calling GetCharacterID (ProcessEvent)
-    //     from inside these hooks re-entered them on the game thread with the mutex held and
-    //     took the process down within seconds of an evolution.
-    //   * The Lua side hands over the parameter OBJECT, never a key it built itself. Its own
-    //     key helper falls back to GetFullName when the struct read fails, and the native
-    //     side then received a name where it expected a guid and installed nothing.
+    // Two rules hold for everything below:
+    //   * A hook must never dispatch a script call. ProcessEvent from inside these hooks
+    //     re-enters them on the game thread and takes the process down.
+    //   * The Lua side hands over the parameter OBJECT, never a key it built itself. Its key
+    //     helper falls back to GetFullName when the struct read fails, which would hand the
+    //     native side a name where it expects a guid.
 
     constexpr size_t WorkSuitabilityMax = 16;   // EPalWorkSuitability: 13 real types in 0..15
+
+    // EPalWorkSuitability starts at None = 0, so every index here is one higher than the
+    // position the suitability panel shows. Log lines carry the name rather than the index,
+    // because the two numbering schemes are trivial to confuse.
+    auto work_suitability_name(int32 Work) -> const wchar_t*
+    {
+        switch (Work)
+        {
+        case 1:  return STR("kindling");
+        case 2:  return STR("watering");
+        case 3:  return STR("planting");
+        case 4:  return STR("electricity");
+        case 5:  return STR("handiwork");
+        case 6:  return STR("gathering");
+        case 7:  return STR("lumbering");
+        case 8:  return STR("mining");
+        case 9:  return STR("oil");
+        case 10: return STR("medicine");
+        case 11: return STR("cooling");
+        case 12: return STR("transport");
+        case 13: return STR("farming");
+        default: return STR("?");
+        }
+    }
 
     // Unreal's object index plus serial number is generation-safe: it rejects an object-array
     // slot that has been reused after GC. Serial allocation is restricted to override install;
@@ -226,28 +260,38 @@ namespace
         // The same ranks, flat. The screens read the whole map, the base camp asks per work
         // type - showing the right icons while the Pal refuses the job is worse than nothing.
         std::array<int32, WorkSuitabilityMax> Ranks{};
+        // Diagnostic breakdown, only filled while the WORK_DIAG marker is present: what the
+        // base camp asked this pal per work type, how often the answer was yes, and how often
+        // it differed from the game's own answer.
+        std::array<uint32, WorkSuitabilityMax> Asked{};
+        std::array<uint32, WorkSuitabilityMax> Yes{};
+        std::array<uint32, WorkSuitabilityMax> Flipped{};
+        uint64 TotalAsked{0};
     };
 
     // Captured BEFORE any UE4SS hook is registered. Once a UFunction has been hooked its Func
     // pointer permanently points at UE4SS' own dispatcher rather than the game (CPP-MODDING.md
     // 8.3c), and a native hook placed on that address hooks UE4SS and hangs the process.
     //
-    // Two functions matter. The base camp reaches the pal through
+    // The base camp reaches the pal through
     //   UPalBaseCampWorkerDirector::HasWorkerWithSuitabilityRank
     //     -> director's CharacterContainer -> slot -> handle -> TryGetIndividualParameter
     //     -> UPalIndividualCharacterParameter::HasWorkSuitabilityRank   (native, direct call)
-    // so HasWorkSuitabilityRank is the one that decides work behaviour. GetWorkSuitabilityRank
-    // is hooked as well because other native callers use it, but hooking only that one was
-    // measured to change nothing.
+    // so HasWorkSuitabilityRank decides work behaviour, with HasWorkSuitability as the gate in
+    // front of it. GetWorkSuitabilityRank is hooked as well for other native callers, but on
+    // its own it changes no work behaviour.
     void* g_rank_thunk{nullptr};
     void* g_hasrank_thunk{nullptr};
+    void* g_hassuit_thunk{nullptr};
 
     // Every call target inside an exec thunk. One of them is the C++ method; which one is
     // decided by measurement, not by position.
     std::vector<uintptr_t> g_rank_candidates;
     std::vector<uintptr_t> g_hasrank_candidates;
+    std::vector<uintptr_t> g_hassuit_candidates;
     std::atomic<uintptr_t> g_rank_native{0};
     std::atomic<uintptr_t> g_hasrank_native{0};
+    std::atomic<uintptr_t> g_hassuit_native{0};
 
     // The database hands its rank map back in a different key space than the getter the base
     // camp asks. Measured once per session rather than hardcoded, so a game patch that moves
@@ -361,18 +405,16 @@ namespace
     auto probe_native_getter() -> std::wstring;
     auto install_native_rank_hook() -> void;
 
-    // Locates the native work suitability cache inside the parameter object.
+    // Diagnostic: locates the native work suitability cache inside the parameter object.
     //
-    // Why this exists: the four reflected getters are hooked and answer correctly, and the
-    // Team and Palbox screens follow. The base camp does not - measured, with logging on
-    // every hook: after three evolutions and an override installed each time, not one scalar
-    // getter was ever called. The work system reads the cache in native code without going
-    // through UFunction dispatch, so no post-hook can reach it.
+    // The reflected getters are hooked and the Team and Palbox screens follow them, but the
+    // base camp never calls a single one - it reads the cache in native code without going
+    // through UFunction dispatch, which is what the inline hooks further down are for.
     //
-    // That leaves writing the cache. This probe finds it: it asks the database for the ranks
-    // of a species and scans the object's own memory for that byte pattern. Run it on a Pal
-    // that was just evolved, searching for the species it evolved FROM, and any hit is the
-    // stale cache. Read-only, and the scan never leaves the object's own allocation.
+    // This probe asks the database for the ranks of a species and scans the object's own
+    // memory for that byte pattern. Run on a Pal that was just evolved and searching for the
+    // species it evolved FROM, any hit is the stale cache. Read-only, and the scan never
+    // leaves the object's own allocation.
     auto scan_work_cache(UObject* Param, const std::wstring& SpeciesId) -> std::wstring
     {
         if (!Param) return STR("no parameter object");
@@ -469,76 +511,6 @@ namespace
 
         if (Found > 0 || NameFound > 0) return STR("see log for offsets");
         return STR("no match in the object");
-    }
-
-    // Retest of the one reflected setter, on the object Lua hands over.
-    //
-    // The first attempt at this ran from Lua through a helper that picks "the first owned
-    // monster", and that helper was later proven to grab the wrong actor - it reported a
-    // Penking while a Pengullet was summoned. The conclusion drawn from it ("the setter does
-    // nothing") is therefore worthless and has to be redone on a known object.
-    //
-    // This runs from a Lua call, not from inside a hook, so ProcessEvent is allowed here.
-    auto test_add_rank(UObject* Param, int32 Work, int32 Delta) -> std::wstring
-    {
-        if (!Param) return STR("no parameter object");
-        if (Work < 1 || Work >= static_cast<int32>(WorkSuitabilityMax)) return STR("work type out of range");
-
-        // Any override for this pal is dropped first: both getters below are hooked, and a
-        // leftover entry would answer for them and hide whatever the setter really did.
-        clear_work_override(Param);
-
-        auto* BaseFn = find_fn(STR("/Script/Pal.PalIndividualCharacterParameter:GetWorkSuitabilityRank"));
-        auto* RankFn = find_fn(STR("/Script/Pal.PalIndividualCharacterParameter:GetWorkSuitabilityRankWithCharacterRank"));
-        auto* ListFn = find_fn(STR("/Script/Pal.PalIndividualCharacterParameter:GetWorkSuitabilityPassiveAddRankList"));
-        auto* SetFn = find_fn(STR("/Script/Pal.PalIndividualCharacterParameter:SetWorkSuitabilityAddRank"));
-        if (!BaseFn || !SetFn) return STR("getter or setter not found");
-
-        // Two getters, because the base value and the value including rank/passive bonuses
-        // are separate functions. A book's effect may well only show in the second one, which
-        // would explain why the first test looked like the setter does nothing.
-        auto ReadWith = [&](UFunction* Fn, const wchar_t* ParamName) -> int32 {
-            if (!Fn) return -1;
-            FParamBuffer Buffer(Fn);
-            Buffer.Set(ParamName, static_cast<uint8>(Work));
-            Buffer.Call(Param);
-            return Buffer.Get<int32>(STR("ReturnValue"));
-        };
-
-        const int32 BaseBefore = ReadWith(BaseFn, STR("InWorkSuitability"));
-        const int32 RankBefore = ReadWith(RankFn, STR("WorkSuitability"));
-
-        FParamBuffer SetBuffer(SetFn);
-        const bool SetWork = SetBuffer.Set(STR("WorkSuitability"), static_cast<uint8>(Work));
-        const bool SetDelta = SetBuffer.Set(STR("addRank"), Delta);
-        if (!SetWork || !SetDelta) return STR("setter parameters did not match");
-        SetBuffer.Call(Param);
-
-        const int32 BaseAfter = ReadWith(BaseFn, STR("InWorkSuitability"));
-        const int32 RankAfter = ReadWith(RankFn, STR("WorkSuitability"));
-
-        // The passive add-rank list is where a book's bonus is stored. If the setter wrote
-        // anything at all, it shows up here even when both getters stay put.
-        int32 ListCount = -1;
-        if (ListFn)
-        {
-            FParamBuffer ListBuffer(ListFn);
-            ListBuffer.Call(Param);
-            if (auto* ArrayProp = CastField<FArrayProperty>(ListBuffer.Find(STR("ReturnValue"))))
-            {
-                FScriptArray* Array = nullptr;
-                std::memcpy(&Array, ListBuffer.Data.data() + ArrayProp->GetOffset_Internal(), sizeof(void*));
-                ListCount = Array ? Array->Num() : -1;
-            }
-        }
-
-        const bool Moved = (BaseBefore != BaseAfter) || (RankBefore != RankAfter);
-        Output::send<LogLevel::Normal>(
-            STR("[PalvolveNative] addrank test: work={} delta={:+} base {}->{} withRank {}->{} addList={} ({})\n"),
-            Work, Delta, BaseBefore, BaseAfter, RankBefore, RankAfter, ListCount,
-            Moved ? STR("MOVED") : STR("unchanged"));
-
-        return Moved ? STR("setter works") : STR("setter had no effect");
     }
 
     // Builds one species' rank map from the database the game itself reads and copies it into
@@ -704,18 +676,15 @@ namespace
             g_work_map_prop->CopyCompleteValue(Ctx.RESULT_DECL, Entry->MapStorage.data());
         });
 
-        // Feed the base camp, which asks per work type. Which of these the work system really
-        // uses is not documented anywhere, so each one reports the first time it changes an
-        // answer - one line per function per session, enough to see what actually matters.
+        // The per-work-type getters. Every caller that goes through UFunction dispatch is
+        // answered here; the native callers are handled by the inline hooks further down.
         enum class EScalarKind { Rank, Has, HasRank };
         struct FScalarHook { const wchar_t* Path; EScalarKind Kind; };
         static constexpr FScalarHook ScalarHooks[] = {
             {STR("/Script/Pal.PalIndividualCharacterParameter:GetWorkSuitabilityRankWithCharacterRank"), EScalarKind::Rank},
             {STR("/Script/Pal.PalIndividualCharacterParameter:GetWorkSuitabilityRank"), EScalarKind::Rank},
             {STR("/Script/Pal.PalIndividualCharacterParameter:HasWorkSuitability"), EScalarKind::Has},
-            // Two parameters: work type plus the rank being asked for. Left out of the first
-            // version, and the base camp kept using the old species - a strong hint that this
-            // is the one it asks.
+            // Takes two parameters: the work type plus the rank being asked for.
             {STR("/Script/Pal.PalIndividualCharacterParameter:HasWorkSuitabilityRank"), EScalarKind::HasRank},
         };
 
@@ -727,6 +696,13 @@ namespace
         if (auto* HasRankFn = find_fn(STR("/Script/Pal.PalIndividualCharacterParameter:HasWorkSuitabilityRank")))
         {
             g_hasrank_thunk = reinterpret_cast<void*>(HasRankFn->GetFuncPtr());
+        }
+        // The gate in front of the rank question. Work assignment asks this one first, so a
+        // work type the pal only gained through the evolution never reaches the rank hook: the
+        // old species fails the gate and the job is never offered.
+        if (auto* HasSuitFn = find_fn(STR("/Script/Pal.PalIndividualCharacterParameter:HasWorkSuitability")))
+        {
+            g_hassuit_thunk = reinterpret_cast<void*>(HasSuitFn->GetFuncPtr());
         }
 
         int32 Installed = 0;
@@ -748,9 +724,8 @@ namespace
                     STR("[PalvolveNative] work suitability: unexpected return type for {}\n"), Label);
                 continue;
             }
-            // A counter, not a one-shot flag. The first version logged only the first hit per
-            // function, and the mod's own diagnostic calls consumed that one shot - which made
-            // a silent "the base camp never asks" out of a measurement that never ran.
+            // Rewrites the return value in place. A pal without an override is left alone, so
+            // vanilla behaviour is untouched for everything the mod never evolved.
             ScalarFn->RegisterPostHook([Kind, ScalarFn, RankReturnProp, BoolReturnProp](UnrealScriptFunctionCallableContext& Ctx, void*) {
                 if (g_work_override_count.load(std::memory_order_relaxed) == 0) return;
                 if (!Ctx.Context || !Ctx.RESULT_DECL) return;
@@ -773,12 +748,12 @@ namespace
                     break;
                 case EScalarKind::HasRank:
                 {
+                    // Same rule as the native predicate: rank 0 is a no, whatever was asked for.
                     const int32 Required = int_param_of(Ctx, ScalarFn, 1);
-                    BoolReturnProp->SetPropertyValue(Ctx.RESULT_DECL, Required >= 0 && Rank >= Required);
+                    BoolReturnProp->SetPropertyValue(Ctx.RESULT_DECL, Rank > 0 && Rank >= Required);
                     break;
                 }
                 }
-
             });
             ++Installed;
         }
@@ -802,9 +777,9 @@ namespace
     }
 
     // Lists the call targets inside the exec thunk. The thunk unpacks the script parameters and
-    // then calls the real C++ method - and that method is what the base camp uses. The measured
-    // reason this is needed: the director asks its reflected question hundreds of times while
-    // the four reflected pal getters are never called once, so the per-pal answer is native.
+    // then calls the real C++ method, and that method is the one the base camp uses: the camp's
+    // director asks its own reflected question constantly while the pal's reflected getters are
+    // never called at all, so the per-pal answer has to come from a native call.
     auto scan_thunk_calls(void* ThunkPtr, const wchar_t* Label, std::vector<uintptr_t>& Out) -> void
     {
         Out.clear();
@@ -843,6 +818,7 @@ namespace
     {
         scan_thunk_calls(g_rank_thunk, STR("rank"), g_rank_candidates);
         scan_thunk_calls(g_hasrank_thunk, STR("hasrank"), g_hasrank_candidates);
+        scan_thunk_calls(g_hassuit_thunk, STR("hassuit"), g_hassuit_candidates);
         if (g_rank_candidates.empty() && g_hasrank_candidates.empty())
         {
             return STR("no call found in either thunk - the methods may be inlined");
@@ -853,16 +829,15 @@ namespace
     // Works out how the database's key space lines up with the getter's.
     //
     // Both describe the same species, so the SET of work types carrying a rank has to match.
-    // Only the numbering can differ, and it differed by one: every rank landed one work type
-    // too high, which is how a Penking ended up gathering - a job neither it nor its previous
-    // form has. Matching key sets rather than values, because the live map carries the pal's
+    // Only the numbering can differ, and it does differ by one: without this correction every
+    // rank lands one work type too high and a Pal takes on a job no form of it ever had.
+    // Key sets are matched rather than values, because the live map carries the pal's
     // condenser rank on top and the database map does not.
     auto measure_key_offset(UObject* Sample) -> void
     {
         if (g_key_offset_known.load()) return;
 
-        // Every way out of here says so. A silent return is what made the first attempt look
-        // like it had run when it had not.
+        // Every exit from here logs its reason, so a missing offset is never silent.
         auto bail = [](const wchar_t* Why) {
             Output::send<LogLevel::Warning>(STR("[PalvolveNative] key offset not measured: {}\n"), Why);
         };
@@ -880,7 +855,7 @@ namespace
 
         // The sample has to be a pal that actually does work. The first live parameter in the
         // world is regularly a wild pal or an NPC with no suitabilities at all, and an empty
-        // map has no keys to line up - that is what "live map unreadable" really was.
+        // map has no keys to line up.
         auto live_entries = [&](UObject* Candidate, std::array<int32, WorkSuitabilityMax>& Out) -> int32 {
             FParamBuffer Buffer(LiveFn);
             Buffer.Call(Candidate);
@@ -910,8 +885,8 @@ namespace
                 std::array<int32, WorkSuitabilityMax> Try{};
                 if (live_entries(P, Try) == 0) continue;
                 // "None" is what an unset FName stringifies to, and it is not the empty string.
-                // Letting it through measured an offset of 0 against a species the database
-                // does not have, which looked like a result and was not one.
+                // Letting it through would measure an offset against a species the database
+                // does not have, which yields a plausible-looking but meaningless result.
                 const std::wstring Name = character_name_fast(P).ToString();
                 if (Name.empty() || Name == STR("None")) continue;
                 Live = Try;
@@ -968,6 +943,7 @@ namespace
 
     using TRankGetter = int32(__fastcall*)(void*, uint8);
     using THasRank = bool(__fastcall*)(void*, uint8, int32);
+    using THasSuit = bool(__fastcall*)(void*, uint8);
 
     // Calling an address that turns out not to be this function reads through a bad pointer.
     // The guard keeps a wrong guess from taking the game down; no C++ objects live here,
@@ -991,6 +967,19 @@ namespace
         __try
         {
             Out = reinterpret_cast<THasRank>(Address)(Self, Work, Required);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    __declspec(noinline) auto try_call_hassuit(uintptr_t Address, void* Self, uint8 Work, bool& Out) -> bool
+    {
+        __try
+        {
+            Out = reinterpret_cast<THasSuit>(Address)(Self, Work);
             return true;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
@@ -1040,11 +1029,10 @@ namespace
             Expected[Work] = Buffer.Get<int32>(STR("ReturnValue"));
         }
 
-        // Only the last call in the thunk is tried. An exec thunk unpacks its script parameters
-        // first and calls the C++ method last, and that is what measured out: candidate #4 of 4
-        // matched. Trying the earlier ones as well cost a crash - they are real functions with
-        // different signatures, and calling one with the wrong arguments corrupts state without
-        // ever raising the exception the guard below can catch.
+        // Only the last call in the thunk is tried: an exec thunk unpacks its script parameters
+        // first and calls the C++ method last. The earlier targets are unrelated functions with
+        // different signatures, and calling one with these arguments corrupts state without
+        // ever raising the exception the guard below could catch.
         const uintptr_t Address = g_rank_candidates.back();
         bool Matches = true;
         for (uint8 Work = 0; Work < static_cast<uint8>(WorkSuitabilityMax) && Matches; ++Work)
@@ -1062,10 +1050,9 @@ namespace
         // half rather than hooking something unknown; the display half keeps working.
         g_rank_native.store(Matches ? Address : 0);
 
-        // The one that actually decides work behaviour. The director's native loop walks its
-        // character container to each slot's handle, resolves the individual parameter and
-        // calls this - never GetWorkSuitabilityRank, which is why hooking that alone changed
-        // nothing at all.
+        // The one that decides work behaviour. The director's native loop walks its character
+        // container to each slot's handle, resolves the individual parameter and calls this -
+        // never GetWorkSuitabilityRank, so hooking that one alone changes nothing.
         if (!g_hasrank_candidates.empty())
         {
             auto* HasRankFn = find_fn(STR("/Script/Pal.PalIndividualCharacterParameter:HasWorkSuitabilityRank"));
@@ -1100,20 +1087,76 @@ namespace
             g_hasrank_native.store(HasMatches ? HasAddress : 0);
         }
 
+        // The gate. Work assignment asks this before it asks for a rank, so a work type the pal
+        // did not have before the evolution never reaches the rank hook at all. That asymmetry
+        // is why the rank hook alone can take a work type away - the old species still passes
+        // the gate - but can never add one.
+        if (!g_hassuit_candidates.empty())
+        {
+            auto* HasSuitFn = find_fn(STR("/Script/Pal.PalIndividualCharacterParameter:HasWorkSuitability"));
+            const uintptr_t SuitAddress = g_hassuit_candidates.back();
+            bool SuitMatches = HasSuitFn != nullptr;
+
+            for (uint8 Work = 0; Work < static_cast<uint8>(WorkSuitabilityMax) && SuitMatches; ++Work)
+            {
+                FParamBuffer Buffer(HasSuitFn);
+                Buffer.Set(STR("InWorkSuitability"), Work);
+                Buffer.Call(Sample);
+                const bool ExpectedValue = Buffer.Get<uint8>(STR("ReturnValue")) != 0;
+
+                bool Value = false;
+                if (!try_call_hassuit(SuitAddress, Sample, Work, Value) || Value != ExpectedValue)
+                {
+                    SuitMatches = false;
+                }
+            }
+
+            Output::send<LogLevel::Normal>(
+                STR("[PalvolveNative] native has-suitability {:#x} (rva {:#x}): {}\n"),
+                SuitAddress, SuitAddress - reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)),
+                SuitMatches ? STR("MATCHES the reflected answer") : STR("does not match - not hooking"));
+            g_hassuit_native.store(SuitMatches ? SuitAddress : 0);
+        }
+
         s_done.store(true);
         install_native_rank_hook();
     }
 
     SafetyHookInline g_rank_hook{};
     SafetyHookInline g_hasrank_hook{};
-    std::atomic<uint64> g_native_hits{0};
-    std::atomic<uint64> g_native_overridden{0};
-    std::atomic<uint64> g_hasrank_hits{0};
+    SafetyHookInline g_hassuit_hook{};
+
+    // Work types whose gate this mod opened for an evolved pal, one bit per EPalWorkSuitability
+    // value. A mask rather than a counter: the camp asks the same question hundreds of times per
+    // minute, so a count would answer "how often" where the report says "how many".
+    std::atomic<uint32> g_opened_work_mask{0};
+    std::atomic<uint64> g_hassuit_overridden{0};
     std::atomic<uint64> g_hasrank_overridden{0};
+    // Set once the one-line report has gone out, so it stays one line per world.
+    std::atomic<bool> g_effect_reported{false};
+
+    // Support switch. While the WORK_DIAG marker file exists the mod collects the full per-pal
+    // breakdown; without it only the counters above are kept. Cached in an atomic rather than
+    // tested per call, because the hooks below read it on a path the base camp walks constantly.
+    std::atomic<bool> g_work_diag{false};
+
+    // Diagnostic only. Every ask in the world, per work type, regardless of which pal it was
+    // about: an evolved pal that is never asked about lumbering is otherwise unreadable, because
+    // it means either the camp has no lumbering job at all or it filters this pal out first.
+    std::atomic<uint32> g_camp_asked_any[WorkSuitabilityMax]{};
+    // The same for the plain rank getter, which the camp may use to decide whether a job exists.
+    std::atomic<uint32> g_rank_asked_any[WorkSuitabilityMax]{};
+    // Diagnostic only. How many distinct parameter objects the camp asks about, so one pal
+    // taking almost every ask can be told apart from a base that has almost no workers.
+    std::mutex g_seen_mutex;
+    std::map<int32, uint32> g_seen_objects;
+    // Entries already in the map keep counting, new ones are dropped once the cap is reached,
+    // so a long session cannot grow this. Cleared with the rest of the telemetry on a map change.
+    constexpr size_t SeenObjectsMax = 256;
 
     // Looks up the evolved species' rank for one work type. Returns false when this object is
     // not one the mod evolved, which is the overwhelmingly common case.
-    auto evolved_rank(void* Self, uint8 Work, int32& OutRank) -> bool
+    auto evolved_rank(void* Self, uint8 Work, int32& OutRank, FWorkKey* OutKey = nullptr) -> bool
     {
         if (g_work_override_count.load(std::memory_order_relaxed) == 0) return false;
         if (!Self || Work >= static_cast<uint8>(WorkSuitabilityMax)) return false;
@@ -1125,24 +1168,51 @@ namespace
         auto It = g_work_overrides.find(Key);
         if (It == g_work_overrides.end()) return false;
         OutRank = It->second.Ranks[Work];
+        if (OutKey) *OutKey = Key;
         return true;
     }
 
-    // The base camp's per-pal answer. Everything reflected was measured dead first: the four
-    // reflected getters are never called by the camp, both rank delegates have no listeners,
-    // and re-applying the work preferences through the camp's own request changes nothing.
-    // This is the only place the camp actually reads, so this is where the new species has to
-    // appear.
+    // Diagnostic bookkeeping, and deliberately a second short lock: evolved_rank has already
+    // let go of the mutex, and the game call that produces bFlipped must not run while it is
+    // held (CPP-MODDING.md, re-entrancy). The entry is looked up again because it can be gone
+    // by now - a clear or a map change between the two locks is legal.
+    auto note_camp_ask(const FWorkKey& Key, uint8 Work, bool bYes, bool bFlipped) -> void
+    {
+        if (Work >= static_cast<uint8>(WorkSuitabilityMax)) return;
+        std::lock_guard<std::mutex> Lock(g_work_mutex);
+        auto It = g_work_overrides.find(Key);
+        if (It == g_work_overrides.end()) return;
+        ++It->second.Asked[Work];
+        ++It->second.TotalAsked;
+        if (bYes) ++It->second.Yes[Work];
+        if (bFlipped) ++It->second.Flipped[Work];
+    }
+
+    // Diagnostic bookkeeping: which parameter objects the camp asks about at all. Bounded, and
+    // keyed by object index alone because it counts traffic rather than identifying a pal.
+    auto note_seen_object(void* Self) -> void
+    {
+        if (!Self) return;
+        const int32 Index = static_cast<UObject*>(Self)->GetInternalIndex();
+        std::lock_guard<std::mutex> Lock(g_seen_mutex);
+        if (g_seen_objects.size() < SeenObjectsMax || g_seen_objects.contains(Index))
+        {
+            ++g_seen_objects[Index];
+        }
+    }
+
+    // The rank the base camp reads for a pal. Nothing reflected reaches this: the camp calls
+    // neither of the pal's script getters, the rank delegates have no listeners, and re-applying
+    // the work preferences through the camp's own request changes nothing.
     auto __fastcall rank_detour(void* Self, uint8 Work) -> int32
     {
-        g_native_hits.fetch_add(1, std::memory_order_relaxed);
+        if (Work < static_cast<uint8>(WorkSuitabilityMax))
+        {
+            g_rank_asked_any[Work].fetch_add(1, std::memory_order_relaxed);
+        }
 
         int32 Rank = 0;
-        if (evolved_rank(Self, Work, Rank))
-        {
-            g_native_overridden.fetch_add(1, std::memory_order_relaxed);
-            return Rank;
-        }
+        if (evolved_rank(Self, Work, Rank)) return Rank;
 
         // Every pal the mod has not evolved keeps the game's own answer. Reconstructing the
         // formula here instead would change vanilla behaviour for every pal in every base.
@@ -1153,23 +1223,68 @@ namespace
     // is eligible for a job, and therefore what makes an evolved pal actually change work.
     auto __fastcall hasrank_detour(void* Self, uint8 Work, int32 Required) -> bool
     {
-        g_hasrank_hits.fetch_add(1, std::memory_order_relaxed);
+        if (Work < static_cast<uint8>(WorkSuitabilityMax))
+        {
+            g_camp_asked_any[Work].fetch_add(1, std::memory_order_relaxed);
+        }
+        const bool bDiag = g_work_diag.load(std::memory_order_relaxed);
+        if (bDiag) note_seen_object(Self);
 
         int32 Rank = 0;
-        if (evolved_rank(Self, Work, Rank))
-        {
-            g_hasrank_overridden.fetch_add(1, std::memory_order_relaxed);
-            return Rank >= Required;
-        }
+        FWorkKey Key{};
+        if (!evolved_rank(Self, Work, Rank, &Key)) return g_hasrank_hook.call<bool>(Self, Work, Required);
 
-        return g_hasrank_hook.call<bool>(Self, Work, Required);
+        g_hasrank_overridden.fetch_add(1, std::memory_order_relaxed);
+        // Rank 0 means the species cannot do this job, so it is a no even when the caller asks
+        // for rank 0. Answering "yes" there would contradict the gate hook below, which reports
+        // exactly those work types as unavailable.
+        const bool Answer = Rank > 0 && Rank >= Required;
+        if (bDiag)
+        {
+            // The game's own answer is needed for the per-pal breakdown and for nothing else,
+            // so it is only asked for while the breakdown is switched on: this runs on the
+            // camp's hot path, and the original call is a second full lookup per ask.
+            const bool Vanilla = g_hasrank_hook.call<bool>(Self, Work, Required);
+            note_camp_ask(Key, Work, Answer, Vanilla != Answer);
+        }
+        return Answer;
+    }
+
+    // The gate in front of everything else. Work assignment asks "does this pal do mining at
+    // all" before it asks "at which rank", so this is where a newly gained work type has to
+    // appear - the rank hook alone answers a question nobody gets around to asking.
+    auto __fastcall hassuit_detour(void* Self, uint8 Work) -> bool
+    {
+        int32 Rank = 0;
+        if (!evolved_rank(Self, Work, Rank)) return g_hassuit_hook.call<bool>(Self, Work);
+
+        g_hassuit_overridden.fetch_add(1, std::memory_order_relaxed);
+        // The answer never depends on the original: an evolved pal is answered from the new
+        // species either way. The original is only consulted to record whether this work type
+        // used to be shut, which is the whole point of the fix, and only until that has been
+        // seen once for the work type - after that the extra call is off the camp's hot path.
+        // A work type the new species dropped is not counted: that is the common case and says
+        // nothing about whether the fix reached the game.
+        const uint32 Bit = 1u << Work;
+        const bool Answer = Rank > 0;
+        if (Answer && (g_opened_work_mask.load(std::memory_order_relaxed) & Bit) == 0
+            && !g_hassuit_hook.call<bool>(Self, Work))
+        {
+            g_opened_work_mask.fetch_or(Bit, std::memory_order_relaxed);
+        }
+        return Answer;
     }
 
     auto install_native_rank_hook() -> void
     {
         const uintptr_t Address = g_rank_native.load();
         const uintptr_t HasAddress = g_hasrank_native.load();
-        if ((Address == 0 && HasAddress == 0) || g_rank_hook || g_hasrank_hook) return;
+        const uintptr_t SuitAddress = g_hassuit_native.load();
+        if ((Address == 0 && HasAddress == 0 && SuitAddress == 0) ||
+            g_rank_hook || g_hasrank_hook || g_hassuit_hook)
+        {
+            return;
+        }
 
         // Emergency off switch that needs no rebuild. CPP-MODDING.md 8.3c records that calling
         // back into an original can hang the process; if that ever happens here, the game is
@@ -1200,6 +1315,120 @@ namespace
                 STR("[PalvolveNative] native HasWorkSuitabilityRank hook at {:#x}: {}\n"),
                 HasAddress, g_hasrank_hook ? STR("installed") : STR("FAILED"));
         }
+        if (SuitAddress != 0)
+        {
+            g_hassuit_hook = safetyhook::create_inline(reinterpret_cast<void*>(SuitAddress),
+                                                        reinterpret_cast<void*>(&hassuit_detour));
+            Output::send<LogLevel::Normal>(
+                STR("[PalvolveNative] native HasWorkSuitability hook at {:#x}: {}\n"),
+                SuitAddress, g_hassuit_hook ? STR("installed") : STR("FAILED"));
+        }
+    }
+
+    // Called from the update tick. A normal install gets one line per world, the first time an
+    // evolved pal's new work reaches the game. Dropping a WORK_DIAG file into the mod folder
+    // turns on the full breakdown instead, so a support report can ask for it without a rebuild.
+    auto report_work_telemetry() -> void
+    {
+        // The marker is tested on a slow cadence and cached: this runs several times a second,
+        // and the hooks read the cached flag far more often than that. Turning the breakdown on
+        // or off takes effect within the recheck interval, roughly twenty seconds.
+        constexpr uint32 MarkerRecheckPasses = 32;
+        static uint32 s_passes = 0;
+        if (s_passes++ % MarkerRecheckPasses == 0)
+        {
+            std::error_code Ec;
+            g_work_diag.store(std::filesystem::exists(
+                std::filesystem::path(UE4SSProgram::get_program().get_working_directory())
+                    / "Mods" / "Palvolve" / "WORK_DIAG", Ec), std::memory_order_relaxed);
+        }
+        const bool Verbose = g_work_diag.load(std::memory_order_relaxed);
+
+        const int32 Opened = std::popcount(g_opened_work_mask.load(std::memory_order_relaxed));
+        const uint64 Answered = g_hasrank_overridden.load(std::memory_order_relaxed);
+
+        if (!Verbose)
+        {
+            if (Opened == 0 || g_effect_reported.exchange(true)) return;
+            Output::send<LogLevel::Normal>(
+                STR("[PalvolveNative] work suitability in effect: {} job type(s) opened up, ")
+                STR("{} rank answer(s) from the new species\n"),
+                Opened, Answered);
+            return;
+        }
+
+        auto sum_types = [](const std::atomic<uint32>* Counters, std::wstring& Out) -> uint64 {
+            uint64 Total = 0;
+            for (size_t Work = 1; Work < WorkSuitabilityMax; ++Work)
+            {
+                const uint32 Any = Counters[Work].load(std::memory_order_relaxed);
+                if (Any == 0) continue;
+                Total += Any;
+                if (!Out.empty()) Out += STR(", ");
+                Out += std::format(STR("{} {}x"), work_suitability_name(static_cast<int32>(Work)), Any);
+            }
+            return Total;
+        };
+
+        std::wstring HasTypes;
+        std::wstring RankTypes;
+        const uint64 Total = sum_types(g_camp_asked_any, HasTypes) + sum_types(g_rank_asked_any, RankTypes);
+
+        // Written on every pass, even when every number is zero: silence would otherwise have
+        // two readings that need opposite fixes - nobody is asking, or this report stopped
+        // running.
+        size_t Distinct = 0;
+        {
+            std::lock_guard<std::mutex> Lock(g_seen_mutex);
+            Distinct = g_seen_objects.size();
+        }
+        Output::send<LogLevel::Normal>(
+            STR("[PalvolveNative] work suitability: {} ask(s) about {} pal(s), {} override(s), ")
+            STR("{} gate answer(s), {} job type(s) opened up\n"),
+            Total, Distinct, g_work_override_count.load(std::memory_order_relaxed),
+            g_hassuit_overridden.load(std::memory_order_relaxed), Opened);
+        Output::send<LogLevel::Normal>(STR("[PalvolveNative]   eligibility asks: {}\n"),
+                                       HasTypes.empty() ? STR("none") : HasTypes);
+        Output::send<LogLevel::Normal>(STR("[PalvolveNative]   rank asks: {}\n"),
+                                       RankTypes.empty() ? STR("none") : RankTypes);
+
+        // Per pal, per work type. "changed" counts the asks where the game's own answer
+        // differed; zero changes on a work type means the override never moved anything there.
+        std::vector<std::wstring> Lines;
+        {
+            std::lock_guard<std::mutex> Lock(g_work_mutex);
+            for (const auto& [Key, Override] : g_work_overrides)
+            {
+                std::wstring Breakdown;
+                for (size_t Work = 1; Work < WorkSuitabilityMax; ++Work)
+                {
+                    if (Override.Asked[Work] == 0) continue;
+                    if (!Breakdown.empty()) Breakdown += STR(", ");
+                    Breakdown += std::format(STR("{} {}x ({} yes, {} changed)"),
+                                             work_suitability_name(static_cast<int32>(Work)),
+                                             Override.Asked[Work], Override.Yes[Work],
+                                             Override.Flipped[Work]);
+                }
+                Lines.push_back(std::format(STR("[PalvolveNative]   '{}' asked {} time(s){}{}\n"),
+                                            Override.CharacterId, Override.TotalAsked,
+                                            Breakdown.empty() ? STR("") : STR(": "), Breakdown));
+            }
+        }
+        for (const auto& Line : Lines) Output::send<LogLevel::Normal>(STR("{}"), Line);
+    }
+
+    // Everything the telemetry counts belongs to one world. Called next to clear_work_overrides
+    // when a map starts loading, so a new world does not report the previous one's traffic.
+    auto reset_work_telemetry() -> void
+    {
+        for (auto& Counter : g_camp_asked_any) Counter.store(0, std::memory_order_relaxed);
+        for (auto& Counter : g_rank_asked_any) Counter.store(0, std::memory_order_relaxed);
+        g_opened_work_mask.store(0, std::memory_order_relaxed);
+        g_hassuit_overridden.store(0, std::memory_order_relaxed);
+        g_hasrank_overridden.store(0, std::memory_order_relaxed);
+        g_effect_reported.store(false, std::memory_order_relaxed);
+        std::lock_guard<std::mutex> Lock(g_seen_mutex);
+        g_seen_objects.clear();
     }
 
     // The object identity and species are both taken from the parameter object supplied by Lua.
@@ -1254,9 +1483,9 @@ namespace
             g_work_override_count.store(g_work_overrides.size());
         }
 
-        // The ranks that were just installed, spelled out. A pal taking on work that neither
-        // its old nor its new species has means a rank landed under the wrong key, and that
-        // cannot be told apart from a correct install without seeing the numbers.
+        // The ranks that were just installed, spelled out by name. A pal taking on work that
+        // neither its old nor its new species has means a rank landed under the wrong key, and
+        // that cannot be told apart from a correct install without seeing the values.
         {
             std::wstring Line;
             for (size_t i = 0; i < WorkSuitabilityMax; ++i)
@@ -1264,7 +1493,7 @@ namespace
                 const int32 Rank = Ranks[i];
                 if (Rank == 0) continue;
                 if (!Line.empty()) Line += STR(", ");
-                Line += std::to_wstring(i) + STR("=") + std::to_wstring(Rank);
+                Line += std::format(STR("{} {}"), work_suitability_name(static_cast<int32>(i)), Rank);
             }
             Output::send<LogLevel::Normal>(
                 STR("[PalvolveNative] ranks installed for '{}': {}\n"),
@@ -1272,8 +1501,8 @@ namespace
         }
 
         // Nothing else has to be pushed, told or re-registered. The native hooks answer the
-        // base camp's own question from here on; every notification, preference re-apply and
-        // worker re-registration that was tried instead was measured to do nothing.
+        // base camp's own question from here on; notifying the camp, re-applying the work
+        // preferences or re-registering the worker has no effect on this path.
         return {true, CharacterId};
     }
 
@@ -1474,9 +1703,12 @@ class PalvolveNative : public CppUserModBase
 
     ~PalvolveNative() override = default;
 
-    // Diagnostic read, opt-in through a marker file in the mod folder so a normal install
-    // never pays for it: writing a character id into <Mod>/CHECK_SPECIES logs that species'
-    // capture record once, then the marker is consumed.
+    // UE4SS runs its event loop roughly every 5 ms, so this fires around 200 times a second.
+    // Everything below is throttled to every 120th pass, about twice a second: the one-off
+    // native getter verification, the work suitability report, and the CHECK_SPECIES probe -
+    // a diagnostic read that stays opt-in through a marker file so a normal install never pays
+    // for it. Writing a character id into <Mod>/CHECK_SPECIES logs that species' capture record
+    // once, then the marker is consumed.
     auto on_update() -> void override
     {
         if (!g_world_context.load()) return;
@@ -1485,26 +1717,7 @@ class PalvolveNative : public CppUserModBase
         if (++s_ticks % 120 != 0) return;
 
         verify_native_getter();
-        if (g_work_override_count.load(std::memory_order_relaxed) > 0)
-        {
-            // One line per session, the first time the base camp actually gets an evolved
-            // pal's answer from us. That single line is what a support report needs; the
-            // camp asks this several hundred times a second, so anything periodic would
-            // drown the log.
-            // Both counters, not just the overridden one. "No line" used to mean either the
-            // base camp never asks or it asks and misses our override, and those need
-            // different fixes.
-            static uint64 s_lastHits = 0;
-            const uint64 Hits = g_hasrank_hits.load(std::memory_order_relaxed);
-            const uint64 Ours = g_hasrank_overridden.load(std::memory_order_relaxed);
-            if (Hits != s_lastHits)
-            {
-                Output::send<LogLevel::Normal>(
-                    STR("[PalvolveNative] work asked: +{} call(s), {} of {} answered from the new species\n"),
-                    Hits - s_lastHits, Ours, Hits);
-                s_lastHits = Hits;
-            }
-        }
+        report_work_telemetry();
 
         auto Marker = std::filesystem::path(UE4SSProgram::get_program().get_working_directory())
                     / "Mods" / "Palvolve" / "CHECK_SPECIES";
@@ -1558,6 +1771,7 @@ class PalvolveNative : public CppUserModBase
                 // Instance ids belong to one world. An override that survived a map change is
                 // the one way this could ever touch a stranger's pal.
                 clear_work_overrides();
+                reset_work_telemetry();
             },
             {.bOnce = false, .bReadonly = true,
              .OwnerModName = STR("Palvolve"), .HookName = STR("PalvolveNativeWorldReset")});
@@ -1612,7 +1826,8 @@ class PalvolveNative : public CppUserModBase
             return 1;
         });
 
-        // Dev probe: retest the reflected add-rank setter on a known object.
+        // Diagnostic: search a Pal's parameter object for the cached work suitability of a
+        // species, used to check what a game patch moved.
         lua.register_function("PalvolveNative_ScanWorkCache", [](const LuaMadeSimple::Lua& L) -> int {
             UObject* Param = nullptr;
             if (L.is_userdata())
