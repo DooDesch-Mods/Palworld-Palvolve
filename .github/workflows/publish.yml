@@ -178,3 +178,34 @@ jobs:
           allow_mod_manager_download: true
           archive_existing_version: true
           update_mod_version: true
+
+      # Discord renders a `release` webhook as an empty box - no title, no version, no notes. So the embed is
+      # built here, off the release that just went out. Skipped on a manual run, and when the secret is unset.
+      - name: Announce the release in Discord
+        if: ${{ github.event_name == 'release' }}
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          NOTES: ${{ github.event.release.body }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then echo "DISCORD_RELEASE_WEBHOOK is not set - nothing announced."; exit 0; fi
+
+          # jq builds the JSON so notes with quotes, backticks or newlines cannot break the payload.
+          jq -n --arg title "Palvolve $VERSION" \
+                --arg url "https://github.com/$REPO/releases/tag/v$VERSION" \
+                --arg desc "$NOTES" \
+                --arg icon "https://raw.githubusercontent.com/$REPO/main/thumbnail.png" \
+                --arg links "[GitHub](https://github.com/$REPO/releases/tag/v$VERSION)" \
+            '{embeds: [{
+                title: $title,
+                url: $url,
+                description: ($desc | if length > 1400 then .[0:1400] + "\n..." else . end),
+                color: 8256434,
+                thumbnail: {url: $icon},
+                fields: [{name: "Get it", value: $links}],
+                footer: {text: "Palworld-Palvolve"}
+             }]}' > payload.json
+
+          curl -sS -f -X POST -H "Content-Type: application/json" -d @payload.json "$WEBHOOK" \
+            && echo "announced Palvolve $VERSION"
