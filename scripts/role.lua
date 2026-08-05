@@ -161,13 +161,6 @@ function Role.chat(playerCtx, msg)
     return ok
 end
 
--- Length limit for both paths above: the chat DROPS a line that runs too long
--- instead of truncating it, so a message past roughly a hundred characters
--- never appears on screen even though the log shows it. Player-facing messages
--- are therefore kept short at the source rather than split here - splitting
--- means cutting a Lua string by BYTES, which lands inside a multi-byte
--- character in German, Russian or Japanese and hands the chat malformed text.
-
 -- Reply to a CHAT COMMAND. The EnterChat hook fires on the sender's client
 -- (RPC stub) AND on the world authority, so command handlers run twice on
 -- dedicated servers. The authority owns the visible reply (private system
@@ -182,20 +175,44 @@ function Role.ack(playerCtx, msg)
     return true
 end
 
+-- Wire prefix for the machine-readable half of Role.notify below. Declared
+-- here, next to its only PRODUCER, and read by its only CONSUMER
+-- (netchannel.lua's NetChannel.initClient log branch, which renders the body as
+-- a native notice toast on the addressee's machine). Both sides reference this
+-- one constant on purpose: while it lived as two unrelated string literals, a
+-- prefix change on either side would have silently killed the toast channel -
+-- and the failure is invisible, because Role.chat still lands.
+Role.LOG_PREFIX = "PVLV1|log|"
+
 -- Player-facing status text. Local player: plain log. Remote requester:
 -- forwarded through the per-player channels - a machine-readable screen
--- log line (hooked by the client mod, HUD-invisible) and a human-readable
--- private chat line.
-function Role.notify(playerCtx, msg)
+-- log line (hooked by the client mod, HUD-invisible, and rendered there as the
+-- game's own notice toast) and a human-readable private chat line.
+-- withChat = false suppresses that chat leg (Config.evolveNotify.chatFallback
+-- on the announce path); nil/absent sends it, the historical behavior.
+function Role.notify(playerCtx, msg, withChat)
     Log(msg)
     if not playerCtx or playerCtx.isLocal then return end
+    -- Every caller reaches this from a DEFERRED callback (the announce sites sit
+    -- inside ExecuteInGameThread bodies), and a disconnected client's controller
+    -- raises a native "Pure virtual not implemented" assert that pcall does NOT
+    -- catch - so validate before the RPC, exactly as Role.chat does.
+    if not (playerCtx.pc and playerCtx.pc:IsValid()) then return end
     pcall(function()
         playerCtx.pc:SendScreenLogToClient(
-            "PVLV1|log|" .. msg,
-            { R = 0.2, G = 1.0, B = 0.4, A = 1.0 },
-            6.0,
+            Role.LOG_PREFIX .. msg,
+            -- Fully transparent, 0.1s - the same values NetChannel.sendSignal
+            -- has carried in production. This RPC is a transport here, never a
+            -- message: whether the shipping build draws it at all is UNPROVEN
+            -- (the SDK's only .cpp body is an empty stub, and in that dump every
+            -- body is empty, so it is not evidence). Sending it invisible means
+            -- that even if it does draw, it draws nothing - the alternative was
+            -- a green 6-second `PVLV1|log|...` line on every evolution.
+            { R = 0.0, G = 0.0, B = 0.0, A = 0.0 },
+            0.1,
             FName("PalvolveNotify"))
     end)
+    if withChat == false then return end
     Role.chat(playerCtx, "[Palvolve] " .. msg)
 end
 

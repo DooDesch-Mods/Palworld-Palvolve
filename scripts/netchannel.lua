@@ -14,6 +14,11 @@
 -- authorize.
 local Config = require("config")
 local Role = require("role")
+-- Optional DarnToasts integration; a stub-shaped no-op when the framework is
+-- absent, so showRelayedToast below can call it unguarded. netchannel is the
+-- RECEIVING client's half of a relayed prompt, so the channel it reaches is
+-- that player's own - exactly the machine whose Toasts page owns the mute.
+local DarnToasts = require("darntoasts")
 
 local NetChannel = {}
 
@@ -24,6 +29,13 @@ end
 local MAGIC = 0x50560000
 local MAGIC_MASK = 0xFFFF0000
 local OP_EVOLVE = 7
+-- Auto-evolve variant: identical payload, but the host must refuse to
+-- consume ANY cost. The client only auto-fires evolutions that are free
+-- against ITS OWN config; on cost-config skew the host rejects the request
+-- instead of silently charging a prompt-less evolution. A pre-1.3.9 host
+-- ignores this opcode entirely (magic matches, opcode does not), which
+-- degrades to "auto-evolve does nothing there" - safe.
+local OP_EVOLVE_FREE = 8
 
 -- host -> client phase signals, carried in SendScreenLogToClient (invisible
 -- in the retail HUD; the client mod hooks that RPC and parses the prefix).
@@ -34,10 +46,108 @@ local OP_EVOLVE = 7
 --            plays the grow/finale reveal
 local SIGNAL_PREFIX = "PVLV1|sig|"
 
+-- host -> client player-facing text, same invisible carrier. The host writes it
+-- through Role.notify; the client mod turns it into a real notice toast in this
+-- process (the log manager and the HUD service are client-side objects with no
+-- replication, so the sentence has to travel as text and be rendered here).
+-- The prefix itself is OWNED BY role.lua (its only producer) and read from there
+-- rather than repeated as a literal - the two halves of this wire contract have
+-- to move together, and a mismatch fails silently (chat still lands, the toast
+-- just never appears).
+local LOG_PREFIX = Role.LOG_PREFIX
+
 local function palUtility()
     local u = StaticFindObject("/Script/Pal.Default__PalUtility")
     if u and u:IsValid() then return u end
     return nil
+end
+
+-- FText from a Lua string; duplicated per module by convention (the original is
+-- servercheck.lua:67, which documents the stale-converter trap this guards).
+-- netchannel deliberately does not require evolution.lua (the dependency runs
+-- the other way), so the small toast attempt lives here too.
+local function toText(s)
+    local ok, t = pcall(FText, s)
+    if ok and t then return t end
+    local converted = nil
+    pcall(function()
+        local ktl = StaticFindObject("/Script/Engine.Default__KismetTextLibrary")
+        if ktl and ktl:IsValid() then converted = ktl:Conv_StringToText(s) end
+    end)
+    return converted
+end
+
+-- First delivery outcome is logged in any mode (a devMode-only proof line
+-- proves nothing on a user's machine); later ones are devMode-only.
+local toastProofDone = false
+local function toastProof(surface)
+    if toastProofDone and not Config.devMode then return end
+    toastProofDone = true
+    Log("[notify] relayed prompt delivered via " .. surface)
+end
+
+-- Render a relayed line in the game's own notice stream for the player at THIS
+-- machine. No chat fallback here: when the host has evolveNotify.chatFallback on
+-- (the default) it already sent a private chat line next to the payload
+-- (Role.notify), so a failure degrades to that; with chatFallback off the host
+-- deliberately wants the toast alone and a failure degrades to the log line.
+--
+-- evolveNotify.enabled is read from THIS process's config, not the host's: the
+-- setting is documented as a per-install switch, and the player who turned
+-- prompts off in their own config_user.lua must stay unprompted on someone
+-- else's server too. The relayed sentence is still written to the local log, so
+-- the evolution remains on record here as well.
+local function showRelayedToast(msg)
+    if not Config.evolveNotify or Config.evolveNotify.enabled == false then
+        Log("[notify] relayed prompt suppressed (evolveNotify.enabled=false): " .. tostring(msg))
+        return
+    end
+    -- the sentence reaches the local log on BOTH branches - the header comment
+    -- promises a local record whether or not the toast lands
+    Log("[notify] relayed prompt: " .. tostring(msg))
+    -- DarnToasts takes the line whole when this client has it: one notice per
+    -- evolution, so the AddLog attempt below is skipped rather than doubled.
+    -- A MUTED channel is a deliberate silence and counts as taken - the player
+    -- muted the Palvolve lane here, and re-drawing the same sentence through
+    -- the vanilla feed would undo that. The host's chat line (its own
+    -- chatFallback) is not ours to withhold and is unaffected either way.
+    local darnOk, darnMuted = DarnToasts.notify(msg)
+    if darnMuted then
+        toastProof("DarnToasts (muted - notice suppressed)")
+        return
+    end
+    if darnOk then
+        toastProof("DarnToasts toast")
+        return
+    end
+    local shown = false
+    pcall(function()
+        local ctx = Role.localPlayerCtx()
+        local pc = ctx and ctx.pc
+        local util = palUtility()
+        if not (util and pc and pc:IsValid()) then return end
+        local mgr = util:GetLogManager(pc)
+        if not (mgr and mgr:IsValid()) then return end
+        local text = toText(msg)
+        if not text then return end
+        -- EPalLogPriority::Important = 2, EPalLogContentToneType::Positive = 2
+        -- (EPalLogPriority.h / EPalLogContentToneType.h member order)
+        local guid = mgr:AddLog(2, text, { logToneType = 2 })
+        -- AddLog hands back the new entry's FGuid; a zero guid means the manager
+        -- refused the line. That is the only signal available - a non-zero guid
+        -- proves the entry was QUEUED, never that a widget rendered (the widget
+        -- is spawned Blueprint-side off OnAddedImportantLogDelegate, which no
+        -- reflected path can observe) - so the proof line stays honest below.
+        local zero = false
+        pcall(function()
+            if guid ~= nil then
+                zero = (guid.A == 0 and guid.B == 0 and guid.C == 0 and guid.D == 0)
+            end
+        end)
+        shown = not zero
+    end)
+    toastProof(shown and "toast (queued; render unverifiable)"
+        or "toast refused - the host chat line (if the host enabled it) is the only surface")
 end
 
 -- Engine net mode read from a world context object: true on any authority
@@ -58,7 +168,8 @@ local reqCounter = 0
 
 -- Sends "evolve my summoned pal via radial option <pairIndex>" to the host.
 -- Returns ok (the send was issued; delivery/result comes back as a chat ack).
-function NetChannel.sendEvolve(playerCtx, pairIndex)
+-- freeOnly marks an auto-evolve request: the host must not consume any cost.
+function NetChannel.sendEvolve(playerCtx, pairIndex, freeOnly)
     if not (playerCtx and playerCtx.pc and playerCtx.pc:IsValid()) then
         return false, "no player"
     end
@@ -68,7 +179,8 @@ function NetChannel.sendEvolve(playerCtx, pairIndex)
         if not (holder and holder:IsValid()) then error("no otomo holder component") end
         reqCounter = (reqCounter + 1) & 0x7FFFFF
         local index = ((reqCounter << 8) | (pairIndex & 0xFF)) & 0x7FFFFFFF
-        holder:SetSelectOtomoID_ToServer(MAGIC | OP_EVOLVE, index)
+        local opcode = freeOnly and OP_EVOLVE_FREE or OP_EVOLVE
+        holder:SetSelectOtomoID_ToServer(MAGIC | opcode, index)
     end)
     if not ok then Log("[net] send failed") end
     return ok
@@ -105,15 +217,6 @@ local REPLAY_WINDOW_S = 15
 local function guidStr(g)
     return string.format("%08X-%08X-%08X-%08X", g.A, g.B, g.C, g.D)
 end
-
--- An unset FGuid is still a table, so it passes a nil check and then identifies nobody.
--- Treating it as a real sender id lets per-player gating and record lookups key off a
--- value every player shares.
-local function isZeroGuid(g)
-    return not g or (g.A == 0 and g.B == 0 and g.C == 0 and g.D == 0)
-end
-
-local zeroUidLogged = false
 
 -- returns dropReason or nil (nil = accept)
 local function gate(uidStr, reqId)
@@ -165,7 +268,7 @@ local function greetSender(senderCtx)
     Log("Handshake: greeted client (pong v" .. tostring(Config.modVersion) .. ")")
 end
 
--- handler(senderCtx, pairIndex, holder) -> ok, message
+-- handler(senderCtx, pairIndex, freeOnly) -> ok, message
 -- Runs entirely on the game thread inside the RPC's own hook frame: RPC
 -- handlers already execute on the game thread, and the holder reference from
 -- `self` only stays valid within that frame (deferring it via LoopAsync lets
@@ -179,12 +282,14 @@ function NetChannel.initHost(handler)
     -- parameter (same holder, valid in the post scope) and runs the evolve.
     local pendingPairIndex = nil -- set by pre when a valid evolve arrives
     local pendingRestore = nil   -- selection value to restore after the body
+    local pendingFreeOnly = nil  -- true when the request came in as OP_EVOLVE_FREE
 
     local hostHookOk = pcall(function()
         RegisterHook("/Script/Pal.PalOtomoHolderComponentBase:SetSelectOtomoID_ToServer",
             function(self, ID, Index)
                 pendingPairIndex = nil
                 pendingRestore = nil
+                pendingFreeOnly = nil
                 pcall(function()
                     local id = ID:get()
                     if (id & MAGIC_MASK) ~= MAGIC then return end -- vanilla selection
@@ -216,29 +321,37 @@ function NetChannel.initHost(handler)
                         pendingRestore = cur
                     end)
 
+                    local isEvolve = (opcode == OP_EVOLVE or opcode == OP_EVOLVE_FREE)
+
                     local senderCtx = Role.playerCtxFor(owner)
                     if not (senderCtx and senderCtx.playerUId) then
-                        if opcode == OP_EVOLVE then Log("Evolve request dropped: sender player id unresolved") end
+                        if isEvolve then Log("Evolve request dropped: sender player id unresolved") end
                         return
-                    end
-                    -- Deliberately not a drop: a zero id still identifies the requester well
-                    -- enough for the evolve itself, and refusing here would turn a missing
-                    -- recipe unlock into no evolutions at all. Note it once so a support log
-                    -- says whether this is what broke the record lookup.
-                    if isZeroGuid(senderCtx.playerUId) and not zeroUidLogged then
-                        zeroUidLogged = true
-                        Log("Sender player id is a zero guid - per-player lookups will not match")
                     end
 
                     local drop = gate(guidStr(senderCtx.playerUId), reqId)
                     if drop then
-                        if opcode == OP_EVOLVE then Log("Evolve request dropped: " .. drop) end
+                        if isEvolve then
+                            Log("Evolve request dropped: " .. drop)
+                            -- tell the sender: a manual pick racing an
+                            -- invisible auto-send would otherwise vanish
+                            -- with zero feedback (rate limit is per SENDER,
+                            -- not per source)
+                            if drop == "rate-limited" then
+                                pcall(function()
+                                    Role.chat(senderCtx,
+                                        "Evolve request dropped (busy) - try again in a moment")
+                                end)
+                            end
+                        end
                         return
                     end
 
-                    if opcode == OP_EVOLVE then
+                    if isEvolve then
                         pendingPairIndex = pairIndex
-                        Log(string.format("Evolve request received (reqId %d, option %d)", reqId, pairIndex))
+                        pendingFreeOnly = (opcode == OP_EVOLVE_FREE)
+                        Log(string.format("Evolve request received (reqId %d, option %d%s)",
+                            reqId, pairIndex, pendingFreeOnly and ", free-only" or ""))
                     end
                 end)
             end,
@@ -246,8 +359,10 @@ function NetChannel.initHost(handler)
                 pcall(function()
                     local pairIndex = pendingPairIndex
                     local restore = pendingRestore
+                    local freeOnly = pendingFreeOnly
                     pendingPairIndex = nil
                     pendingRestore = nil
+                    pendingFreeOnly = nil
                     if pairIndex == nil and restore == nil then return end
 
                     -- fresh holder from the POST-hook's own self (survives here,
@@ -286,7 +401,7 @@ function NetChannel.initHost(handler)
                         -- failure reason to the requester AND log it server-side,
                         -- so a rejected evolve leaves a trace even when the chat
                         -- channel does not render on the client
-                        local ok, msg = handler(senderCtx, pairIndex)
+                        local ok, msg = handler(senderCtx, pairIndex, freeOnly)
                         if not ok then
                             Log("Evolve rejected: " .. tostring(msg or "no reason given"))
                             if msg then Role.chat(senderCtx, msg) end
@@ -361,7 +476,16 @@ function NetChannel.initClient(onSignal, onPong)
                 pcall(function()
                     local text = ""
                     pcall(function() text = Message:get():ToString() end)
-                    if text and text:sub(1, #SIGNAL_PREFIX) == SIGNAL_PREFIX then
+                    if not text then return end
+                    -- This hook sees EVERY screen log, so both tests are plain
+                    -- prefix compares (no patterns) and they come first. NB
+                    -- "consumes" means the Lua dispatch stops there: this is a
+                    -- pre-hook and cannot suppress the native RPC body, which
+                    -- runs either way. Harmless because both carriers are sent
+                    -- fully transparent for 0.1s (see Role.notify /
+                    -- NetChannel.sendSignal), so even a drawing implementation
+                    -- draws nothing.
+                    if text:sub(1, #SIGNAL_PREFIX) == SIGNAL_PREFIX then
                         local kind = text:sub(#SIGNAL_PREFIX + 1)
                         local pong = kind:match("^pong|(.*)$")
                         if pong ~= nil then
@@ -369,10 +493,34 @@ function NetChannel.initClient(onSignal, onPong)
                         else
                             ExecuteInGameThread(function() pcall(onSignal, kind) end)
                         end
+                        return
+                    end
+                    if text:sub(1, #LOG_PREFIX) == LOG_PREFIX then
+                        -- Whose screen is this RPC for? On a LISTEN HOST this
+                        -- hook also fires for the host's own OUTGOING relay to a
+                        -- guest, and the host must not toast a guest's
+                        -- evolution - only the process whose own player is the
+                        -- addressee renders it. Read SYNCHRONOUSLY: a UObject
+                        -- wrapper from self:get() does not survive being stored
+                        -- across a deferral (it reads back nil), so the deferred
+                        -- body re-resolves the local player for itself.
+                        local forUs = false
+                        pcall(function()
+                            local pc = self:get()
+                            if pc and pc:IsValid() then
+                                forUs = (pc:IsLocalPlayerController() == true)
+                            end
+                        end)
+                        -- Lua dispatch ends here either way
+                        if forUs then
+                            local body = text:sub(#LOG_PREFIX + 1)
+                            ExecuteInGameThread(function() pcall(showRelayedToast, body) end)
+                        end
+                        return
                     end
                 end)
             end)
-        Log("Network channel active (client): phase signals hooked")
+        Log("Network channel active (client): phase signals + prompts hooked")
     end)
 end
 

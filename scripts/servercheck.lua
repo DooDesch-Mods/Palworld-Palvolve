@@ -277,7 +277,7 @@ function ServerCheck.onPong(ver)
         return
     end
     -- Settle FIRST; buffer only a greet that could NOT settle. The buffered
-    -- case this exists for (the 1.3.10 fix): the host re-greets after a server
+    -- case this exists for (upstream 1.3.10): the host re-greets after a server
     -- restart while state is still REMOTE from the previous world, BEFORE
     -- onEnterWorld re-baselines to RESOLVING - settleRemote ignores greets in
     -- REMOTE, so the buffer lets the imminent onEnterWorld consume it (the

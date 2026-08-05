@@ -83,14 +83,15 @@ function I18n.msg(key, ...)
 end
 
 -- Localized item name through the game's own text system, so cost lines read
--- "Pal Souls" instead of the raw "PalUpgradeStone". The mod's own items go the
--- same way, because PalSchema registers them with an ITEM_NAME_ key like any
--- other item.
+-- "Pal Souls" instead of the raw "PalUpgradeStone". The fork's own items go the
+-- same way, because the PalSchema data half registers them with an ITEM_NAME_
+-- key like any other item - which is what makes a cost line follow the player's
+-- language instead of always printing the English config string.
 --
 -- Returns name, resolved. The flag matters for callers that decorate the name
--- themselves: the per-element adaptation stones already carry their element in
--- the registered name ("Adaptation Stone (Neutral)"), so adding it again reads
--- as "(Neutral) (Neutral)". Only the undecorated fallback needs the suffix.
+-- themselves: the per-element primed stones already carry their element in the
+-- registered name ("Primed Evolution Stone (Fire)"), so adding it again reads as
+-- "(Fire) (Fire)". Only the undecorated fallback needs the suffix.
 local itemNameCache = {}
 function I18n.itemName(id, fallback)
     if type(id) ~= "string" or id == "" then return fallback or id, false end
