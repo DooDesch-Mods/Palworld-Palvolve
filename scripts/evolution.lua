@@ -2695,6 +2695,33 @@ function Evolution.init()
                 probes.probeWorkSuitability()
                 Role.ack(senderCtx, "work suitability probe done - see log")
             end,
+            -- 1.6.0 abort test: can a mod put a window on the game's own UI
+            -- stack. Run it twice - the first call opens, the second closes.
+            browser = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeBrowserWindow) then return end
+                probes.probeBrowserWindow()
+                Role.ack(senderCtx, "browser window probe - see log")
+            end,
+            -- Does the engine's web browser widget work in this build. If it
+            -- does, the website's own tree view can be the in-game browser.
+            webview = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeWebBrowser) then return end
+                probes.probeWebBrowser()
+                Role.ack(senderCtx, "webview probe - see log")
+            end,
+            -- The positive control for the same question: drive one of the
+            -- game's own stack screens and see whether it appears.
+            browserstack = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeBrowserStack) then return end
+                probes.probeBrowserStack()
+                Role.ack(senderCtx, "browser stack probe - see log")
+            end,
             -- measures the host-to-client payload ceiling; run from a client
             xnet = function(senderCtx)
                 if not Config.devMode then return end

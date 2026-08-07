@@ -1176,6 +1176,477 @@ function M.probeNetPayload(playerCtx)
     end)
 end
 
+-- Abort test for the in-game browser (1.6.0). The whole design rests on one
+-- assumption: that a mod can put a window on the game's own UI stack and get
+-- input mode, closing on B/Esc and the menu sounds for free. PalHUDService
+-- exposes Push(WidgetClass, Parameter) -> ID and Close(ID), which is what the
+-- game's own screens go through. If this refuses to open, or opens without
+-- taking input, or cannot be closed, there is no assetless browser and the
+-- design has to change before anything else is built.
+--
+-- Deliberately opens the plain frame with no content: a failure here is the
+-- stack's, not a content widget's.
+local BROWSER_FRAME = "/Game/Pal/Blueprint/UI/UserInterface/Common/WBP_PalCommonWindow.WBP_PalCommonWindow_C"
+local openWindowId = nil
+
+-- Push only accepts classes derived from PalUserWidgetStackableUI; 120 of the
+-- game's own screens qualify. These four are the ones worth looking at as a
+-- host for an evolution browser, most promising first. Each press opens the
+-- next one, so the shape of each can be judged before anything is built on it.
+local BROWSER_CANDIDATES = {
+    -- A tree already: nodes with icons, connecting lines, scrolling, click for detail.
+    "/Game/Pal/Blueprint/UI/Technology/WBP_TechnologyUI.WBP_TechnologyUI_C",
+    -- Pal icons in a scrollable grid with a detail pane.
+    "/Game/Pal/Blueprint/UI/Paldex/WBP_Paldex_ForDisplay.WBP_Paldex_ForDisplay_C",
+    -- Pan and zoom over a large surface with placed markers.
+    "/Game/Pal/Blueprint/UI/UserInterface/Map/WBP_Map_Base.WBP_Map_Base_C",
+    -- Pal list with sorting and a detail pane.
+    "/Game/Pal/Blueprint/UI/PalStorage/WBP_PalStorageMenu.WBP_PalStorageMenu_C",
+}
+local candidateIndex = 0
+
+-- The service that actually drives the UI hangs off the game instance
+-- (PalGameInstance:HUDService). FindFirstOf hands back whatever object of that
+-- class it meets first, which is regularly the class default object - it
+-- accepts every call, returns a valid-looking id and builds nothing.
+local function hudService()
+    local gi = FindFirstOf("PalGameInstance")
+    if gi and gi:IsValid() then
+        local svc = gi.HUDService
+        if svc and svc:IsValid() then return svc, "PalGameInstance.HUDService" end
+    end
+    local loose = FindFirstOf("PalHUDService")
+    if loose and loose:IsValid() then return loose, "FindFirstOf" end
+    return nil, "none"
+end
+
+-- Names every candidate so a silent no-op is traceable to the object it was
+-- made on. A full name starting with Default__ is the class default object.
+function M.probeHudObjects()
+    for _, cls in ipairs({"PalHUDService", "PalHUDInGame", "PalGameInstance"}) do
+        local all = FindAllOf(cls) or {}
+        Log(string.format("[probe-browser] %s: %d object(s)", cls, #all))
+        for i, o in ipairs(all) do
+            if i > 4 then break end
+            local name = "?"
+            pcall(function() name = tostring(o:GetFullName()) end)
+            Log(string.format("[probe-browser]   %d: %s", i, name))
+        end
+    end
+    local svc, via = hudService()
+    local name = "nil"
+    if svc then pcall(function() name = tostring(svc:GetFullName()) end) end
+    Log(string.format("[probe-browser] using %s via %s", name, via))
+end
+
+function M.probeBrowserWindow()
+    local hud, via = hudService()
+    if not hud then
+        Log("[probe-browser] no PalHUDService in this world")
+        return
+    end
+    Log("[probe-browser] service via " .. via)
+
+    if openWindowId then
+        local okClose, errClose = pcall(function() hud:Close(openWindowId) end)
+        Log(string.format("[probe-browser] close: ok=%s%s", tostring(okClose),
+            okClose and "" or (" err=" .. tostring(errClose))))
+        openWindowId = nil
+        return
+    end
+
+    candidateIndex = candidateIndex % #BROWSER_CANDIDATES + 1
+    local path = BROWSER_CANDIDATES[candidateIndex]
+    Log(string.format("[probe-browser] candidate %d/%d: %s",
+        candidateIndex, #BROWSER_CANDIDATES, path:match("[^.]+$")))
+
+    -- StaticFindObject rather than LoadAsset: these classes are cooked into the
+    -- game's own UI packages. A miss means the class is not resident yet, not
+    -- that the path is wrong - the screen has to have been opened once.
+    local cls = StaticFindObject(path)
+    if not cls or not cls:IsValid() then
+        Log("[probe-browser] class not resident, open that screen by hand once: " .. path)
+        return
+    end
+
+    local okPush, result = pcall(function() return hud:Push(cls, nil) end)
+    if not okPush then
+        Log("[probe-browser] push raised: " .. tostring(result))
+        return
+    end
+
+    openWindowId = result
+    Log(string.format("[probe-browser] pushed, id=%s - closing itself in 8s", tostring(result)))
+
+    -- A pushed screen takes the input, so the chat that opened it is out of
+    -- reach and the command cannot close it again. Without this, every single
+    -- candidate costs a full game restart.
+    local myId = result
+    ExecuteWithDelay(8000, function()
+        if openWindowId ~= myId then return end
+        local okClose = pcall(function() hud:Close(myId) end)
+        openWindowId = nil
+        Log(string.format("[probe-browser] auto-close: ok=%s", tostring(okClose)))
+    end)
+
+    -- Push returning an id says the call went through, not that a widget was
+    -- built. Counting instances of the class just pushed separates "the stack
+    -- refused this class" from "it is up but not visible".
+    local short = path:match("([^.]+)$")
+    local found = 0
+    for _, w in ipairs(FindAllOf("PalUserWidgetBase") or {}) do
+        if w:IsValid() and tostring(w:GetFullName()):find(short, 1, true) then
+            found = found + 1
+            local vis, inViewport = "?", "?"
+            pcall(function() vis = tostring(w:GetVisibility()) end)
+            pcall(function() inViewport = tostring(w:IsInViewport()) end)
+            Log(string.format("[probe-browser]   instance %d: visibility=%s inViewport=%s",
+                found, vis, inViewport))
+        end
+    end
+    Log(string.format("[probe-browser] %d %s instance(s) alive", found, short))
+end
+
+-- Palworld ships the engine's web browser widget and the whole Chromium runtime
+-- (Engine/Binaries/ThirdParty/CEF3/Win64). UWebBrowser offers LoadString,
+-- ExecuteJavascript and OnConsoleMessage, which together would carry the
+-- website's own tree view into the game: HTML in, config as JSON in, clicks
+-- back out. Shipping builds regularly keep the class and drop the renderer, so
+-- this is asked in stages, and each stage says what it found.
+function M.probeWebBrowser()
+    local cls = StaticFindObject("/Script/WebBrowserWidget.WebBrowser")
+    if not cls or not cls:IsValid() then
+        Log("[probe-web] UWebBrowser class not resident - browser widget unavailable")
+        return
+    end
+    Log("[probe-web] stage 1: class found")
+
+    -- Stage 2: can an instance be constructed at all. A widget needs an outer
+    -- that lives in the UI world, so the player's HUD is used rather than the
+    -- transient package.
+    local outer = nil
+    for _, o in ipairs(FindAllOf("PalHUDInGame") or {}) do
+        local n = ""
+        pcall(function() n = tostring(o:GetFullName()) end)
+        if o:IsValid() and not n:find("Default__") then outer = o break end
+    end
+    if not outer then
+        Log("[probe-web] no live PalHUDInGame to own the widget")
+        return
+    end
+
+    local okNew, browser = pcall(function()
+        return StaticConstructObject(cls, outer, FName("PalvolveWebView"))
+    end)
+    if not okNew or not browser or not browser:IsValid() then
+        Log("[probe-web] stage 2 FAILED: construct raised " .. tostring(browser))
+        return
+    end
+    Log("[probe-web] stage 2: instance constructed")
+
+    -- Stage 3: does the renderer accept content. LoadString needs no file and
+    -- no network, so a failure here is the renderer's and nothing else's.
+    local html = "<html><body style='background:#c0392b;color:#fff;font:700 48px sans-serif'>PALVOLVE WEBVIEW</body></html>"
+    local okLoad, errLoad = pcall(function() browser:LoadString(html, "palvolve://probe") end)
+    Log(string.format("[probe-web] stage 3 LoadString: ok=%s%s", tostring(okLoad),
+        okLoad and "" or (" err=" .. tostring(errLoad))))
+
+    local okJs = pcall(function() browser:ExecuteJavascript("console.log('palvolve-webview-alive')") end)
+    Log(string.format("[probe-web] stage 4 ExecuteJavascript: ok=%s", tostring(okJs)))
+
+    -- A UWebBrowser is a UWidget, not a UUserWidget, so it cannot go to the
+    -- viewport by itself. The game solves this in WBP_WebBrowser_News_C, the
+    -- news panel on the title screen: a canvas panel with a browser in it, and
+    -- that is a UUserWidget. Borrowing it skips building a widget tree by hand.
+    M.probeWebView()
+end
+
+-- The address handed to LoadString decides the page's origin, and an origin
+-- Chromium does not recognise gets no script rights: with palvolve:// the page
+-- rendered and styled correctly while every line of JavaScript stayed dead.
+-- An http origin is never fetched - nothing here goes to the network - it only
+-- has to be one the engine accepts.
+local VIEW_ORIGIN = "http://palvolve.local/view"
+local NEWS_WIDGET = "/Game/Pal/Blueprint/UI/Title/WBP_WebBrowser_News.WBP_WebBrowser_News_C"
+local webViewWidget = nil
+local webViewBrowser = nil
+local webViewPoll = nil
+
+-- While the view is up the player must not be walking around behind it, and
+-- the mouse has to belong to the page. UIOnly routes input to the widget and
+-- nothing else; the cursor has to be turned on separately because the game
+-- runs without one.
+-- Focusing the outer user widget was enough to stop the page from seeing
+-- clicks at all, while plain text selection had worked before any input mode
+-- was set. So no widget is named here: the mode keeps the player from walking
+-- around, and the focus is left where the browser can claim it.
+local function grabInput(pc, widget)
+    local lib = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+    -- EMouseLockMode: 0 = DoNotLock, so the cursor can leave the window.
+    pcall(function() lib:SetInputMode_UIOnlyEx(pc, nil, 0, false) end)
+    pcall(function() pc.bShowMouseCursor = true end)
+end
+
+local function releaseInput(pc)
+    local lib = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+    pcall(function() lib:SetInputMode_GameOnly(pc, true) end)
+    pcall(function() pc.bShowMouseCursor = false end)
+end
+
+local function closeWebView()
+    local pc = FindFirstOf("PalPlayerController")
+    if pc and pc:IsValid() then releaseInput(pc) end
+    if webViewWidget and webViewWidget:IsValid() then
+        pcall(function() webViewWidget:RemoveFromParent() end)
+    end
+    webViewWidget, webViewBrowser = nil, nil
+    Log("[probe-web] view closed, input handed back to the game")
+end
+
+function M.probeWebView()
+    if webViewWidget and webViewWidget:IsValid() then
+        closeWebView()
+        return
+    end
+
+    -- The class lives in the title screen's package and is not resident during
+    -- play, so it has to be pulled in first.
+    local cls = StaticFindObject(NEWS_WIDGET)
+    if not cls or not cls:IsValid() then
+        pcall(function() LoadAsset(NEWS_WIDGET) end)
+        cls = StaticFindObject(NEWS_WIDGET)
+    end
+    if not cls or not cls:IsValid() then
+        Log("[probe-web] stage 5 FAILED: " .. NEWS_WIDGET .. " could not be loaded")
+        return
+    end
+    Log("[probe-web] stage 5: news widget class loaded")
+
+    local pc = FindFirstOf("PalPlayerController")
+    if not pc or not pc:IsValid() then
+        Log("[probe-web] no player controller")
+        return
+    end
+
+    local lib = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+    local okCreate, widget = pcall(function() return lib:Create(pc, cls, pc) end)
+    if not okCreate or not widget or not widget:IsValid() then
+        Log("[probe-web] stage 6 FAILED: create raised " .. tostring(widget))
+        return
+    end
+    webViewWidget = widget
+    Log("[probe-web] stage 6: widget created")
+
+    pcall(function() widget:AddToViewport(50) end)
+    grabInput(pc, widget)
+    Log("[probe-web] stage 7: on screen, input taken over")
+
+    local browser = nil
+    for _, w in ipairs(FindAllOf("WebBrowser") or {}) do
+        local n = ""
+        pcall(function() n = tostring(w:GetFullName()) end)
+        if w:IsValid() and not n:find("Default__") then browser = w end
+    end
+    if not browser then
+        Log("[probe-web] stage 8: no WebBrowser instance inside the widget")
+        return
+    end
+    webViewBrowser = browser
+
+    -- The page comes from a file next to the user config, not from this script.
+    -- A game restart costs minutes and UE4SS cannot reload Lua safely here, so
+    -- keeping the markup outside means the view can be changed and reopened
+    -- while the game keeps running. The shipped feature needs the same split.
+    local htmlPath = os.getenv("LOCALAPPDATA") .. "\\Pal\\Saved\\Palvolve\\webview.html"
+    local html = nil
+    local f = io.open(htmlPath, "r")
+    if f then
+        html = f:read("*a")
+        f:close()
+        Log(string.format("[probe-web] page loaded from %s (%d bytes)", htmlPath, #html))
+    else
+        Log("[probe-web] no webview.html found, using the built-in page: " .. htmlPath)
+    end
+
+    html = html or [[<html><head><meta charset="utf-8"><style>
+      body{margin:0;background:#12161f;color:#e8eaf0;font:16px/1.5 system-ui,sans-serif;
+           display:flex;flex-direction:column;gap:14px;align-items:center;
+           justify-content:center;height:100vh;user-select:none}
+      h1{margin:0;font-size:28px;color:#59d1a0}
+      button{font:600 18px system-ui,sans-serif;padding:12px 22px;border:0;border-radius:8px;
+             background:#2b3446;color:#e8eaf0;cursor:pointer}
+      button:hover{background:#3a4761}
+      #log{font:13px ui-monospace,monospace;color:#8b93a7;min-height:20px}
+    </style></head><body>
+      <h1>Palvolve web view</h1>
+      <button onclick="send('pick/Pengullet')">Pick Pengullet</button>
+      <button onclick="send('evolve/Penking')">Evolve to Penking</button>
+      <button onclick="send('close')">Close</button>
+      <div id="log">no click yet</div>
+      <iframe id="bus" style="display:none"></iframe>
+    <script>
+      // Navigating the page itself to an unknown scheme works as a signal but
+      // replaces the page with Chromium's error screen. A hidden frame carries
+      // the same address change while the page stays where it is. Whether the
+      // outer GetUrl still sees it is exactly what this run measures, so the
+      // counter number goes along and both routes are tried.
+      var n = 0;
+      function send(what){
+        n++;
+        document.getElementById('log').textContent = 'sent #' + n + ': ' + what;
+        console.log('PALVOLVE:' + what);
+        // Third route, and the only one that breaks nothing: the document
+        // title is settable from JS and readable through GetTitleText. No
+        // navigation, no error page, no delegate binding.
+        document.title = 'PV|' + n + '|' + what;
+        document.getElementById('bus').src = 'palvolve://' + what + '?n=' + n;
+      }
+    </script></body></html>]]
+    local okLoad = pcall(function() browser:LoadString(html, VIEW_ORIGIN) end)
+    Log(string.format("[probe-web] stage 8 LoadString: ok=%s", tostring(okLoad)))
+
+    -- The widget is the title screen's news panel and fetches Pocketpair's news
+    -- page a moment after it is shown, replacing whatever was loaded before.
+    -- The page is therefore put back whenever the address drifts away from it.
+    local function reassert()
+        if not (webViewBrowser and webViewBrowser:IsValid()) then return end
+        pcall(function() webViewBrowser:LoadString(html, VIEW_ORIGIN) end)
+    end
+
+    -- Fixed retries rather than a reaction to the address, so this works even
+    -- when the watcher below fails. The news page arrives on its own schedule
+    -- and has beaten every single attempt so far.
+    for _, delay in ipairs({800, 2000, 4000, 7000}) do
+        ExecuteWithDelay(delay, function()
+            if webViewWidget then reassert() end
+        end)
+    end
+
+    -- The way back. Binding the console or url delegates from Lua is fragile,
+    -- so the address is polled instead: it needs no delegate, survives a
+    -- reload and cannot be swamped by unrelated console output.
+    local lastUrl, lastTitle = "", ""
+    local reportedUrlError, reportedTitleError = false, false
+    local beats = 0
+    webViewPoll = LoopAsync(150, function()
+        -- Unconditional sign of life. Silence used to mean either "nothing to
+        -- report" or "this loop is dead", and those need opposite fixes.
+        beats = beats + 1
+        if beats % 20 == 0 then
+            Log(string.format("[probe-web] watcher alive, %d checks, url='%s' title='%s'",
+                beats, lastUrl, lastTitle))
+        end
+        if not (webViewBrowser and webViewBrowser:IsValid()) then return true end
+
+        -- Both reads were wrapped in a bare pcall before, which turned a broken
+        -- getter into an empty string and the watcher into a silent no-op. The
+        -- first failure of each is reported once so the reason is on record.
+        local url, title = "", ""
+        local okUrl, errUrl = pcall(function() url = tostring(webViewBrowser:GetUrl():ToString()) end)
+        local okTitle, errTitle = pcall(function() title = tostring(webViewBrowser:GetTitleText():ToString()) end)
+        if not okUrl and not reportedUrlError then
+            reportedUrlError = true
+            Log("[probe-web] GetUrl unusable: " .. tostring(errUrl))
+        end
+        if not okTitle and not reportedTitleError then
+            reportedTitleError = true
+            Log("[probe-web] GetTitleText unusable: " .. tostring(errTitle))
+        end
+
+        local message = nil
+        if title ~= lastTitle and title ~= "" then
+            lastTitle = title
+            if title:sub(1, 3) == "PV|" then
+                Log("[probe-web] via title: " .. title)
+                message = title
+            end
+        end
+        if url ~= lastUrl and url ~= "" then
+            lastUrl = url
+            Log("[probe-web] via url: " .. url)
+            message = message or url
+
+            -- Anything that is not our own address means the widget went back
+            -- to its news page, so the view is put back.
+            if not url:find("palvolve://", 1, true) then
+                Log("[probe-web] widget navigated away, restoring the view")
+                reassert()
+            end
+        end
+
+        if message and message:find("close", 1, true) then
+            closeWebView()
+            return true
+        end
+        return false
+    end)
+    -- Fires the page's own reporting path without a mouse. That splits two
+    -- questions that otherwise hide each other: does the way back work at all,
+    -- and does a click reach the page. A silent log after this means the route
+    -- is broken; a log here but none on click means only the input is.
+    ExecuteWithDelay(3000, function()
+        if not (webViewBrowser and webViewBrowser:IsValid()) then return end
+        pcall(function() webViewBrowser:ExecuteJavascript("send('selftest/no-mouse')") end)
+        Log("[probe-web] self-test fired from lua, watch for a message below")
+    end)
+
+    -- Safety net. The view owns the input, so a page that fails to report a
+    -- close would leave the player unable to move or reach the chat that opened
+    -- it. This does not depend on the page working at all.
+    local generation = widget
+    ExecuteWithDelay(90000, function()
+        if webViewWidget == generation then
+            Log("[probe-web] safety timeout reached")
+            closeWebView()
+        end
+    end)
+
+    Log("[probe-web] stage 9: watching the page for messages - click the buttons (closes itself after 90s)")
+end
+
+-- The positive control. WorldMap is one of the game's own stack screens, so if
+-- this opens, a mod can drive the UI stack and the empty frame above simply had
+-- no content to give it size. If this does nothing either, the stack is not
+-- reachable from Lua and the assetless browser is off the table.
+function M.probeBrowserStack()
+    M.probeHudObjects()
+
+    local hud, via = hudService()
+    if not hud then
+        Log("[probe-browser] no PalHUDService in this world")
+        return
+    end
+
+    local okShow, result = pcall(function() return hud:ShowCommonUI(3, nil) end)
+    Log(string.format("[probe-browser] ShowCommonUI(WorldMap) via %s: ok=%s result=%s",
+        via, tostring(okShow), tostring(result)))
+
+    -- PalHUDInGame is the player's own HUD actor and owns the in-world stack.
+    -- Trying it as well separates "the service object was wrong" from "this
+    -- entry point does not build widgets at all".
+    local inGame = nil
+    for _, o in ipairs(FindAllOf("PalHUDInGame") or {}) do
+        local name = ""
+        pcall(function() name = tostring(o:GetFullName()) end)
+        if o:IsValid() and not name:find("Default__") then inGame = o break end
+    end
+    if not inGame then
+        Log("[probe-browser] no live PalHUDInGame")
+        return
+    end
+
+    local cls = StaticFindObject(BROWSER_FRAME)
+    local okPush, res = pcall(function() return inGame:PushWidgetStackableUI(cls, nil) end)
+    Log(string.format("[probe-browser] PalHUDInGame:PushWidgetStackableUI: ok=%s result=%s",
+        tostring(okPush), tostring(res)))
+
+    local alive = 0
+    for _, w in ipairs(FindAllOf("PalUserWidgetBase") or {}) do
+        if w:IsValid() and tostring(w:GetFullName()):find("PalCommonWindow") then alive = alive + 1 end
+    end
+    Log(string.format("[probe-browser] %d PalCommonWindow instance(s) after both attempts", alive))
+end
+
 Log(string.format("Probes active: F3 revert(own), F4 arm radial probes, F5 overlay, F6 VFX, F7 morph FX bases, F8 fanfare, F9 freeze, F10 give EXP, END free mode, test kit on %s, conditions on HOME/PAGE_UP/PAGE_DOWN, NUM7 day/night, NUM8 status cycle, F1 finale assets, BACKSPACE full evolution run (random target, 12 stages), chat !palvolve free|kit|fx|worksuit|xnet; weather recorder writes [weather] lines on every change",
     Key.INS and "INSERT" or "POS1"))
 
