@@ -27,7 +27,7 @@ local Config = {
 
     -- Mod version, reported to connected clients by the host handshake. Keep in
     -- sync with Info.json (the release flow checks this).
-    modVersion = "1.5.2",
+    modVersion = "1.5.3",
 
     -- Unlock the catch-gated technologies (saddle, Pal gear) of the target species when a
     -- pal evolves, the same way capturing one would. Needs the native companion in
@@ -1356,7 +1356,51 @@ local Config = {
     },
 }
 
+-- An FName compares without regard to case but remembers the spelling it was
+-- first registered with, and that is what ToString hands back. Palworld's own
+-- data contains 42 species under two spellings - "SheepBall" 260 times and
+-- "Sheepball" once - so which one a session reports depends on load order.
+-- Comparing those with == silently loses every pair of that species, which is
+-- what "Lamball has no evolution" was.
+local canonicalById = nil
+local function buildCanonical()
+    canonicalById = {}
+    -- Widest to narrowest, so the most authoritative spelling wins the key.
+    -- elements_static carries DT_PalMonsterParameter's own row names; the other
+    -- two reach species it leaves out, such as raid-only forms.
+    for _, source in ipairs({ "drops_static", "boss_static", "elements_static" }) do
+        local okSource, data = pcall(require, source)
+        if okSource and type(data) == "table" then
+            for id in pairs(data) do
+                if type(id) == "string" then canonicalById[id:lower()] = id end
+            end
+        end
+    end
+    -- and the map last: a config names the spelling its own pairs are matched
+    -- against, so that one has the final say
+    for _, pair in ipairs(Config.map or {}) do
+        if type(pair.from) == "string" then canonicalById[pair.from:lower()] = pair.from end
+        if type(pair.to) == "string" then canonicalById[pair.to:lower()] = pair.to end
+    end
+end
+
+--- The spelling the config and the data tables use, for an id the game handed
+--- back in whatever case it happened to register. Unknown ids come back
+--- unchanged, so a custom species still behaves exactly as before.
+function Config.canonicalId(rawId)
+    if type(rawId) ~= "string" then return rawId end
+    if canonicalById == nil then buildCanonical() end
+    return canonicalById[rawId:lower()] or rawId
+end
+
+--- Called after the user config replaced or extended the map, so ids that only
+--- exist in that file are in the index too.
+function Config.resetCanonical()
+    canonicalById = nil
+end
+
 function Config.findPair(characterId)
+    characterId = Config.canonicalId(characterId)
     for _, pair in ipairs(Config.map) do
         if pair.enabled and pair.from == characterId then
             return pair
@@ -1418,6 +1462,7 @@ function Config.treeHash(map)
 end
 
 function Config.findPairs(characterId)
+    characterId = Config.canonicalId(characterId)
     local result = {}
     for _, pair in ipairs(Config.map) do
         if pair.enabled and pair.from == characterId then
@@ -1672,6 +1717,8 @@ if user then
             Config.builtinMap = Config.builtinMap or Config.map
             Config.map = cleaned
             evoParentsCache = nil
+            -- a user map may name species the shipped list does not
+            Config.resetCanonical()
         end
     end
     if type(user.eggFilter) == "table" and user.eggFilter.enabled ~= nil then

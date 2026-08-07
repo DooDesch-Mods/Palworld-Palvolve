@@ -548,8 +548,12 @@ PARAM_EVAL.inParty = function(ctx, characterId)
             if handle and handle:IsValid() then
                 local p = handle:TryGetIndividualParameter()
                 if p and p:IsValid() then
-                    local id = p:GetCharacterID():ToString()
-                    if id == characterId or id == ("BOSS_" .. characterId) then
+                    -- same FName spelling trap as everywhere else: compare
+                    -- without case rather than trusting what the session
+                    -- happens to report
+                    local id = p:GetCharacterID():ToString():lower()
+                    local want = characterId:lower()
+                    if id == want or id == ("boss_" .. want) then
                         found = true
                         return
                     end

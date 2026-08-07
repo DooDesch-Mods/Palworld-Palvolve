@@ -738,11 +738,15 @@ local BOSS_PREFIX = "BOSS_"
 local okBoss, BossSet = pcall(require, "boss_static")
 if not okBoss then BossSet = nil end
 
+-- Also the one place a runtime id gets its spelling fixed. The game reports a
+-- CharacterID as an FName, which compares case-insensitively but reports back
+-- whichever spelling was registered first that session, and every lookup below
+-- this point matches a string exactly.
 local function baseCharacterId(rawId)
-    if rawId:sub(1, #BOSS_PREFIX) == BOSS_PREFIX then
-        return rawId:sub(#BOSS_PREFIX + 1), true
+    if rawId:lower():sub(1, #BOSS_PREFIX) == BOSS_PREFIX:lower() then
+        return Config.canonicalId(rawId:sub(#BOSS_PREFIX + 1)), true
     end
-    return rawId, false
+    return Config.canonicalId(rawId), false
 end
 
 -- swap target for an alpha; nil when the species has no BOSS_ row

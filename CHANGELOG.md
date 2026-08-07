@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.3] - 2026-08-07
+
+### Fixed
+
+- **Lamball can evolve again, and so can 41 other Pals.** The evolve option was greyed out with "has no evolution" even though the tree clearly held one.
+- **The cause was a spelling the game changes on its own.** Palworld stores a Pal's id as a name that ignores capitalisation but reports back whichever spelling it saw first, and its own files spell 42 species two ways - "SheepBall" 260 times, "Sheepball" once. Which one your session reports depends on load order, so the same tree worked for one player and not the next.
+- **Ids are now matched without capitalisation.** Nothing about your configuration changes, and a tree that worked keeps working.
+
 ## [1.5.2] - 2026-08-05
 
 ### Fixed
