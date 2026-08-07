@@ -1123,7 +1123,11 @@ local function performEvolution(p)
         end)
         local idNow = ""
         pcall(function() idNow = param:GetCharacterID():ToString() end)
-        if not okSwap or idNow ~= targetId then
+        -- Read back through the same canonicalizer the write went through: the
+        -- name we just stored can come back under a spelling the engine
+        -- registered earlier, and a raw comparison would call a swap that
+        -- worked a failure and refund it.
+        if not okSwap or Config.canonicalId(idNow) ~= Config.canonicalId(targetId) then
             Log(string.format("SWAP FAILED (err=%s, id=%s) - no respawn attempt",
                 tostring(errSwap), idNow))
             refundCost("swap failed")
@@ -1442,7 +1446,9 @@ local function performEvolution(p)
                 local p = paramOf(a)
                 if p and p:IsValid() then idSpawned = p:GetCharacterID():ToString() end
             end)
-            if idSpawned ~= targetId then return false end
+            -- same spelling trap: this is how the mod recognises the actor it
+            -- just spawned, and missing it means never finding it
+            if Config.canonicalId(idSpawned) ~= Config.canonicalId(targetId) then return false end
             -- Hide instantly so the raw spawn is never visible (reveal is
             -- staged). Collision stays ON: the native landing flow needs it,
             -- and it is only switched off for the teleport itself.
@@ -2455,7 +2461,7 @@ function Evolution.rollbackLast(playerCtx)
     end
     for _, p in ipairs(all) do
         if p:IsValid() and isOwned(p) and ownerMatches(p)
-            and p:GetCharacterID():ToString() == last.to then
+            and Config.canonicalId(p:GetCharacterID():ToString()) == Config.canonicalId(last.to) then
             -- With a key only the exact match counts (a species fallback could
             -- hit the wrong individual, e.g. SmallYeti->Yeti vs MopKing->Yeti)
             local match = hasKey and (individualKey(p) == last.key) or (not hasKey)
@@ -2466,7 +2472,7 @@ function Evolution.rollbackLast(playerCtx)
                 end)
                 local idNow = ""
                 pcall(function() idNow = p:GetCharacterID():ToString() end)
-                if idNow == last.from then
+                if Config.canonicalId(idNow) == Config.canonicalId(last.from) then
                     local restore = {
                         Talent_HP = last.ivHP, Talent_Melee = last.ivMelee,
                         Talent_Shot = last.ivShot, Talent_Defense = last.ivDefense,
@@ -2820,6 +2826,8 @@ function Evolution.init()
                     local param = paramOf(actor)
                     if not step("param", param ~= nil) then return end
                     step("owned", isOwnedBy(param, playerCtx and playerCtx.playerUId))
+                    -- raw on purpose: this line exists to show the spelling
+                    -- the session reported next to the one the mod resolved
                     local raw = param:GetCharacterID():ToString()
                     local id, isAlpha = baseCharacterId(raw)
                     table.insert(out, string.format("raw='%s' id='%s' alpha=%s", raw, id, tostring(isAlpha)))
