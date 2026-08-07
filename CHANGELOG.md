@@ -4,10 +4,10 @@
 
 ### Fixed
 
-- **Lamball can evolve again, and so can 41 other Pals.** The evolve option was greyed out with "has no evolution" even though the tree clearly held one.
-- **The cause was a spelling the game changes on its own.** Palworld stores a Pal's id as a name that ignores capitalisation but reports back whichever spelling it saw first, and its own files spell 42 species two ways - "SheepBall" 260 times, "Sheepball" once. Which one your session reports depends on load order, so the same tree worked for one player and not the next.
-- **Ids are now matched without capitalisation.** Nothing about your configuration changes, and a tree that worked keeps working.
-- **Three more places had the same flaw.** Evolving into one of those species could report "swap failed" and refund you although the swap had worked, and a rollback could fail to find the Pal it was meant to restore.
+- **Lamball can evolve again, and so can 41 other Pals.** The evolve option was greyed out with "has no evolution" even though the tree had one for it.
+- **The cause is how Palworld spells its own Pal ids.** An id ignores upper and lower case, but the game reports back whichever spelling it saw first. Its own files spell 42 species two ways: "SheepBall" 260 times, "Sheepball" once. Which spelling your session gets depends on load order, so the same tree worked for one player and not for the next.
+- **Palvolve now matches ids whatever the spelling.** Nothing in your config needs to change, and a tree that worked keeps working.
+- **Three more places had the same problem.** Evolving into one of those species could say "swap failed" and refund you even though the swap had worked, and a rollback could fail to find the Pal it was meant to restore.
 
 Reported by SephVII, Ryan and HenryFrost.
 

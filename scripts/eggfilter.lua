@@ -66,12 +66,14 @@ local function normalizeEgg(eggData, hatchedParam)
         if sid == "" or sid:find("PalEgg_WorldTree", 1, true) or sid:find("PalEgg_MutationPal", 1, true) then
             return
         end
-        local eggId = eggData.CharacterID:ToString()
+        -- the game reports a species under whichever spelling it registered
+        -- first, and the base-form lookup below matches config spellings
+        local eggId = Config.canonicalId(eggData.CharacterID:ToString())
         local base = pickBase(eggId)
         if base then
             eggData.CharacterID = FName(base)
             pcall(function() eggData.SaveParameter.CharacterID = FName(base) end)
-            local after = eggData.CharacterID:ToString()
+            local after = Config.canonicalId(eggData.CharacterID:ToString())
             changed = eggId .. " -> " .. base
             if after ~= base then changed = changed .. " (could not update egg species, still " .. after .. ")" end
             eggId = base
@@ -80,7 +82,7 @@ local function normalizeEgg(eggData, hatchedParam)
         -- still holds an evolved form (never touch a normal egg's species)
         if hatchedParam then
             pcall(function()
-                local hp = hatchedParam.CharacterID:ToString()
+                local hp = Config.canonicalId(hatchedParam.CharacterID:ToString())
                 if hp ~= eggId and isTarget(hp) then
                     hatchedParam.CharacterID = FName(eggId)
                     if not changed then changed = hp .. " -> " .. eggId .. " (hatch notification)" end

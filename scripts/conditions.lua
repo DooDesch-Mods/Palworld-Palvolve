@@ -542,17 +542,18 @@ PARAM_EVAL.inParty = function(ctx, characterId)
     if not (ctx.holder and ctx.holder:IsValid()) then return false end
     local found = false
     pcall(function()
+        -- The game hands a CharacterID back in whichever case the session
+        -- registered first, so both sides go to lower case before they meet.
+        -- The rest of the mod runs ids through Config.canonicalId instead;
+        -- this module cannot, because config.lua requires it (see the header).
+        local want = characterId:lower()
         local n = ctx.holder:GetMaxOtomoNum()
         for i = 0, n - 1 do
             local handle = ctx.holder:GetOtomoIndividualHandle(i)
             if handle and handle:IsValid() then
                 local p = handle:TryGetIndividualParameter()
                 if p and p:IsValid() then
-                    -- same FName spelling trap as everywhere else: compare
-                    -- without case rather than trusting what the session
-                    -- happens to report
                     local id = p:GetCharacterID():ToString():lower()
-                    local want = characterId:lower()
                     if id == want or id == ("boss_" .. want) then
                         found = true
                         return

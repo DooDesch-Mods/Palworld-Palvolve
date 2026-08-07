@@ -738,12 +738,15 @@ local BOSS_PREFIX = "BOSS_"
 local okBoss, BossSet = pcall(require, "boss_static")
 if not okBoss then BossSet = nil end
 
--- Also the one place a runtime id gets its spelling fixed. The game reports a
--- CharacterID as an FName, which compares case-insensitively but reports back
--- whichever spelling was registered first that session, and every lookup below
--- this point matches a string exactly.
+-- This is also the single point where a runtime id gets its spelling fixed.
+-- The game reports a CharacterID as an FName, which compares case-insensitively
+-- but hands back whichever spelling was registered first that session, while
+-- every lookup below this point matches a string exactly. The prefix test runs
+-- without case for the same reason: the game's own data spells one Alpha row
+-- "Boss_Anubis" rather than "BOSS_Anubis".
+local BOSS_PREFIX_LOWER = BOSS_PREFIX:lower()
 local function baseCharacterId(rawId)
-    if rawId:lower():sub(1, #BOSS_PREFIX) == BOSS_PREFIX:lower() then
+    if rawId:sub(1, #BOSS_PREFIX):lower() == BOSS_PREFIX_LOWER then
         return Config.canonicalId(rawId:sub(#BOSS_PREFIX + 1)), true
     end
     return Config.canonicalId(rawId), false
@@ -1123,10 +1126,10 @@ local function performEvolution(p)
         end)
         local idNow = ""
         pcall(function() idNow = param:GetCharacterID():ToString() end)
-        -- Read back through the same canonicalizer the write went through: the
-        -- name we just stored can come back under a spelling the engine
-        -- registered earlier, and a raw comparison would call a swap that
-        -- worked a failure and refund it.
+        -- Compare the read-back through the canonicalizer: the name just
+        -- written can come back under a spelling the engine registered
+        -- earlier, and a raw comparison would treat a swap that worked as a
+        -- failure and refund it.
         if not okSwap or Config.canonicalId(idNow) ~= Config.canonicalId(targetId) then
             Log(string.format("SWAP FAILED (err=%s, id=%s) - no respawn attempt",
                 tostring(errSwap), idNow))
@@ -1446,8 +1449,9 @@ local function performEvolution(p)
                 local p = paramOf(a)
                 if p and p:IsValid() then idSpawned = p:GetCharacterID():ToString() end
             end)
-            -- same spelling trap: this is how the mod recognises the actor it
-            -- just spawned, and missing it means never finding it
+            -- Same spelling trap: this comparison is how the mod picks its own
+            -- freshly spawned actor out of the world, so a missed match means
+            -- never finding it at all.
             if Config.canonicalId(idSpawned) ~= Config.canonicalId(targetId) then return false end
             -- Hide instantly so the raw spawn is never visible (reveal is
             -- staged). Collision stays ON: the native landing flow needs it,

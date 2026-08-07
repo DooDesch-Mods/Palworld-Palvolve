@@ -1360,14 +1360,15 @@ local Config = {
 -- first registered with, and that is what ToString hands back. Palworld's own
 -- data contains 42 species under two spellings - "SheepBall" 260 times and
 -- "Sheepball" once - so which one a session reports depends on load order.
--- Comparing those with == silently loses every pair of that species, which is
--- what "Lamball has no evolution" was.
+-- Comparing those with == silently drops every pair of that species: the
+-- Evolve option greys out and the log claims the species has no evolution.
 local canonicalById = nil
 local function buildCanonical()
     canonicalById = {}
-    -- Widest to narrowest, so the most authoritative spelling wins the key.
-    -- elements_static carries DT_PalMonsterParameter's own row names; the other
-    -- two reach species it leaves out, such as raid-only forms.
+    -- Later sources overwrite earlier ones, so the most authoritative spelling
+    -- ends up in the index: elements_static carries DT_PalMonsterParameter's
+    -- own row names, while the two before it reach species that table leaves
+    -- out, such as raid-only forms.
     for _, source in ipairs({ "drops_static", "boss_static", "elements_static" }) do
         local okSource, data = pcall(require, source)
         if okSource and type(data) == "table" then
@@ -1376,25 +1377,36 @@ local function buildCanonical()
             end
         end
     end
-    -- and the map last: a config names the spelling its own pairs are matched
-    -- against, so that one has the final say
+    -- And the map last: a config names the spelling its own pairs are matched
+    -- against, so that one has the final say.
     for _, pair in ipairs(Config.map or {}) do
         if type(pair.from) == "string" then canonicalById[pair.from:lower()] = pair.from end
         if type(pair.to) == "string" then canonicalById[pair.to:lower()] = pair.to end
     end
 end
 
---- The spelling the config and the data tables use, for an id the game handed
---- back in whatever case it happened to register. Unknown ids come back
---- unchanged, so a custom species still behaves exactly as before.
+-- The spelling the config and the data tables use, for an id the game handed
+-- back in whatever case it happened to register. Unknown ids come back
+-- unchanged, so a custom species still behaves exactly as before.
 function Config.canonicalId(rawId)
     if type(rawId) ~= "string" then return rawId end
     if canonicalById == nil then buildCanonical() end
-    return canonicalById[rawId:lower()] or rawId
+    local lower = rawId:lower()
+    local known = canonicalById[lower]
+    if known then return known end
+    -- An Alpha carries a BOSS_ prefix, and the game spells those two ways as
+    -- well ("BOSS_MopKing" next to "BOSS_Mopking"). The index holds bare
+    -- species ids, so resolve the species behind the prefix and put one fixed
+    -- prefix spelling back in front of it. Every comparison runs both of its
+    -- sides through here, so which spelling that is does not matter.
+    local base = lower:match("^boss_(.+)$")
+    base = base and canonicalById[base]
+    if base then return "BOSS_" .. base end
+    return rawId
 end
 
---- Called after the user config replaced or extended the map, so ids that only
---- exist in that file are in the index too.
+-- Called after the user config replaced or extended the map, so ids that only
+-- exist in that file are in the index too.
 function Config.resetCanonical()
     canonicalById = nil
 end
