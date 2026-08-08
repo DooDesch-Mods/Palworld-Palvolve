@@ -153,9 +153,18 @@ local Config = {
     -- config without it behaves exactly as before. The in-game tree view draws
     -- from this so it shows the picture its author built rather than a second
     -- layout that disagrees with the website.
-    --   positions[palId] = { x, y }   node CENTERS, whole pixels
-    --   frames[i]        = { x, y, w, h, color, label? }
-    --   copies[i]        = { gid, palId, x, y }
+    --
+    -- All coordinates are whole pixels in the website's canvas space, and the
+    -- two anchors differ - reading a frame as a center shifts it by half its
+    -- own size:
+    --   positions[palId] = { x, y }               the pal's CENTER
+    --   copies[i] = { gid, palId, x, y }          the copy's CENTER
+    --   frames[i] = { x, y, w, h, color, label }  TOP-LEFT corner, w/h run
+    --                                             right and down from it
+    -- A copy is a second picture of one pal; palId names the pal it stands for
+    -- and gid tells two copies of the same pal apart. color is whatever the
+    -- author picked and label may be empty, so whatever draws a frame needs a
+    -- fallback for a color it does not know.
     arrangement = { positions = {}, frames = {}, copies = {} },
     -- Palworld revision: the trailing digits of the title-screen version
     -- (v1.0.1.100619 -> 619), the identifier the official mod loader uses
@@ -1424,13 +1433,23 @@ end
 --- Reads the arrangement a config carries, dropping anything malformed.
 ---
 --- Every value is checked because this file is a stranger's data: a published
---- config travels the internet, and a coordinate that is a string or a table
---- would reach the widget that draws it. Missing sections are normal - a config
---- from the quick setup has no arrangement at all.
+--- config travels the internet, and a table where a number belongs would reach
+--- the widget that draws it and fail there instead of here. Missing sections
+--- are normal - a config from the quick setup has no arrangement at all.
+---
+--- Whatever happens, Config.arrangement ends up a table with all three
+--- sections, so a caller never has to test for nil.
 function Config.loadArrangement(user)
     local out = { positions = {}, frames = {}, copies = {} }
+    -- Same limit the website enforces before it lets a config be published;
+    -- the two have to move together or a valid arrangement starts losing pals.
     local LIMIT = 100000
 
+    if type(user) ~= "table" then user = {} end
+
+    --- A coordinate, or nil for anything a canvas cannot place: not a number
+    --- (n ~= n catches NaN), or past the edge of the world in either direction
+    --- (which is where an infinity lands).
     local function coord(v)
         local n = tonumber(v)
         if not n or n ~= n or n < -LIMIT or n > LIMIT then return nil end
@@ -1479,6 +1498,10 @@ function Config.loadArrangement(user)
 end
 
 --- True when the config brought a picture worth drawing.
+---
+--- Placed pals are what decides it. Frames and copies only make sense around
+--- pals that already sit somewhere, so a file that carries those and no
+--- positions has nothing to draw them against and counts as no picture.
 function Config.hasArrangement()
     local a = Config.arrangement
     if type(a) ~= "table" then return false end
