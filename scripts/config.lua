@@ -147,6 +147,16 @@ local Config = {
     -- Map schema version; 5 = negatable conditions ("!" prefix), 4 = per-pair
     -- conditions
     schemaVersion = 5,
+
+    -- How the author arranged their tree, when their config carries it. Purely
+    -- presentational: nothing here decides whether an evolution happens, and a
+    -- config without it behaves exactly as before. The in-game tree view draws
+    -- from this so it shows the picture its author built rather than a second
+    -- layout that disagrees with the website.
+    --   positions[palId] = { x, y }   node CENTERS, whole pixels
+    --   frames[i]        = { x, y, w, h, color, label? }
+    --   copies[i]        = { gid, palId, x, y }
+    arrangement = { positions = {}, frames = {}, copies = {} },
     -- Palworld revision: the trailing digits of the title-screen version
     -- (v1.0.1.100619 -> 619), the identifier the official mod loader uses
     gameBuild = 619,
@@ -1411,6 +1421,70 @@ function Config.resetCanonical()
     canonicalById = nil
 end
 
+--- Reads the arrangement a config carries, dropping anything malformed.
+---
+--- Every value is checked because this file is a stranger's data: a published
+--- config travels the internet, and a coordinate that is a string or a table
+--- would reach the widget that draws it. Missing sections are normal - a config
+--- from the quick setup has no arrangement at all.
+function Config.loadArrangement(user)
+    local out = { positions = {}, frames = {}, copies = {} }
+    local LIMIT = 100000
+
+    local function coord(v)
+        local n = tonumber(v)
+        if not n or n ~= n or n < -LIMIT or n > LIMIT then return nil end
+        return n
+    end
+
+    if type(user.positions) == "table" then
+        for id, p in pairs(user.positions) do
+            if type(id) == "string" and type(p) == "table" then
+                local x, y = coord(p.x), coord(p.y)
+                if x and y then out.positions[Config.canonicalId(id)] = { x = x, y = y } end
+            end
+        end
+    end
+
+    if type(user.frames) == "table" then
+        for _, f in ipairs(user.frames) do
+            if type(f) == "table" then
+                local x, y, w, h = coord(f.x), coord(f.y), coord(f.w), coord(f.h)
+                if x and y and w and h and w > 0 and h > 0 then
+                    table.insert(out.frames, {
+                        x = x, y = y, w = w, h = h,
+                        color = type(f.color) == "string" and f.color or "Neutral",
+                        label = type(f.label) == "string" and f.label or "",
+                    })
+                end
+            end
+        end
+    end
+
+    if type(user.copies) == "table" then
+        for _, c in ipairs(user.copies) do
+            if type(c) == "table" and type(c.gid) == "string" and type(c.palId) == "string" then
+                local x, y = coord(c.x), coord(c.y)
+                if x and y then
+                    table.insert(out.copies, {
+                        gid = c.gid, palId = Config.canonicalId(c.palId), x = x, y = y,
+                    })
+                end
+            end
+        end
+    end
+
+    Config.arrangement = out
+    return out
+end
+
+--- True when the config brought a picture worth drawing.
+function Config.hasArrangement()
+    local a = Config.arrangement
+    if type(a) ~= "table" then return false end
+    return next(a.positions or {}) ~= nil
+end
+
 function Config.findPair(characterId)
     characterId = Config.canonicalId(characterId)
     for _, pair in ipairs(Config.map) do
@@ -1761,6 +1835,7 @@ if user then
             if user.costs[k] ~= nil then Config.costs[k] = user.costs[k] end
         end
     end
+    Config.loadArrangement(user)
     print(string.format("[Palvolve] user config loaded (%d pairs, %s)\n", #Config.map, tostring(userSource)))
     local shadowed = scriptsConfigPath()
     if shadowed and shadowed ~= userSource then
