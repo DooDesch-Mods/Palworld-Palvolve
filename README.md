@@ -85,13 +85,13 @@ The egg filter is off by default. When on, eggs of evolved forms hatch base form
 
 ## Uninstalling
 
-Run `!palvolve uninstall` in chat (single player or host) while the mod is still installed, then keep the small `PalSchema\mods\Palvolve` data folder, or run the [Save Cleaner](save-cleaner/README.md) for a world that needs nothing at all.
+Run `!palvolve uninstall` in chat (single player or host) while the mod is still installed, then clean the save at **[palvolve.doodesch.de/save-cleaner](https://palvolve.doodesch.de/save-cleaner?utm_source=github&utm_medium=readme&utm_campaign=palvolve)**. It runs in your browser, nothing is uploaded, and it works on a world that already refuses to load.
 
-**Full guide, including recovery for a world that no longer loads: [UNINSTALL.md](UNINSTALL.md).**
+**Full guide, including the two-minute alternative and dedicated servers: [UNINSTALL.md](UNINSTALL.md).**
 
 ## Known issues
 
-- Removing the mod without the cleanup step above can stop the world from loading.
+- Removing the mod without cleaning the save first can stop the world from loading. The [Save Cleaner](https://palvolve.doodesch.de/save-cleaner?utm_source=github&utm_medium=readme&utm_campaign=palvolve) repairs that world as well.
 
 ## FAQ
 
@@ -108,7 +108,7 @@ Same cause: UE4SS or PalSchema is not active. The tell is no UE4SS output in the
 On the server **and** every client. UE4SS, PalSchema and Palvolve have to be active on both sides; a client-only install does not work.
 
 **How do I uninstall it safely? My world crashes after I remove the mod.**
-Run `!palvolve uninstall` first, then keep the `PalSchema\mods\Palvolve` data folder or run the Save Cleaner. Back up your saves first. Full steps: [UNINSTALL.md](UNINSTALL.md).
+Run `!palvolve uninstall` while the mod is still installed, then clean the save at [palvolve.doodesch.de/save-cleaner](https://palvolve.doodesch.de/save-cleaner?utm_source=github&utm_medium=readme&utm_campaign=palvolve). A world that already crashes goes straight to the cleaner. Full steps: [UNINSTALL.md](UNINSTALL.md).
 
 **Breeding changed, or an evolved variant will not hatch?**
 The egg filter is off by default, so eggs hatch what they normally would. If you turned it on (it makes eggs hatch base forms only), turn it back off in `scripts\config.lua` or the configurator. What it does and why, with diagrams: [EGG-FILTER.md](EGG-FILTER.md).
