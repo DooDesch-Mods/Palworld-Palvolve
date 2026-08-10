@@ -10,7 +10,7 @@ For a save on your own PC use the browser version at [palvolve.doodesch.de/save-
 
 A world that used Palvolve keeps references to the mod's items in its save files: item stacks in chests, the placed workbench, and crafting records inside each player file. Without the mod's item definitions those references stop resolving and the world refuses to load. That hits you when you uninstall the mod completely, reinstall the game (Steam syncs saves, not mods), or move to another PC.
 
-The in-game command `!palvolve uninstall` cleans what a running game can reach. This tool cleans what it cannot: the crafting records, stacks in containers whose chest no longer exists, and a placed workbench on a save you can no longer open.
+It removes every trace: item stacks in any container, the placed workbench and its work assignment, the crafting records and the technology unlock in each player file.
 
 ## Usage
 
