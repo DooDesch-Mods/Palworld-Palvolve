@@ -51,7 +51,7 @@ Clients join with the normal Workshop install.
 ## Known issues
 
 - Work suitability shows the pre-evolution form until you relog. Job skill book bonuses are not affected.
-- Removing the mod needs a cleanup step: run `!palvolve uninstall`, then keep the `PalSchema\mods\Palvolve` data folder or run the [Save Cleaner](https://github.com/DooDesch-Mods/Palworld-Palvolve/blob/main/UNINSTALL.md).
+- Removing the mod needs a cleanup step: run `!palvolve uninstall`, then clean the save at [palvolve.doodesch.de/save-cleaner](https://palvolve.doodesch.de/save-cleaner). It runs in the browser and repairs a world that already refuses to load.
 
 ## FAQ
 
@@ -65,7 +65,7 @@ Same cause: UE4SS or PalSchema is not active. The tell is no UE4SS output in the
 On the server **and** every client. UE4SS, PalSchema and Palvolve have to be active on both sides; a client-only install does not work.
 
 **How do I uninstall it safely? My world crashes after I remove the mod.**
-Run `!palvolve uninstall` first, then keep the `PalSchema\mods\Palvolve` data folder or run the Save Cleaner. Back up your saves first. Full steps: [UNINSTALL.md](https://github.com/DooDesch-Mods/Palworld-Palvolve/blob/main/UNINSTALL.md).
+Run `!palvolve uninstall` while the mod is still installed, then clean the save at [palvolve.doodesch.de/save-cleaner](https://palvolve.doodesch.de/save-cleaner). A world that already crashes goes straight to the cleaner. Full steps: [UNINSTALL.md](https://github.com/DooDesch-Mods/Palworld-Palvolve/blob/main/UNINSTALL.md).
 
 **Breeding changed, or an evolved variant will not hatch?**
 The egg filter is off by default, so eggs hatch what they normally would. If you turned it on (it makes eggs hatch base forms only), turn it back off in the config or the configurator.
