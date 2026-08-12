@@ -133,7 +133,44 @@ end
 -- ("[Name]: ...") and fed it into the global chat everyone sees - kept only
 -- as the fallback when no PlayerUId is available. Message must be a plain
 -- string in both paths; FText userdata kills the process natively.
-function Role.chat(playerCtx, msg)
+-- How talkative the mod is in the chat. Set by config.lua after the user file
+-- is read; role.lua cannot ask for it, because config requires THIS module and
+-- a require back would close the circle.
+--   "all"     everything
+--   "replies" only what answers something the player did
+--   "off"     nothing but command replies
+Role.chatMode = "all"
+
+--- kind: "info" for anything the mod says on its own, "reply" for a refusal or
+--- another answer to a player action, "command" for the reply to a chat command.
+--- A command reply is never silenced: silence there reads as a broken mod.
+local function chatAllowed(kind)
+    local mode = Role.chatMode or "all"
+    -- "always" is for the one line a player must never miss: whether their
+    -- client and the server agree on a version. A mod that goes quiet about
+    -- that leaves every later symptom unexplained.
+    if kind == "always" or kind == "command" then return true end
+    if mode == "off" then return false end
+    if mode == "replies" then return kind == "reply" end
+    return true
+end
+
+-- Every line this mod puts in a chat says so. A player on a server sees lines
+-- from several mods at once, and in single player ours arrive under the
+-- player's OWN name because a client cannot set a sender - without the tag
+-- there is nothing at all to tell them apart by. It was only on the messages
+-- that happened to go through Role.notify, which is why the same screen showed
+-- some tagged and some not.
+local TAG = "[Palvolve] "
+
+function Role.chat(playerCtx, msg, kind)
+    if not chatAllowed(kind or "info") then return true end
+    msg = tostring(msg)
+    if msg:sub(1, #TAG) ~= TAG then msg = TAG .. msg end
+    return Role.chatRaw(playerCtx, msg)
+end
+
+function Role.chatRaw(playerCtx, msg)
     if not (playerCtx and playerCtx.pc and playerCtx.pc:IsValid()) then return false end
     -- The targeted system chat is proven only for REMOTE receivers (authority
     -- sending to a connected client) - exactly the case where the legacy RPC
@@ -155,6 +192,21 @@ function Role.chat(playerCtx, msg)
         end)
     end
     if sent then return true end
+
+    -- Local render, under the player's own name rather than SYSTEM.
+    --
+    -- The chat widget takes an FPalChatMessage whose Sender is a plain string,
+    -- and the game's own [SYSTEM] lines are exactly that string, so calling
+    -- PalUIChat:OnReceivedChat with a Sender of "SYSTEM" looked like the way to
+    -- give a client-side line the same look. It kills the client: handing that
+    -- struct to the widget from Lua took the game down with no Lua error and
+    -- nothing in the log, the same class of death as passing FText where an
+    -- FString belongs. Measured 2026-08-12, do not try it again without a
+    -- native call path.
+    --
+    -- A client can therefore not produce a [SYSTEM] line at all. Where the look
+    -- matters, the message has to come FROM the host, which owns the only
+    -- function that sets a sender.
     local ok = pcall(function()
         playerCtx.pc:EnterChat_Receive(tostring(msg), 1)
     end)
@@ -176,7 +228,7 @@ end
 -- line. In standalone/host the local run IS the authority and chats normally.
 function Role.ack(playerCtx, msg)
     if Role.hasWorldAuthority() then
-        return Role.chat(playerCtx, msg)
+        return Role.chat(playerCtx, msg, "command")
     end
     Log("(ack suppressed on client, authority replies) " .. tostring(msg))
     return true
@@ -196,7 +248,7 @@ function Role.notify(playerCtx, msg)
             6.0,
             FName("PalvolveNotify"))
     end)
-    Role.chat(playerCtx, "[Palvolve] " .. msg)
+    Role.chat(playerCtx, msg)
 end
 
 return Role

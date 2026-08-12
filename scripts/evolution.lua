@@ -162,7 +162,7 @@ local function unlockCatchTech(targetId, playerCtx)
         local noticeKey = uid ~= "" and uid or "unresolved"
         if not noRecordSlot and not techUnlockNoticeSent[noticeKey] then
             techUnlockNoticeSent[noticeKey] = true
-            pcall(function() Role.chat(playerCtx, I18n.msg("techUnlockFailed")) end)
+            pcall(function() Role.chat(playerCtx, I18n.msg("techUnlockFailed"), "reply") end)
         end
     end
 end
@@ -236,18 +236,30 @@ local function palDisplayName(id)
     -- original id.
     local lookupId = id:gsub("^BOSS_", "")
     local name = nil
-    pcall(function()
-        local mdt, ctx = nameLookupPair()
-        if not (mdt and ctx) then return end
-        -- EPalLocalizeTextCategory::PalMonsterName = 4
-        local txt = mdt:GetLocalizedText(ctx, 4, FName("PAL_NAME_" .. lookupId))
-        if txt then
-            local s = txt:ToString()
-            -- An unknown key comes back as the key. Treating that as a name
-            -- would also cache it, so the raw key would stick for the session.
-            if s and s ~= "" and s:sub(1, 9) ~= "PAL_NAME_" then name = s end
-        end
-    end)
+    local function ask()
+        pcall(function()
+            local mdt, ctx = nameLookupPair()
+            if not (mdt and ctx) then return end
+            -- EPalLocalizeTextCategory::PalMonsterName = 4
+            local txt = mdt:GetLocalizedText(ctx, 4, FName("PAL_NAME_" .. lookupId))
+            if txt then
+                local s = txt:ToString()
+                -- An unknown key comes back as the key. Treating that as a name
+                -- would also cache it, so the raw key would stick for the session.
+                if s and s ~= "" and s:sub(1, 9) ~= "PAL_NAME_" then name = s end
+            end
+        end)
+    end
+    ask()
+    if not name then
+        -- The two objects the lookup rides on are held between calls, and a
+        -- held character does not survive its player leaving: on a server that
+        -- turned every name into its raw id from the first disconnect onwards.
+        -- IsValid still answers yes for an object that is on its way out, so
+        -- the only reliable signal is the lookup itself failing.
+        cachedNameCtx, cachedNameMdt = nil, nil
+        ask()
+    end
     if Config.devMode then
         Log(string.format("[radial] name lookup %s -> %s", id, name or "FAIL"))
     end
@@ -790,7 +802,10 @@ local function reportDeadTimers(playerCtx)
     lastTimersNotice = os.clock()
     Log("the timers are not running: UE4SS removed this mod's Lua tick hook, "
         .. "so no timed step of the mod happens any more. A game restart brings them back.")
-    Role.chat(playerCtx or Role.localPlayerCtx(), I18n.msg("timersDead"))
+    -- A reply, not a notice: both callers are the player reaching for evolution
+    -- and getting nothing back. Silenced, the key and the wheel entry would just
+    -- stop working with no reason given.
+    Role.chat(playerCtx or Role.localPlayerCtx(), I18n.msg("timersDead"), "reply")
 end
 
 --- True while the mod's timed steps are still being delivered.
@@ -872,6 +887,16 @@ local function findEligibleFor(playerCtx)
     end
     local level = 0
     pcall(function() level = param:GetLevel() end)
+    if Config.devMode then
+        -- Which Pal the authority actually looked at. A rejection that names a
+        -- level the player does not recognise is usually a different Pal than
+        -- the one they had in mind, and the id alone does not say which.
+        local nick, uid = "", ""
+        pcall(function() nick = tostring(param:GetNickname():ToString()) end)
+        pcall(function() uid = tostring(param.IndividualId.InstanceId):sub(1, 8) end)
+        Log(string.format("[evolve] evaluating %s lv %d (nick '%s', uid %s)",
+            tostring(id), level, nick, uid))
+    end
     local condCtx = { actor = actor, param = param, playerCtx = playerCtx, holder = holder }
     local pair, pairIndex, firstReason, alphaBlockedTo = nil, nil, nil, nil
     -- First target that only lacks materials, kept as the fallback: if nothing
@@ -1865,7 +1890,7 @@ local function remoteTransmitReady(playerCtx)
     if ServerCheck.remoteReady() then return true end
     local msg = I18n.msg("serverCheckPending")
     Log(msg)
-    Role.chat(playerCtx, msg)
+    Role.chat(playerCtx, msg, "reply")
     return false
 end
 
@@ -1873,7 +1898,7 @@ end
 
 function Evolution.check()
     if ServerCheck.blocked() then
-        Role.chat(Role.localPlayerCtx(), I18n.msg("serverNoPalvolve"))
+        Role.chat(Role.localPlayerCtx(), I18n.msg("serverNoPalvolve"), "reply")
         return
     end
     -- Said here because F2 runs off a key bind rather than a timer, so this is
@@ -1908,7 +1933,7 @@ function Evolution.check()
             -- second return value carries the reason message when present
             local reason = param or I18n.msg("noPalSummoned")
             Log(reason)
-            Role.chat(playerCtx, reason)
+            Role.chat(playerCtx, reason, "reply")
         end
         return
     end
@@ -1924,7 +1949,7 @@ function Evolution.check()
         Log(reason)
         if Role.hasWorldAuthority() then
             -- authority (single player / host): this check is final, show it here
-            Role.chat(playerCtx, reason)
+            Role.chat(playerCtx, reason, "reply")
         elseif remoteTransmitReady(playerCtx) then
             -- pure client: emitting the reason locally would attribute it to the
             -- player ("[Name]: ..."). Send the request instead so the host rejects
@@ -2307,7 +2332,7 @@ function Evolution.executeOption(opt)
     if opt.blocked then
         Log(opt.blocked)
         if Role.hasWorldAuthority() then
-            Role.chat(playerCtx, opt.blocked)
+            Role.chat(playerCtx, opt.blocked, "reply")
         elseif remoteTransmitReady(playerCtx) then
             -- pure client: don't attribute the reason locally ("[Name]: ..."). Send
             -- the picked option so the host re-validates and rejects it with a
@@ -2326,7 +2351,7 @@ function Evolution.executeOption(opt)
         local ok, msg = handleEvolveRequest(playerCtx, opt.pair.from, opt.pair.to)
         if not ok and msg then
             Log(msg)
-            Role.chat(playerCtx, msg)
+            Role.chat(playerCtx, msg, "reply")
         end
     else
         -- connected client: send the picked option index to the host over
@@ -2339,7 +2364,7 @@ function Evolution.executeOption(opt)
         if not sent then
             local msg = I18n.msg("serverUnreachable")
             Log(msg)
-            Role.chat(playerCtx, msg)
+            Role.chat(playerCtx, msg, "reply")
         end
     end
 end

@@ -31,7 +31,7 @@ local Config = {
 
     -- Mod version, reported to connected clients by the host handshake. Keep in
     -- sync with Info.json (the release flow checks this).
-    modVersion = "1.6.4",
+    modVersion = "1.7.0",
 
     -- Unlock the catch-gated technologies (saddle, Pal gear) of the target species when a
     -- pal evolves, the same way capturing one would. Needs the native companion in
@@ -88,6 +88,17 @@ local Config = {
     -- tabs leaves the page as well, so a second way out is one the reader has to
     -- read past. Set this to true to put it back.
     treeCloseButton = false,
+
+    -- How much the mod says in the chat. Every line is private to the player it
+    -- concerns, but on a busy server that is still a lot of lines for one
+    -- person, which is what a player asked to be rid of.
+    --   "all"     everything: greeting, what an evolution is doing, refusals
+    --   "replies" only answers to something the player did: refusals and the
+    --             replies to !palvolve commands
+    --   "off"     nothing at all; the log still has every line
+    -- Answers to a chat command are never silenced: a command that produces
+    -- silence reads as a broken mod.
+    chatMessages = "all",
 
     -- Two-stage confirm: first press checks and announces, second press confirms.
     -- Off by default since 1.6.4, because a mod that claims a function key on
@@ -1604,6 +1615,15 @@ end
 --   evoParents[to] = { evolution froms }
 --   adaParents[to] = { adaptation froms }
 local evoParentsCache, adaParentsCache = nil, nil
+
+--- Everything the config derives from its pair map, built once and kept. When
+--- a server hands this client its own tree the map underneath them changes, and
+--- a stale spelling table or a stale parent map is the old tree still deciding.
+function Config.invalidateDerived()
+    canonicalById = nil
+    evoParentsCache, adaParentsCache = nil, nil
+end
+
 local function eggParents()
     if evoParentsCache == nil then
         evoParentsCache, adaParentsCache = {}, {}
@@ -1941,6 +1961,15 @@ if user then
     if user.treeCloseButton ~= nil then
         Config.treeCloseButton = user.treeCloseButton == true
     end
+    if type(user.chatMessages) == "string" then
+        local want = user.chatMessages:lower()
+        if want == "all" or want == "replies" or want == "off" then
+            Config.chatMessages = want
+        else
+            print(string.format("[Palvolve] chatMessages '%s' is not one of all, replies, off "
+                .. "- keeping %s\n", tostring(user.chatMessages), Config.chatMessages))
+        end
+    end
     if user.confirmKeyEnabled ~= nil then
         Config.confirmKeyEnabled = user.confirmKeyEnabled == true
     end
@@ -1962,6 +1991,9 @@ if user then
     end
     Config.loadArrangement(user)
     print(string.format("[Palvolve] user config loaded (%d pairs, %s)\n", #Config.map, tostring(userSource)))
+    -- Pushed rather than pulled: role.lua is what this file requires, so it
+    -- cannot ask back without closing the circle.
+    Role.chatMode = Config.chatMessages
     local shadowed = scriptsConfigPath()
     if shadowed and shadowed ~= userSource then
         print(string.format("[Palvolve] a second config_user.lua sits at %s and is IGNORED while the one above loads\n",

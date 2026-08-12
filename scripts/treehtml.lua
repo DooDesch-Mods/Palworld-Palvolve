@@ -659,6 +659,13 @@ local function rememberPage(key, html)
     end
 end
 
+--- Everything derived from the tree goes when the tree does: the finished
+--- pages and the spelling map both describe a map that no longer applies.
+function M.invalidate()
+    dropPages()
+    canonList, canonMap = nil, nil
+end
+
 function M.setDocked(on)
     local want = on == true
     -- the two layouts differ, so the cached pages of the other one are wrong

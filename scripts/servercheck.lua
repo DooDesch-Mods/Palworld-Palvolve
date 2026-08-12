@@ -170,12 +170,11 @@ local function settleRemote(ver)
         -- the mismatch warning names both versions, so no extra client line
         showLocalMessage(I18n.msg("serverVersionMismatch", ver, mine))
     elseif ver == mine then
-        -- confirmed match: answer the host's [SYSTEM] line with a local one
-        -- naming the client's own version, so both stand together in the chat
-        -- and the player sees the match at a glance. A greet without a version
-        -- confirms nothing and stays silent.
+        -- Always, whatever the chat setting says. Which versions are talking to
+        -- each other is the first question every support case starts with, and
+        -- a player who cannot see it cannot answer it.
         pcall(function()
-            Role.chat(Role.localPlayerCtx(), I18n.msg("clientVersionMatch", mine))
+            Role.chat(Role.localPlayerCtx(), I18n.msg("clientVersionMatch", mine), "always")
         end)
     end
 end

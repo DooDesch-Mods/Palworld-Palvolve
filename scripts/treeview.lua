@@ -393,6 +393,12 @@ local function stepCount()
 end
 
 M.stepCount = stepCount
+--- Drops the cached list. Called when the map underneath it is replaced, which
+--- happens when a server hands this client its own tree.
+function M.invalidate()
+    listedCache, listedProbe = nil, nil
+end
+
 M.listedPals = listedPals
 M.neighbours = neighbours
 M.onwardCount = onwardCount

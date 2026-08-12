@@ -120,6 +120,16 @@ local treeWebPageFor = nil  -- which Pal treeWebPage was built for
 -- and in which layout: docked leaves the side list and the close link out, so a
 -- page built for one of the two is the wrong page for the other
 local treeWebPageDocked = nil
+
+--- Forces the next open to rebuild the page. Called when the tree underneath it
+--- is replaced, which happens when a server hands this client its own. Only the
+--- "which Pal was this built for" marker is dropped, never the page itself: the
+--- delivery retry hands the held bytes to the browser for the first forty ticks
+--- after an open, and a nil there would leave that window empty.
+function M.invalidate()
+    treeWebPageFor = nil
+end
+
 -- The page is rebuilt on every click, so the list starts at the top again and
 -- the Pal that was just picked is somewhere out of sight. The fragment cannot
 -- ride along in the load URL - tried, and the page then stops answering clicks

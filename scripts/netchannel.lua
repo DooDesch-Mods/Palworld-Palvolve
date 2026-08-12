@@ -152,17 +152,50 @@ local function greetSender(senderCtx)
     -- one visible [SYSTEM] line, delivered to just this player. The world context
     -- is the world object (as the working community mods pass), NOT the controller;
     -- the receiver list is a TArray<FGuid> (plural in the 1.0 build).
-    pcall(function()
-        local util = palUtility()
-        local world = FindFirstOf("World")
-        local g = senderCtx.playerUId
-        if util and world then
-            util:SendSystemToPlayerChat(world,
-                "Palvolve v" .. tostring(Config.modVersion) .. " active on this server",
-                { { A = g.A, B = g.B, C = g.C, D = g.D } })
-        end
-    end)
+    -- Sent straight rather than through Role.chat, so it has to ask the same
+    -- question that gate asks: this line is the mod introducing itself, which
+    -- is exactly what a quiet server does not want.
+    if (Role.chatMode or "all") == "all" then
+        pcall(function()
+            local util = palUtility()
+            local world = FindFirstOf("World")
+            local g = senderCtx.playerUId
+            if util and world then
+                util:SendSystemToPlayerChat(world,
+                    "Palvolve v" .. tostring(Config.modVersion) .. " active on this server",
+                    { { A = g.A, B = g.B, C = g.C, D = g.D } })
+            end
+        end)
+    end
     Log("Handshake: greeted client (pong v" .. tostring(Config.modVersion) .. ")")
+
+    -- Payload measurement, dev builds only. It has to start here rather than
+    -- from a chat command: on a dedicated server the client's chat never
+    -- reaches this process, so the command runs on the sender and measures
+    -- nothing. The join is the one moment the host knows a remote client by
+    -- name, which is also when a tree sync would have to start.
+    -- Deliberately behind its own switch rather than devMode: this fires on
+    -- every join, and a ladder that reaches too high kills the server process
+    -- rather than failing. Set Config.probeNetPayloadOnJoin = true to measure.
+    -- The tree this server runs, handed over in one message. Before this, every
+    -- player needed the same config_user.lua by hand, and a client whose file
+    -- differed did not just see a wrong tree: it sends an option INDEX, and the
+    -- host resolves that index against its own list.
+    pcall(function()
+        local okSync, sync = pcall(require, "treesync")
+        if okSync and sync and sync.sendTo then sync.sendTo(senderCtx) end
+    end)
+
+    if Config.devMode then
+        local okP, probes = pcall(require, "probes")
+        if okP and probes then
+            if Config.probeNetPayloadOnJoin == true and probes.probeNetPayload then
+                pcall(probes.probeNetPayload, senderCtx)
+            end
+            -- decides for itself whether it is armed; probes.lua never ships
+            if probes.maybeBurstOnJoin then pcall(probes.maybeBurstOnJoin, senderCtx) end
+        end
+    end
 end
 
 -- handler(senderCtx, pairIndex, holder) -> ok, message
@@ -289,7 +322,7 @@ function NetChannel.initHost(handler)
                         local ok, msg = handler(senderCtx, pairIndex)
                         if not ok then
                             Log("Evolve rejected: " .. tostring(msg or "no reason given"))
-                            if msg then Role.chat(senderCtx, msg) end
+                            if msg then Role.chat(senderCtx, msg, "reply") end
                         end
                     end
                 end)
@@ -319,6 +352,16 @@ function NetChannel.initHost(handler)
                         -- character as the world context object.
                         if NetChannel.onLocalEnterWorld then
                             pcall(NetChannel.onLocalEnterWorld, char)
+                        end
+                        -- Entering a world we are the authority of means this is
+                        -- our own game again. A server tree from an earlier
+                        -- session would otherwise stay in place for the rest of
+                        -- the process and quietly replace the player's own.
+                        if worldIsAuthority(char) then
+                            pcall(function()
+                                local okSync, sync = pcall(require, "treesync")
+                                if okSync and sync and sync.restoreLocal then sync.restoreLocal() end
+                            end)
                         end
                     elseif isAuth and worldIsAuthority(char) then
                         -- authority side: a CONNECTED client's character finished
@@ -361,6 +404,39 @@ function NetChannel.initClient(onSignal, onPong)
                 pcall(function()
                     local text = ""
                     pcall(function() text = Message:get():ToString() end)
+                    -- Measurement line from the payload probe. Logged where it
+                    -- lands, because the sender's log only proves what was sent:
+                    -- what a comparison needs is the length that ARRIVED, and
+                    -- whether the tail and the checksum survived the trip.
+                    if text and text:sub(1, 11) == "PVLV2|tree|" then
+                        local okSync, sync = pcall(require, "treesync")
+                        if okSync and sync and sync.applyFrame then
+                            -- off the hook: applying swaps the map and drops
+                            -- the view caches, which is not work for the frame
+                            -- a network message arrives on
+                            local frame = text
+                            ExecuteInGameThread(function()
+                                pcall(sync.applyFrame, frame)
+                            end)
+                        end
+                        return
+                    end
+
+                    local xnet = text and text:match("^PVLV1|xnet|(.*)$")
+                    if xnet then
+                        local seq, size = xnet:match("^xnet|(%d+)|(%d+)|")
+                        local fill = xnet:match("^xnet|%d+|%d+|(.-)|%d+|end$")
+                        local claimed = xnet:match("|(%d+)|end$")
+                        local sum = 0
+                        if fill then
+                            for i = 1, #fill do sum = (sum * 31 + fill:byte(i)) % 1000000007 end
+                        end
+                        Log(string.format("[probe-xnet] recv seq=%s size=%s arrived=%d tail=%s sum=%s",
+                            tostring(seq), tostring(size), #xnet,
+                            xnet:sub(-4) == "|end" and "ok" or "MISSING",
+                            (claimed and tonumber(claimed) == sum) and "ok" or "BAD"))
+                        return
+                    end
                     if text and text:sub(1, #SIGNAL_PREFIX) == SIGNAL_PREFIX then
                         local kind = text:sub(#SIGNAL_PREFIX + 1)
                         local pong = kind:match("^pong|(.*)$")

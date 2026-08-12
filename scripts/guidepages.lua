@@ -263,6 +263,17 @@ function GuidePages.onEnterWorld(worldCtx)
         if ran then return true end
         ran = true
         ExecuteInGameThread(function()
+            -- A server's tree is on loan for as long as this client is on that
+            -- server; the guide is a FILE in the player's own PalSchema folder.
+            -- Written from a borrowed tree it would still describe that server's
+            -- pairs the next time the player starts their own game. Re-armed
+            -- rather than skipped, so the next world of their own writes it.
+            local okSync, sync = pcall(require, "treesync")
+            if okSync and sync and sync.isActive and sync.isActive() then
+                generated = false
+                Log("guide pages: a server's tree is active, leaving the local guide alone")
+                return
+            end
             local ctx = worldCtx
             if not (ctx and ctx:IsValid()) then
                 pcall(function() ctx = FindFirstOf("PalPlayerCharacter") end)

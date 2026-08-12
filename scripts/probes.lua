@@ -1171,7 +1171,63 @@ end
 -- Run from a CONNECTED CLIENT on a dedicated server ("!palvolve xnet"). The
 -- host sends the ladder, the client logs what arrives. Compare the two logs:
 -- the largest size present in both is the usable payload.
-local LADDER = { 64, 128, 256, 512, 1024, 2048 }
+-- Up to the break, not up to a round number: a size that arrives proves only
+-- that size. Each rung is sent REPEATS times, because a single success says
+-- nothing about a channel that drops under load, and every line carries its
+-- own length and a checksum so a half-arrived frame cannot pass for a whole one.
+-- MEASURED 2026-08-12 against the local dedicated server with one client:
+-- 64 to 65535 bytes arrive whole, in one message, checksum intact. 131072
+-- KILLED THE SERVER PROCESS ("Pure virtual function being called while
+-- application was running") and wrote a crash dump. Not an error, not a
+-- rejected send - a native death that no pcall can see.
+--
+-- The ladder therefore stops at what is proven safe. Anything above 65535 is
+-- known to be fatal and must never be sent to a live server again; if the
+-- boundary between 64 KB and 128 KB ever matters, bisect it on a throwaway
+-- server, never on one with players on it.
+local LADDER = { 1024, 4096, 16384, 65536 }
+local REPEATS = 5
+
+-- Rate, not size. The ladder proved a single message of 65535 bytes arrives
+-- whole; it says nothing about ten players joining in the same second. This
+-- sends the size the sync design actually uses, back to back, which is the
+-- load a full server produces at a wave join.
+--
+-- Switched on here rather than in the config, because this file never ships:
+-- a flag in config.lua would have to survive the whitelist and would be one
+-- more thing that can be left on by accident.
+local BURST_ON_JOIN = false  -- measured 2026-08-12, leave off
+local BURST_COUNT = 20
+local BURST_SIZE = 8192
+local BURST_INTERVAL_MS = 50
+
+function M.maybeBurstOnJoin(playerCtx)
+    if not BURST_ON_JOIN then return end
+    if not playerCtx or playerCtx.isLocal then return end
+    local sent = 0
+    Log(string.format("[probe-burst] %d messages of %d bytes every %d ms",
+        BURST_COUNT, BURST_SIZE, BURST_INTERVAL_MS))
+    LoopAsync(BURST_INTERVAL_MS, function()
+        sent = sent + 1
+        if sent > BURST_COUNT then
+            Log("[probe-burst] burst done")
+            return true
+        end
+        local head = string.format("burst|%d|%d|", sent, BURST_SIZE)
+        local tail = "|end"
+        local fill = string.rep("ABCDEFGHIJ", math.ceil(BURST_SIZE / 10))
+            :sub(1, math.max(0, BURST_SIZE - #head - #tail - 12))
+        local sum = 0
+        for i = 1, #fill do sum = (sum * 31 + fill:byte(i)) % 1000000007 end
+        local payload = string.format("%s%s|%010d%s", head, fill, sum, tail)
+        Log(string.format("[probe-burst] send seq=%d size=%d", sent, #payload))
+        pcall(function()
+            playerCtx.pc:SendScreenLogToClient("PVLV1|xnet|" .. payload,
+                { R = 0.2, G = 1.0, B = 0.4, A = 1.0 }, 0.1, FName("PalvolveXnet"))
+        end)
+        return false
+    end)
+end
 
 function M.probeNetPayload(playerCtx)
     local Role = require("role")
@@ -1185,21 +1241,52 @@ function M.probeNetPayload(playerCtx)
     end
 
     local step = 0
-    Log(string.format("[probe-xnet] sending %d sizes", #LADDER))
-    LoopAsync(400, function()
+    local rung, rep = 1, 0
+    Log(string.format("[probe-xnet] sending %d sizes x %d, largest %d",
+        #LADDER, REPEATS, LADDER[#LADDER]))
+    -- 250 ms between rungs is a size test, not a rate test. The burst below
+    -- answers the second question: whether the channel also carries the same
+    -- size back to back, which is what a real transfer would do.
+    LoopAsync(250, function()
+        if rung > #LADDER then
+            Log("[probe-xnet] ladder done")
+            return true
+        end
+        rep = rep + 1
+        if rep > REPEATS then
+            rung, rep = rung + 1, 1
+            if rung > #LADDER then
+                Log("[probe-xnet] ladder done")
+                return true
+            end
+        end
         step = step + 1
-        local size = LADDER[step]
-        if not size then return true end
+        local size = LADDER[rung]
 
         -- ASCII only and self-describing: a truncated line is recognizable by
         -- its missing tail marker, a dropped one by its absent sequence number.
+        -- ASCII only and self describing: the sequence number finds a dropped
+        -- line, the tail marker a truncated one, and the sum finds the case
+        -- that neither shows - a line that arrives whole but altered.
         local head = string.format("xnet|%d|%d|", step, size)
         local tail = "|end"
-        local fill = string.rep("ABCDEFGHIJ", math.ceil(size / 10)):sub(1, math.max(0, size - #head - #tail))
-        local payload = head .. fill .. tail
+        local fill = string.rep("ABCDEFGHIJ", math.ceil(size / 10)):sub(1, math.max(0, size - #head - #tail - 12))
+        local sum = 0
+        for i = 1, #fill do sum = (sum * 31 + fill:byte(i)) % 1000000007 end
+        local payload = string.format("%s%s|%010d%s", head, fill, sum % 10000000000, tail)
 
-        Log(string.format("[probe-xnet] send seq=%d size=%d actual=%d", step, size, #payload))
-        pcall(Role.notify, playerCtx, payload)
+        Log(string.format("[probe-xnet] send seq=%d size=%d actual=%d sum=%d",
+            step, size, #payload, sum))
+        -- Straight down the wire, not through Role.notify: that one mirrors
+        -- every line into the player's chat, and a ladder of 45 lines would
+        -- bury the chat while measuring nothing extra.
+        pcall(function()
+            playerCtx.pc:SendScreenLogToClient(
+                "PVLV1|xnet|" .. payload,
+                { R = 0.2, G = 1.0, B = 0.4, A = 1.0 },
+                0.1,
+                FName("PalvolveXnet"))
+        end)
         return false
     end)
 end
