@@ -102,6 +102,7 @@ local treeWebStop = false
 local treeWebOpen = false
 local treeWebCurrent = nil
 local treeWebPage = nil
+local treeWebPageFor = nil  -- which Pal treeWebPage was built for
 -- The page is rebuilt on every click, so the list starts at the top again and
 -- the Pal that was just picked is somewhere out of sight. The fragment cannot
 -- ride along in the load URL - tried, and the page then stops answering clicks
@@ -343,10 +344,16 @@ function M.toggleTreeWindow(keepInput)
     -- Whatever the opener asked for stands. Cleared here, the first page always
     -- came up on the first Pal in the list while the log said it was opening on
     -- the one the Paldex was showing.
+    -- Reused when the caller already built it off the game thread. Building it
+    -- here costs seconds on a cold icon cache, and every one of them is a
+    -- second the game stands still.
     local t2 = os.clock()
-    treeWebPage = html.page(treeWebCurrent)
-    Log(string.format("tree page %d KB in %d ms",
-        math.floor(#treeWebPage / 1024), math.floor((os.clock() - t2) * 1000)))
+    if not (treeWebPage and treeWebPageFor == treeWebCurrent) then
+        treeWebPage = html.page(treeWebCurrent)
+        treeWebPageFor = treeWebCurrent
+        Log(string.format("tree page %d KB in %d ms",
+            math.floor(#treeWebPage / 1024), math.floor((os.clock() - t2) * 1000)))
+    end
 
     -- A window, not a takeover: the game's own screens leave a margin so the
     -- world stays visible around them. It goes onto a canvas of our own rather
@@ -1123,26 +1130,51 @@ function M.start()
         if treeWebOpen and treeWebDocked and paldexListPick
             and paldexListPick ~= treeWebCurrent then
             local id = paldexListPick
-            ExecuteInGameThread(function()
-                -- The tick runs faster than the game thread empties this queue,
-                -- so the same switch can be asked for two or three times over.
-                -- Whoever gets here first has already drawn it.
-                if treeWebCurrent == id then return end
-                local okHtml, html = pcall(require, "treehtml")
-                if okHtml and html and treeWebBrowser and treeWebBrowser:IsValid() then
-                    treeWebCurrent = id
-                    treeWebPage = html.page(id)
-                    pcall(function()
-                        treeWebBrowser:LoadString(treeWebPage, TREE_ORIGIN)
-                    end)
-                    Log("the tree follows to " .. id)
-                end
-            end)
+            -- The page is built HERE, not on the game thread. It is string work
+            -- and file reads, and on a cold icon cache it takes seconds - a
+            -- player's log shows 7.4 s for one page. Done inside
+            -- ExecuteInGameThread that time is spent with the game frozen, and
+            -- switching Pals a few times in a row stacks those freezes until
+            -- the game looks dead. Only the handover to the browser needs the
+            -- game thread.
+            local okHtml, html = pcall(require, "treehtml")
+            if okHtml and html then
+                local page = html.page(id)
+                treeWebCurrent = id
+                treeWebPage = page
+                treeWebPageFor = id
+                ExecuteInGameThread(function()
+                    -- Several switches can be queued before the game thread
+                    -- gets here; only the newest page is worth showing.
+                    if treeWebPage ~= page then return end
+                    if treeWebBrowser and treeWebBrowser:IsValid() then
+                        pcall(function()
+                            treeWebBrowser:LoadString(page, TREE_ORIGIN)
+                        end)
+                        Log("the tree follows to " .. id)
+                    end
+                end)
+            end
         end
 
         local want = paldexWant
         if not want then return end
         paldexWant = nil
+
+        -- Built before the handover, for the same reason the switch above is:
+        -- on a cold cache this is seconds of work, and the game thread is the
+        -- one place where those seconds are visible to the player.
+        if want == "open" then
+            local id = paldexListPick or paldexCharacter()
+            local okHtml, html = pcall(require, "treehtml")
+            if id and okHtml and html then
+                html.setDocked(true)
+                treeWebCurrent = id
+                treeWebPage = html.page(id)
+                treeWebPageFor = id
+            end
+        end
+
         ExecuteInGameThread(function()
             if want == "close" then
                 closeTreeWeb()
@@ -1215,6 +1247,27 @@ end
 
 -- Started on load: the tab has to be there the first time the player opens the
 -- Palpedia, and there is no earlier moment to hook it than the mod starting.
+-- Warms the icon cache in the background so the first page has nothing left to
+-- encode. Every portrait is read off disk and turned into base64 in plain Lua,
+-- which is cheap once and slow all at once: a player's log shows a first page
+-- taking 7.4 seconds with a cold cache, against 30 ms with a warm one. Four
+-- icons per tick is small enough not to be felt and done long before anyone
+-- opens the Palpedia.
+--
+-- This lived in the dev-only probe file until 1.6.1, so no player ever got it.
+LoopAsync(400, function()
+    local ok, html = pcall(require, "treehtml")
+    if not (ok and html and html.warmIcons) then return true end
+    local more = false
+    local okWarm = pcall(function() more = html.warmIcons(4) end)
+    if not okWarm then return true end
+    if not more then
+        Log("Pal portraits ready")
+        return true
+    end
+    return false
+end)
+
 ExecuteInGameThread(function() M.start() end)
 
 return M

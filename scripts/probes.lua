@@ -1675,21 +1675,6 @@ function M.probeBrowserStack()
     Log(string.format("[probe-browser] %d PalCommonWindow instance(s) after both attempts", alive))
 end
 
--- Warms the icon cache in the background so the first page has nothing left to
--- encode. Four per tick is small enough not to be felt and still done long
--- before anyone opens the window.
-LoopAsync(400, function()
-    local ok, html = pcall(require, "treehtml")
-    if not (ok and html and html.warmIcons) then return true end
-    local more = false
-    local okWarm = pcall(function() more = html.warmIcons(4) end)
-    if not okWarm then return true end
-    if not more then
-        Log("[probe-treeweb] icon cache warm")
-        return true
-    end
-    return false
-end)
 
 Log(string.format("Probes active: F3 revert(own), F4 arm radial probes, F5 overlay, F6 VFX, F7 morph FX bases, F8 fanfare, F9 freeze, F10 give EXP, END free mode, test kit on %s, conditions on HOME/PAGE_UP/PAGE_DOWN, NUM7 day/night, NUM8 status cycle, F1 finale assets, BACKSPACE full evolution run (random target, 12 stages), chat !palvolve free|kit|fx|worksuit|xnet; weather recorder writes [weather] lines on every change",
     Key.INS and "INSERT" or "POS1"))

@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.6.2] - 2026-08-12
+
+### Fixed
+
+- **The game froze for seconds when you switched Pals with the Evolutions tab open, and could stop responding entirely.** Drawing the page reads every Pal portrait off disk and encodes it, and that work ran at a point where the whole game waits for it. One player's log shows a single page taking 7.4 seconds; switching a few Pals in a row stacked those waits. The page is now built beside the game instead of in front of it.
+- **The portraits were never loaded ahead of time in a released build.** That step existed but sat in a development-only file, so every player paid for it on the first page. It ships now and runs quietly in the background after startup.
+
+Reported by a player on Discord with a full log, which is what made both causes visible.
+
 ## [1.6.1] - 2026-08-12
 
 ### Fixed
