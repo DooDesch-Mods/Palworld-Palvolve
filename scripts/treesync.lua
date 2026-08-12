@@ -40,10 +40,18 @@ local FS, RS, CS = "|", "\n", ";"
 --- hashing, so two trees whose pairs are in a different ORDER hash the same -
 --- and the order is exactly what the option index depends on.
 local function hashOf(s)
-    local h = 2166136261
+    -- Hex literals and a split multiply, the same shape Config.treeHash uses
+    -- and for the same reason: a decimal constant past 2^31 can arrive as a
+    -- float where numbers are doubles, and a float cannot be xored. The plain
+    -- form works on this build and throws on another, and it would throw inside
+    -- the pcall that wraps the send - a silent no-sync rather than an error.
+    local PRIME = 0x01000193
+    local h = 0x811C9DC5
     for i = 1, #s do
         h = h ~ s:byte(i)
-        h = (h * 16777619) % 4294967296
+        local lo = ((h & 0xFFFF) * PRIME) & 0xFFFFFFFF
+        local hi = ((((h >> 16) & 0xFFFF) * PRIME) & 0xFFFF) << 16
+        h = (lo + hi) & 0xFFFFFFFF
     end
     return string.format("%08x", h)
 end
@@ -95,6 +103,7 @@ local GLOBALS = {
     { key = "costs.minRate", kind = "number" },
     { key = "costs.countScale", kind = "number" },
     { key = "costs.maxCount", kind = "number" },
+    { key = "stoneCount", kind = "number" },
     { key = "eggFilter.enabled", kind = "bool" },
     { key = "chatMessages", kind = "enum", values = { all = true, replies = true, off = true } },
 }
@@ -136,6 +145,15 @@ local function encodeGlobals()
     return table.concat(out, ",")
 end
 
+-- The dictionary line joins the ids with a comma and the decoder splits it on
+-- the same character, so an id that is empty or carries a comma or a line break
+-- comes back as a different number of entries than went in - and every id after
+-- it then resolves to the wrong species. Such an id matches no pal on the host
+-- either, so dropping the pair costs nothing and keeps the two lists aligned.
+local function idSafe(s)
+    return type(s) == "string" and s ~= "" and not s:find("[,\r\n]")
+end
+
 --- Every enabled pair, in the order the host reads them, because the option
 --- index a client sends is a position in this list.
 ---
@@ -156,7 +174,7 @@ function TreeSync.encode(map)
 
     local out = {}
     for _, p in ipairs(map or {}) do
-        if p.enabled and type(p.from) == "string" and type(p.to) == "string" then
+        if p.enabled and idSafe(p.from) and idSafe(p.to) then
             local conds = ""
             if type(p.conditions) == "table" and #p.conditions > 0 then
                 conds = table.concat(p.conditions, CS)
@@ -298,6 +316,15 @@ local function invalidateViews()
         local ok, html = pcall(require, "treehtml")
         if ok and html and html.invalidate then html.invalidate() end
     end)
+    -- The Palpedia page keeps the last built page next to the Pal it was built
+    -- for, and reuses it whenever those two still agree - so dropping the html
+    -- module's cache alone leaves the Pal the player looked at last showing the
+    -- old tree. Reached through package.loaded rather than require: this module
+    -- also loads on a dedicated server, which must never pull in a UI module.
+    pcall(function()
+        local tree = package.loaded["paldextree"]
+        if tree and tree.invalidate then tree.invalidate() end
+    end)
 end
 
 --- Applies a received tree. Returns false when nothing usable came out of it,
@@ -309,7 +336,10 @@ function TreeSync.applyFrame(frame)
     if not (hash and body) then return false end
     if activeHash == hash then return true end
     local received, globals = TreeSync.decode(body)
-    if #received == 0 then
+    -- An empty tree is a decision a host is allowed to make ("nothing evolves
+    -- here"), and it only counts as damage when the frame says otherwise. The
+    -- count travels with it precisely so the two can be told apart.
+    if #received == 0 and tonumber(count) ~= 0 then
         Log("server tree arrived empty, keeping the local one")
         return false
     end

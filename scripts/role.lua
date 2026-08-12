@@ -155,8 +155,18 @@ local function chatAllowed(kind)
     return true
 end
 
+-- Every line this mod puts in a chat says so. A player on a server sees lines
+-- from several mods at once, and in single player ours arrive under the
+-- player's OWN name because a client cannot set a sender - without the tag
+-- there is nothing at all to tell them apart by. It was only on the messages
+-- that happened to go through Role.notify, which is why the same screen showed
+-- some tagged and some not.
+local TAG = "[Palvolve] "
+
 function Role.chat(playerCtx, msg, kind)
     if not chatAllowed(kind or "info") then return true end
+    msg = tostring(msg)
+    if msg:sub(1, #TAG) ~= TAG then msg = TAG .. msg end
     return Role.chatRaw(playerCtx, msg)
 end
 
@@ -238,7 +248,7 @@ function Role.notify(playerCtx, msg)
             6.0,
             FName("PalvolveNotify"))
     end)
-    Role.chat(playerCtx, "[Palvolve] " .. msg)
+    Role.chat(playerCtx, msg)
 end
 
 return Role

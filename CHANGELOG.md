@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.7.0] - 2026-08-12
+
+### Added
+
+- **A server hands its evolution tree to every player who joins.** Until now every client needed the same `config_user.lua`, copied by hand. Picking an evolution sends the position in a list, and the server read that position in its own list: two files that differed could mean two different pairs, with nothing on screen to say so. The tree now arrives in the handshake, in one message, and the client draws and offers exactly what the server runs.
+- **The rules travel with the tree.** Whether a stone is required and how many, the material cost model and the workbench level come from the server too, so the numbers a player sees are the numbers the server acts on.
+- **Leaving a server gives you your own tree back.** Entering a world you own restores the file on your disk, so a visit cannot outlive itself.
+- **The chat can be turned down.** `chatMessages = "replies"` keeps what answers something you did and drops the rest, `"off"` keeps only the answers to `!palvolve` commands. A server carries its setting to its players, so an admin sets the tone once. Whether your client and the server agree on a version is always shown.
+
+### Fixed
+
+- **Every player-facing message on a server showed raw ids after the first disconnect.** "SheepBall" instead of "Lamball". The name lookup holds two game objects between calls since 1.6.4, and one of them belongs to a player: when that player left, the handle stayed valid to look at and dead to use. A failed lookup now fetches both again.
+- **Chat lines from the mod are tagged.** They used to be tagged only when they happened to take one particular path, so the same screen showed some with `[Palvolve]` and some without.
+
+Measured for this release and written up in the server notes: the channel to a client carries 65535 bytes in one message, and 131072 kills the server process outright. The largest published community tree, 613 pairs across 279 Pals, encodes to 11995 bytes - so no splitting, no retransmission, and a wide margin below the size that is fatal.
+
 ## [1.6.4] - 2026-08-12
 
 ### Fixed

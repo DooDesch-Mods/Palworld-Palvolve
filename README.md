@@ -68,7 +68,11 @@ A server looks in `<server>\Pal\Saved\Palvolve\config_user.lua` first, then in `
 [Palvolve] user config loaded (166 pairs, .../Pal/Saved/Palvolve/config_user.lua)
 ```
 
-Give every player the same `config_user.lua` for their own `%LocalAppData%\Pal\Saved\Palvolve\`. The server decides what an evolution does, but the Evolutions tab in the Palpedia draws the tree from the copy on the player's machine, so someone without your file sees the built-in tree. `!palvolve tree` prints a short identity of the loaded tree and works on both sides, which makes a mismatch one command to spot.
+Since 1.7.0 the server hands its tree to every player who joins, so nobody has to copy `config_user.lua` around any more. The client draws and offers what the server runs, and gets its own tree back when it enters a world of its own. The server's tree is on loan: it never reaches a player's disk, and their Survival Guide keeps describing their own.
+
+The rules travel with it as well - whether a stone is required and how many, the material cost model, the workbench level and how talkative the mod is in chat - so the numbers a player sees are the ones the server acts on.
+
+One gap to know about: going straight from a Palvolve server to a server without Palvolve keeps the first server's tree until the player enters a world of their own.
 
 ## Multiplayer
 
@@ -134,6 +138,9 @@ Build the Pal Alchemy Workbench (unlocks at level 10, adjustable), forge an Evol
 
 **The workbench unlocks too late (or too early) for my run?**
 Set `techLevelCap` in the configurator or in `config_user.lua` to the player level you want, anywhere from 1 to 100. The mod rewrites its own technology entry on startup, so the setting survives mod updates.
+
+**How do I turn the chat messages off?**
+Set `chatMessages = "replies"` in `config_user.lua` to keep only what answers something you did, or `"off"` to keep only the answers to `!palvolve` commands. On a server the admin's setting reaches every player. Whether your client and the server agree on a version is always shown.
 
 **F2 does nothing.**
 Since 1.6.4 the mod claims no key unless you ask it to: set `confirmKeyEnabled = true` in `config_user.lua`. Evolving works through the wheel (hold 4) and `!palvolve evolve` either way.

@@ -802,7 +802,10 @@ local function reportDeadTimers(playerCtx)
     lastTimersNotice = os.clock()
     Log("the timers are not running: UE4SS removed this mod's Lua tick hook, "
         .. "so no timed step of the mod happens any more. A game restart brings them back.")
-    Role.chat(playerCtx or Role.localPlayerCtx(), I18n.msg("timersDead"))
+    -- A reply, not a notice: both callers are the player reaching for evolution
+    -- and getting nothing back. Silenced, the key and the wheel entry would just
+    -- stop working with no reason given.
+    Role.chat(playerCtx or Role.localPlayerCtx(), I18n.msg("timersDead"), "reply")
 end
 
 --- True while the mod's timed steps are still being delivered.
@@ -1887,7 +1890,7 @@ local function remoteTransmitReady(playerCtx)
     if ServerCheck.remoteReady() then return true end
     local msg = I18n.msg("serverCheckPending")
     Log(msg)
-    Role.chat(playerCtx, msg)
+    Role.chat(playerCtx, msg, "reply")
     return false
 end
 
@@ -2348,7 +2351,7 @@ function Evolution.executeOption(opt)
         local ok, msg = handleEvolveRequest(playerCtx, opt.pair.from, opt.pair.to)
         if not ok and msg then
             Log(msg)
-            Role.chat(playerCtx, msg)
+            Role.chat(playerCtx, msg, "reply")
         end
     else
         -- connected client: send the picked option index to the host over
@@ -2361,7 +2364,7 @@ function Evolution.executeOption(opt)
         if not sent then
             local msg = I18n.msg("serverUnreachable")
             Log(msg)
-            Role.chat(playerCtx, msg)
+            Role.chat(playerCtx, msg, "reply")
         end
     end
 end
