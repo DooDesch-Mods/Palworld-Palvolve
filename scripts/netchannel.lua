@@ -163,6 +163,25 @@ local function greetSender(senderCtx)
         end
     end)
     Log("Handshake: greeted client (pong v" .. tostring(Config.modVersion) .. ")")
+
+    -- Payload measurement, dev builds only. It has to start here rather than
+    -- from a chat command: on a dedicated server the client's chat never
+    -- reaches this process, so the command runs on the sender and measures
+    -- nothing. The join is the one moment the host knows a remote client by
+    -- name, which is also when a tree sync would have to start.
+    -- Deliberately behind its own switch rather than devMode: this fires on
+    -- every join, and a ladder that reaches too high kills the server process
+    -- rather than failing. Set Config.probeNetPayloadOnJoin = true to measure.
+    if Config.devMode then
+        local okP, probes = pcall(require, "probes")
+        if okP and probes then
+            if Config.probeNetPayloadOnJoin == true and probes.probeNetPayload then
+                pcall(probes.probeNetPayload, senderCtx)
+            end
+            -- decides for itself whether it is armed; probes.lua never ships
+            if probes.maybeBurstOnJoin then pcall(probes.maybeBurstOnJoin, senderCtx) end
+        end
+    end
 end
 
 -- handler(senderCtx, pairIndex, holder) -> ok, message
@@ -361,6 +380,25 @@ function NetChannel.initClient(onSignal, onPong)
                 pcall(function()
                     local text = ""
                     pcall(function() text = Message:get():ToString() end)
+                    -- Measurement line from the payload probe. Logged where it
+                    -- lands, because the sender's log only proves what was sent:
+                    -- what a comparison needs is the length that ARRIVED, and
+                    -- whether the tail and the checksum survived the trip.
+                    local xnet = text and text:match("^PVLV1|xnet|(.*)$")
+                    if xnet then
+                        local seq, size = xnet:match("^xnet|(%d+)|(%d+)|")
+                        local fill = xnet:match("^xnet|%d+|%d+|(.-)|%d+|end$")
+                        local claimed = xnet:match("|(%d+)|end$")
+                        local sum = 0
+                        if fill then
+                            for i = 1, #fill do sum = (sum * 31 + fill:byte(i)) % 1000000007 end
+                        end
+                        Log(string.format("[probe-xnet] recv seq=%s size=%s arrived=%d tail=%s sum=%s",
+                            tostring(seq), tostring(size), #xnet,
+                            xnet:sub(-4) == "|end" and "ok" or "MISSING",
+                            (claimed and tonumber(claimed) == sum) and "ok" or "BAD"))
+                        return
+                    end
                     if text and text:sub(1, #SIGNAL_PREFIX) == SIGNAL_PREFIX then
                         local kind = text:sub(#SIGNAL_PREFIX + 1)
                         local pong = kind:match("^pong|(.*)$")
