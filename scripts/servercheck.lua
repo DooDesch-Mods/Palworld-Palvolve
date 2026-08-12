@@ -170,12 +170,12 @@ local function settleRemote(ver)
         -- the mismatch warning names both versions, so no extra client line
         showLocalMessage(I18n.msg("serverVersionMismatch", ver, mine))
     elseif ver == mine then
-        -- A match is the normal case and says nothing the player needs, so it
-        -- goes to the log alone. It used to answer the host's greeting with a
-        -- second line, and both of them together were most of what a player on
-        -- a busy server saw from this mod. It also arrives before the server's
-        -- own settings do, so no quiet setting could ever have caught it.
-        Log(I18n.msg("clientVersionMatch", mine))
+        -- Always, whatever the chat setting says. Which versions are talking to
+        -- each other is the first question every support case starts with, and
+        -- a player who cannot see it cannot answer it.
+        pcall(function()
+            Role.chat(Role.localPlayerCtx(), I18n.msg("clientVersionMatch", mine), "always")
+        end)
     end
 end
 

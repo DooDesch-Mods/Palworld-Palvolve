@@ -146,7 +146,10 @@ Role.chatMode = "all"
 --- A command reply is never silenced: silence there reads as a broken mod.
 local function chatAllowed(kind)
     local mode = Role.chatMode or "all"
-    if kind == "command" then return true end
+    -- "always" is for the one line a player must never miss: whether their
+    -- client and the server agree on a version. A mod that goes quiet about
+    -- that leaves every later symptom unexplained.
+    if kind == "always" or kind == "command" then return true end
     if mode == "off" then return false end
     if mode == "replies" then return kind == "reply" end
     return true
@@ -179,6 +182,21 @@ function Role.chatRaw(playerCtx, msg)
         end)
     end
     if sent then return true end
+
+    -- Local render, under the player's own name rather than SYSTEM.
+    --
+    -- The chat widget takes an FPalChatMessage whose Sender is a plain string,
+    -- and the game's own [SYSTEM] lines are exactly that string, so calling
+    -- PalUIChat:OnReceivedChat with a Sender of "SYSTEM" looked like the way to
+    -- give a client-side line the same look. It kills the client: handing that
+    -- struct to the widget from Lua took the game down with no Lua error and
+    -- nothing in the log, the same class of death as passing FText where an
+    -- FString belongs. Measured 2026-08-12, do not try it again without a
+    -- native call path.
+    --
+    -- A client can therefore not produce a [SYSTEM] line at all. Where the look
+    -- matters, the message has to come FROM the host, which owns the only
+    -- function that sets a sender.
     local ok = pcall(function()
         playerCtx.pc:EnterChat_Receive(tostring(msg), 1)
     end)
