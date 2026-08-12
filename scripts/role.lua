@@ -193,7 +193,7 @@ function Role.chatRaw(playerCtx, msg)
     end
     if sent then return true end
 
-    -- Local render, under the player's own name rather than SYSTEM.
+    -- Local render, without the [SYSTEM] sender the host can set.
     --
     -- The chat widget takes an FPalChatMessage whose Sender is a plain string,
     -- and the game's own [SYSTEM] lines are exactly that string, so calling
@@ -207,6 +207,16 @@ function Role.chatRaw(playerCtx, msg)
     -- A client can therefore not produce a [SYSTEM] line at all. Where the look
     -- matters, the message has to come FROM the host, which owns the only
     -- function that sets a sender.
+    -- Who this line reaches: on a client the engine only sends an RPC call to
+    -- the server when the function is marked Server, and this is the receive
+    -- half of the pair, so the line is drawn on this machine. On a listen host
+    -- the machine IS the authority, where a receive-side call is the one that
+    -- could go out to every connected player, and the object dump does not say
+    -- whether it does. Measured on a dedicated server: the line arrives with an
+    -- EMPTY sender rather than the player's name, which is what a purely local
+    -- render looks like. The host case is still unmeasured, and it keeps this
+    -- path anyway: a host that silently loses every message the mod has for it
+    -- is a certain loss, against guests possibly seeing a line about a Pal.
     local ok = pcall(function()
         playerCtx.pc:EnterChat_Receive(tostring(msg), 1)
     end)

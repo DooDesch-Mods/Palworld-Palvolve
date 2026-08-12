@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.7.1] - 2026-08-13
+
+### Fixed
+
+- **The evolve wheel crashed the game for a Pal with many ways out.** The submenu grows the game's own wheel to the number of options, and the wheel the game draws has seven segments. One with 23 took the process down with it, with no error and nothing in the log. 1.7.0 is what made this reachable: a client is now handed its server's tree, and a big tree has Pals like that. The wheel stops at seven, the ones you can actually use come first, and the log says how many are not shown. The Evolutions tab in the Palpedia lists them all.
+- **A tree borrowed from a server outlived the visit.** Going from a Palvolve server straight to a server without Palvolve kept the first server's tree. The decision now sits where the world is classified, which is the one place that can tell "no tree is coming" from "it has not arrived yet".
+- **"Please try again in a moment" never resolved.** Reaching for evolution while the mod was still working out whether the server runs Palvolve asked the player to retry and then said nothing more. The answer now arrives by itself, whichever way it settles.
+- **A quiet server never said which version it runs.** `chatMessages = "replies"` and `"off"` also swallowed the line that names the server's Palvolve version, and that line is where every support case starts: a player has no other way to see it. It is now sent whatever the setting says. Everything else the mod says on its own still follows the setting.
+
 ## [1.7.0] - 2026-08-12
 
 ### Added
