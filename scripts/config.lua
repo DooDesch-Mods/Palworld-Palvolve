@@ -15,6 +15,10 @@
 -- adaptations of the same base (e.g. Penguin). BOSS_/GYM_/RAID_/_Oilrig/
 -- _Tower ids must NEVER be targets (boss/spawn logic is attached to them).
 local Conditions = require("conditions")
+-- only for Role.isDedicated(), which picks where the user config is looked up;
+-- role.lua requires nothing itself, so pulling it in this early cannot loop
+-- back into config
+local Role = require("role")
 
 local Config = {
     -- Dev mode: enables the diagnostic key bindings (probes.lua) and the
@@ -27,7 +31,7 @@ local Config = {
 
     -- Mod version, reported to connected clients by the host handshake. Keep in
     -- sync with Info.json (the release flow checks this).
-    modVersion = "1.6.2",
+    modVersion = "1.6.3",
 
     -- Unlock the catch-gated technologies (saddle, Pal gear) of the target species when a
     -- pal evolves, the same way capturing one would. Needs the native companion in
@@ -1744,61 +1748,105 @@ function Config.baseFormOf(characterId)
 end
 
 -- Where the mod's scripts folder would find its own config_user.lua, or nil.
--- The AppData copy wins over this one, so an edit here changes nothing and
--- reads as the mod ignoring the config - worth naming in the log.
+-- Both durable locations win over this one, and a mod update replaces the
+-- whole folder, so a config kept here is lost on the next update.
 local function scriptsConfigPath()
     local found = nil
     pcall(function() found = package.searchpath("config_user", package.path) end)
     return found
 end
 
+-- The install's own Saved folder, derived from this file's path:
+--   <root>\Pal\Saved\Palvolve
+-- On a rented dedicated server this is the only durable spot an admin can
+-- reach over FTP: %LocalAppData% belongs to the host's Windows account, and
+-- the mod folder is replaced whenever the mod is updated.
+-- Cutting at "Binaries" instead of walking up from the Win64 folder keeps
+-- every install layout in reach: the game-managed one nests the mod four
+-- levels deeper (Win64\Mods\NativeMods\UE4SS\Mods\Palvolve).
+local function installSavedDir()
+    local src = ""
+    pcall(function() src = debug.getinfo(1, "S").source or "" end)
+    local palDir = src:match("^@?(.*)[/\\][Bb]inaries[/\\]")
+    if not palDir then return nil end
+    return palDir .. "\\Saved\\Palvolve"
+end
+
+-- Existence is probed separately from loadfile so a file that IS there but
+-- does not compile reports its syntax error instead of silently falling
+-- through as if nothing had been dropped in the folder.
+local function readConfigAt(path)
+    local present = io.open(path, "r")
+    if not present then return nil end
+    present:close()
+    local chunk, loadErr = loadfile(path)
+    if not chunk then
+        print(string.format("[Palvolve] user config at %s does not compile: %s\n",
+            path, tostring(loadErr)))
+        return nil
+    end
+    local okChunk, result = pcall(chunk)
+    if okChunk and type(result) == "table" then return result end
+    print(string.format("[Palvolve] user config at %s did not return a table: %s\n",
+        path, tostring(result)))
+    return nil
+end
+
+-- Makes a drop folder exist so users only have to paste the path; probes
+-- first to avoid a shell call on every start.
+local function ensureDir(dir)
+    local probe = io.open(dir .. "\\.palvolve", "w")
+    if probe then
+        probe:close()
+        os.remove(dir .. "\\.palvolve")
+    else
+        pcall(os.execute, 'mkdir "' .. dir .. '" >nul 2>nul')
+    end
+end
+
 -- Optional user overlay: the configurator at palvolve.doodesch.de generates
 -- a config_user.lua. It replaces the pair map wholesale and merges a
--- whitelist of globals. Preferred location (identical on every PC, works for
--- Workshop installs where the mod folder is managed by Steam):
+-- whitelist of globals. Players keep it where they always have:
 --   %LocalAppData%\Pal\Saved\Palvolve\config_user.lua
--- Fallback: next to this file. Mod updates never touch the user file.
+-- A dedicated server cannot reach that account, so it looks in its own install
+-- first:
+--   <install>\Pal\Saved\Palvolve\config_user.lua
+-- Last resort is the mod's own scripts folder, which a mod update wipes.
 local function loadUserConfig()
     local checked = {}
     local localAppData = os.getenv("LOCALAPPDATA")
-    if localAppData then
-        local dir = localAppData .. "\\Pal\\Saved\\Palvolve"
+    local appDataDir = localAppData and (localAppData .. "\\Pal\\Saved\\Palvolve") or nil
+    -- The install folder is a server-only location. A game client has no
+    -- Pal\Saved there at all - it keeps everything, saves included, under
+    -- %LocalAppData%, which is where players have always put this file.
+    local dirs = {}
+    if Role.isDedicated() then
+        local installDir = installSavedDir()
+        if installDir then table.insert(dirs, installDir) end
+    end
+    if appDataDir then table.insert(dirs, appDataDir) end
+
+    for _, dir in ipairs(dirs) do
         local path = dir .. "\\config_user.lua"
         table.insert(checked, path)
-        -- existence is probed separately from loadfile so a file that IS there
-        -- but does not compile reports its syntax error instead of silently
-        -- falling through as if nothing had been dropped in the folder
-        local present = io.open(path, "r")
-        if present then
-            present:close()
-            local chunk, loadErr = loadfile(path)
-            if not chunk then
-                print(string.format("[Palvolve] user config at %s does not compile: %s\n",
-                    path, tostring(loadErr)))
-            else
-                local okChunk, result = pcall(chunk)
-                if okChunk and type(result) == "table" then
-                    return result, path, checked
-                end
-                print(string.format("[Palvolve] user config at %s did not return a table: %s\n",
-                    path, tostring(result)))
-            end
-        else
-            -- make the documented drop folder exist so users only have to
-            -- paste the path; probe first to avoid a shell call on every start
-            local probe = io.open(dir .. "\\.palvolve", "w")
-            if probe then
-                probe:close()
-                os.remove(dir .. "\\.palvolve")
-            else
-                pcall(os.execute, 'mkdir "' .. dir .. '" >nul 2>nul')
-            end
-        end
+        local result = readConfigAt(path)
+        if result then return result, path, checked end
     end
+    -- only the folder that side can actually use gets created, so a client
+    -- install never grows a stray folder inside the Steam directory
+    local preferred = dirs[1]
+    if preferred then ensureDir(preferred) end
+
     local fallback = scriptsConfigPath()
     table.insert(checked, fallback or "scripts\\config_user.lua")
     local okReq, result = pcall(require, "config_user")
-    if okReq and type(result) == "table" then return result, fallback or "scripts", checked end
+    if okReq and type(result) == "table" then
+        if preferred then
+            print(string.format("[Palvolve] this config sits in the mod folder, where the next "
+                .. "mod update replaces it. Update-proof location: %s\\config_user.lua\n", preferred))
+        end
+        return result, fallback or "scripts", checked
+    end
     return nil, nil, checked
 end
 

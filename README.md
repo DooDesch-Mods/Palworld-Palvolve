@@ -40,7 +40,8 @@ Grab the release zip from [Nexus Mods](https://www.nexusmods.com/palworld/mods/3
 1. Install UE4SS Experimental (Palworld) and PalSchema following the [PalSchema installation guide](https://okaetsu.github.io/PalSchema/docs/installation).
 2. Copy `Mods\Palvolve` into `<Palworld>\Pal\Binaries\Win64\ue4ss\Mods\`.
 3. Copy `Mods\PalSchema\mods\Palvolve` into `<Palworld>\Pal\Binaries\Win64\ue4ss\Mods\PalSchema\mods\`.
-4. Add `Palvolve : 1` to `ue4ss\Mods\mods.txt` (above the Keybinds entry).
+4. Copy `Pal\Content\Paks\LogicMods\Palvolve.pak` into `<Palworld>\Pal\Content\Paks\LogicMods\`, creating the folder if it does not exist. It carries the Evolutions page in the Palpedia; without it that tab stays empty.
+5. Add `Palvolve : 1` to `ue4ss\Mods\mods.txt` (above the Keybinds entry).
 
 Never mix a Workshop UE4SS and a manual UE4SS in the same install - that double-loads UE4SS and crashes the game.
 
@@ -52,9 +53,10 @@ The server validates the technology unlock. If the mod is not running on the ser
 2. Install **PalSchema** on the server ([installation guide](https://okaetsu.github.io/PalSchema/docs/installation)).
 3. Install Palvolve from the [GitHub release zip](https://github.com/DooDesch-Mods/Palworld-Palvolve/releases): both folders inside the zip go into `Pal\Binaries\Win64\ue4ss\Mods\`. Do not copy the Workshop item folder - its layout is for the game's own loader.
 4. Add `Palvolve : 1` to `ue4ss\Mods\mods.txt` and restart the server.
-5. Check the server's `UE4SS.log` for the line: `[PalSchema] Added building 'Palvolve_ElementExtractor'`
-6. ???
-7. Profit.
+5. Put your `config_user.lua` in `<server>\Pal\Saved\Palvolve\` (next to the world saves). A copy inside the mod folder is gone the next time the mod is updated.
+6. Check the server's `UE4SS.log` for the line: `[PalSchema] Added building 'Palvolve_ElementExtractor'`
+7. ???
+8. Profit.
 
 Every player also needs Palvolve, PalSchema and UE4SS active on their own client. The normal Workshop install does that automatically.
 
@@ -68,7 +70,7 @@ Single player, co-op and dedicated servers all work. A few rules:
 
 ## Configuration
 
-Build your tree in the [web configurator](https://palvolve.doodesch.de/?utm_source=github&utm_medium=readme&utm_campaign=palvolve) and drop the exported `config_user.lua` into `%LocalAppData%\Pal\Saved\Palvolve\` (created on first launch). It replaces the default tree and survives mod updates.
+Build your tree in the [web configurator](https://palvolve.doodesch.de/?utm_source=github&utm_medium=readme&utm_campaign=palvolve) and drop the exported `config_user.lua` into `%LocalAppData%\Pal\Saved\Palvolve\` (created on first launch). It replaces the default tree and survives mod updates. On a dedicated server the folder is `<server>\Pal\Saved\Palvolve\` instead.
 
 Hand-written configs use `conditions = { "night", "knowsMove:Dragon", "inParty:Penguin", "playerLevel:25" }`: all conditions must hold at once, and either/or branches are two pairs with the same target. Numeric thresholds are at-least checks:
 

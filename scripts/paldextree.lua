@@ -96,6 +96,16 @@ end
 local WEB_PKG, WEB_ASSET = "/Game/Palvolve/WBP_PalvolveWeb", "WBP_PalvolveWeb_C"
 local TREE_ORIGIN = "http://palvolve.local/tree"
 
+--- The one breakage a player cannot see from the game: without the pak the tab
+--- opens onto an empty frame. Names the file and the folder it belongs in, so a
+--- support log says what to fix instead of only which class was missing.
+local function logMissingPak(how)
+    Log(string.format("the tree page asset %s.%s did not load (%s)",
+        WEB_PKG, WEB_ASSET, tostring(how)))
+    Log("it ships in Palvolve.pak, which belongs in "
+        .. "<install>\\Pal\\Content\\Paks\\LogicMods\\ - reinstall the mod if that file is gone")
+end
+
 local treeWebWidget = nil
 local treeWebBrowser = nil
 local treeWebStop = false
@@ -314,9 +324,12 @@ function M.toggleTreeWindow(keepInput)
     -- first open: everything is built, and every step reports what it cost
     local tOpen = os.clock()
     local cls, how = loadClass(WEB_PKG, WEB_ASSET)
-    Log(string.format("tree page class %s (%s) after %d ms",
-        tostring(cls ~= nil), how, math.floor((os.clock() - tOpen) * 1000)))
-    if not cls then return end
+    if not cls then
+        logMissingPak(how)
+        return
+    end
+    Log(string.format("tree page class ready (%s) after %d ms",
+        how, math.floor((os.clock() - tOpen) * 1000)))
 
     local pc = FindFirstOf("PalPlayerController")
     if not (pc and pc:IsValid()) then
@@ -1253,8 +1266,6 @@ end
 -- taking 7.4 seconds with a cold cache, against 30 ms with a warm one. Four
 -- icons per tick is small enough not to be felt and done long before anyone
 -- opens the Palpedia.
---
--- This lived in the dev-only probe file until 1.6.1, so no player ever got it.
 LoopAsync(400, function()
     local ok, html = pcall(require, "treehtml")
     if not (ok and html and html.warmIcons) then return true end
@@ -1263,6 +1274,21 @@ LoopAsync(400, function()
     if not okWarm then return true end
     if not more then
         Log("Pal portraits ready")
+        -- Verdict on the pak while nobody is waiting on it, so a support log
+        -- answers "is the page even installed" without anyone having to open a
+        -- Palpedia first. Loading it here also takes the cost off the first open.
+        ExecuteInGameThread(function()
+            -- Guarded, so a load that throws instead of returning nil neither
+            -- takes the game thread down nor gets reported as a missing file.
+            local ok, cls, how = pcall(loadClass, WEB_PKG, WEB_ASSET)
+            if not ok then
+                Log("checking the tree page asset failed: " .. tostring(cls))
+            elseif cls then
+                Log(string.format("tree page asset ready (%s)", how))
+            else
+                logMissingPak(how)
+            end
+        end)
         return true
     end
     return false

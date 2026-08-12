@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.6.3] - 2026-08-12
+
+### Fixed
+
+- **A dedicated server no longer loses its tree when the mod is updated.** The only spot a rented server could keep `config_user.lua` was the mod's own folder, and updating the mod replaces that folder wholesale. Servers now read `<server>\Pal\Saved\Palvolve\config_user.lua` first, next to the world saves, where no update reaches. The folder is created on the first start.
+- **A config still sitting in the mod folder says so in the log**, with the path to move it to, instead of vanishing without a trace on the next update.
+- **The Workshop install left the Evolutions tab empty.** The page ships in a small pak, and the item's install rules never mentioned it, so the game copied everything except the page. Manual installs from the release zip were not affected.
+
+Nothing changes for players: `%LocalAppData%\Pal\Saved\Palvolve\` stays the only place the game client looks.
+
+Reported by iknowimgodly on Discord after an update wiped a 166-pair server tree.
+
+### Changed
+
+- **A missing pak says so in the log now.** Without `Palvolve.pak` the Evolutions tab opens onto an empty frame, and the log gave nothing to work with. The mod checks the page asset shortly after startup and names the file and the folder it belongs in.
+- **The same goes for the other two parts of an install.** A missing `main.dll` and PalSchema data that never arrived each get one line saying what stops working.
+
 ## [1.6.2] - 2026-08-12
 
 ### Fixed

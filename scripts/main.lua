@@ -21,6 +21,15 @@ do
     end
 end
 
+-- Install check for the native companion. Its bindings are registered before any
+-- Lua mod runs, so a missing global here means the dll is not loaded at all -
+-- worth one line, because everything it does fails quietly rather than loudly.
+if type(PalvolveNative_SetWorkSuitability) ~= "function"
+    and type(PalvolveNative_UnlockCaptureRecord) ~= "function" then
+    Log("the native companion did not load: dlls\\main.dll is missing or blocked. Evolving "
+        .. "still works, but work suitability and the catch record of the new form do not update")
+end
+
 -- Role detection: UI modules and their retry pollers must not run on a
 -- dedicated server. Their endless LoopAsync+ExecuteInGameThread retries
 -- (the hooked widgets never load headless) churn transient callback refs,

@@ -10,6 +10,7 @@
 - **Evolve when you want to:** hold 4, pick Evolve, and your Pal transforms in front of you with a finale built from its target elements. F2 checks and confirms the summoned Pal without the menu.
 - **Keeps identity and progress:** every learned move carries over, even ones the new form could never learn on its own, and level, nickname, gender, passives, IVs, souls and condenser rank all stay. Alphas evolve into Alpha forms, Luckys stay Lucky.
 - **Conditional evolutions:** a pair can require day or night, water, a status effect, a location, a party member, a known move element, or a trainer-level, trust-rank or IV threshold. Greyed options name what is still missing, in your game language.
+- **The tree in the game:** the Palpedia gets a third tab next to Stats and Habitat, showing what the selected Pal evolves from and into, with the level, the stone and the conditions each step needs.
 - **Web configurator:** build your own evolution tree at [palvolve.doodesch.de](https://palvolve.doodesch.de) - rewire pairs, set levels and conditions, share it as a short link, and download the config. 17 languages.
 - **Reversible by design:** every evolution is snapshotted first, `!palvolve rollback` restores the previous form, and an aborted transformation refunds what it used.
 - **Earned, not free:** evolutions cost stones from the buildable Pal Alchemy Workbench, and an optional egg filter can keep eggs hatching base forms.
@@ -17,13 +18,14 @@
 ## Requirements
 
 - **UE4SS Experimental (Palworld)** - the Palworld-specific build, not the generic upstream RE-UE4SS.
-- **PalSchema** - provides the Pal Alchemy Workbench, the stones and the recipes. Follow the [PalSchema installation guide](https://okaetsu.github.io/PalSchema/docs/installation), which pairs the correct UE4SS build.
+- **PalSchema** - provides the Pal Alchemy Workbench, the stones and the recipes. Follow the [PalSchema installation guide](https://okaetsu.github.io/PalSchema/docs/installation), which names the UE4SS build it goes with.
 
 ## Installation
 
 1. Install UE4SS Experimental (Palworld) and PalSchema following the [PalSchema installation guide](https://okaetsu.github.io/PalSchema/docs/installation).
 2. Unpack the archive so `Mods/Palvolve` and `Mods/PalSchema/mods/Palvolve` land in `Pal/Binaries/Win64/ue4ss/Mods/`.
-3. Add `Palvolve : 1` to `ue4ss/Mods/mods.txt` (above the Keybinds entry).
+3. Copy `Pal/Content/Paks/LogicMods/Palvolve.pak` into `Pal/Content/Paks/LogicMods/`, creating the folder if it does not exist. It carries the Evolutions page in the Palpedia.
+4. Add `Palvolve : 1` to `ue4ss/Mods/mods.txt` (above the Keybinds entry).
 
 Also on the [Steam Workshop](https://steamcommunity.com/sharedfiles/filedetails/?id=3766366950) and [Nexus Mods](https://www.nexusmods.com/palworld/mods/3976), the Workshop version with automatic installation and updates.
 
@@ -46,11 +48,10 @@ Clients join with the normal Workshop install.
 ## Configuration
 
 - Build and share your own tree in the [web configurator](https://palvolve.doodesch.de).
-- Put the exported `config_user.lua` in `%LocalAppData%\Pal\Saved\Palvolve\`. It replaces the default tree and survives updates.
+- Put the exported `config_user.lua` in `%LocalAppData%\Pal\Saved\Palvolve\`, on a dedicated server in `<server>\Pal\Saved\Palvolve\`. It replaces the default tree and survives updates.
 
 ## Known issues
 
-- Work suitability shows the pre-evolution form until you relog. Job skill book bonuses are not affected.
 - Removing the mod needs a cleanup step: clean the save at [palvolve.doodesch.de/save-cleaner](https://palvolve.doodesch.de/save-cleaner). It runs in the browser and repairs a world that already refuses to load.
 
 ## FAQ

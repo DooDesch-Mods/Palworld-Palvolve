@@ -21,6 +21,12 @@ local VANILLA_ID = "MedicineFacility_01"
 -- optional diagnostics: logs converter state before/after patching
 local PROBE = false
 local MAX_TRIES = 8
+-- The install check waits for the item manager, which belongs to the game
+-- instance and is not up when this loop first runs. Without a budget of its own
+-- the loop goes idle after the first sweep and the check never gets a second
+-- chance; with it, the loop keeps ticking for about a minute and then stops
+-- asking either way.
+local INSTALL_CHECK_TRIES = 60
 
 local function Log(msg)
     print(string.format("[Palvolve] %s\n", msg))
@@ -79,7 +85,7 @@ local function patchModel(model)
         end
     end)
     if not ok then
-        Log(string.format("[probe-conv] patch error: %s", tostring(err)))
+        Log(string.format("patching a workbench recipe filter failed: %s", tostring(err)))
     end
     return done
 end
@@ -87,6 +93,8 @@ end
 function BenchFilter.init()
     local pending = {}
     local swept = false
+    local installChecked = false
+    local installTries = 0
 
     NotifyOnNewObject("/Script/Pal.PalMapObjectConvertItemModel", function(model)
         pending[#pending + 1] = { model = model, tries = 0 }
@@ -98,7 +106,8 @@ function BenchFilter.init()
         -- UE4SS's callback GC occasionally frees such refs while they are
         -- still scheduled (corrupted closures, in the worst case a silent
         -- process death). Idle ticks must therefore stay ref-free.
-        if swept and #pending == 0 then return false end
+        if swept and #pending == 0
+            and (installChecked or installTries >= INSTALL_CHECK_TRIES) then return false end
         ExecuteInGameThread(function()
             pcall(function()
                 if not swept then
@@ -109,23 +118,34 @@ function BenchFilter.init()
                     for _, m in ipairs(models) do
                         pending[#pending + 1] = { model = m, tries = 0 }
                     end
-                    if PROBE or Config.devMode then
-                        -- one-shot check whether PalSchema applied our SortId
-                        pcall(function()
-                            local mgr = FindFirstOf("PalItemIDManager")
-                            if mgr and mgr:IsValid() then
-                                local data = mgr:GetStaticItemData(FName("Palvolve_EvolutionStone"))
-                                if data and data:IsValid() then
-                                    Log(string.format("[probe-sortid] Palvolve_EvolutionStone SortId=%s",
-                                        tostring(data.SortId)))
-                                else
-                                    Log("[probe-sortid] item data not found")
-                                end
-                            else
-                                Log("[probe-sortid] no PalItemIDManager")
+                end
+                -- Install check: the Evolution Stone is PalSchema data, so a
+                -- world without it means PalSchema did not apply this mod's
+                -- files. Silent when the item is there, because a healthy
+                -- install has nothing to report. The item manager belongs to the
+                -- game instance and is not necessarily up when this loop first
+                -- reaches the game thread, so the check rides along on the
+                -- entries that happen anyway instead of asking for one of its
+                -- own, and stops asking after a handful.
+                if not installChecked and installTries < INSTALL_CHECK_TRIES then
+                    installTries = installTries + 1
+                    pcall(function()
+                        local mgr = FindFirstOf("PalItemIDManager")
+                        if not (mgr and mgr:IsValid()) then return end
+                        installChecked = true
+                        local data = mgr:GetStaticItemData(FName("Palvolve_EvolutionStone"))
+                        if data and data:IsValid() then
+                            if PROBE or Config.devMode then
+                                Log(string.format("Evolution Stone registered, SortId=%s",
+                                    tostring(data.SortId)))
                             end
-                        end)
-                    end
+                        else
+                            Log("the Evolution Stone item does not exist in this world: PalSchema "
+                                .. "did not apply Palvolve's data. Check that PalSchema is loaded and "
+                                .. "that Pal\\Binaries\\Win64\\ue4ss\\Mods\\PalSchema\\mods\\Palvolve "
+                                .. "is installed")
+                        end
+                    end)
                 end
                 if #pending == 0 then return end
                 local batch = pending
