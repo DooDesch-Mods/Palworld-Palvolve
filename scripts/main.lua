@@ -124,6 +124,16 @@ if not okFilter then
     Log("bench filter failed to load: " .. tostring(errFilter))
 end
 
+-- The evolution tree as a third tab in the game's Palpedia. Client-side and
+-- read-only, so it loads wherever a player is: a dedicated server has no
+-- Palpedia and the module simply never finds one to hook.
+if not Role.isDedicated() then
+    local okTree, errTree = pcall(require, "paldextree")
+    if not okTree then
+        Log("the Palpedia tree failed to load: " .. tostring(errTree))
+    end
+end
+
 -- Dev probes (loaded only while devMode is true)
 local okCfg, cfg = pcall(require, "config")
 if okCfg and cfg.devMode then

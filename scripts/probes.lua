@@ -66,6 +66,34 @@ end
 
 -- ---------------------------------------------------------------- keybind probes
 
+-- Arrow keys drive the evolution tree window while it is open, and do nothing
+-- otherwise. Keys rather than clicks because a UMG button delegate has never
+-- been proven to reach Lua in this project; when it is, the clicks join them
+-- and these stay as the keyboard route.
+local function treeKey(delta, dir)
+    return function()
+        ExecuteInGameThread(function()
+            local ok, view = pcall(require, "treeview")
+            if not (ok and view and view.isOpen and view.isOpen()) then return end
+            if delta then view.move(delta) else view.step(dir) end
+        end)
+    end
+end
+
+-- UE4SS spells them DOWN_ARROW, not DOWN; the first attempt registered nothing
+-- and the window simply did not answer.
+if Key and Key.DOWN_ARROW then
+    RegisterKeyBind(Key.DOWN_ARROW, Debounced("treedown", treeKey(1, nil)))
+    RegisterKeyBind(Key.UP_ARROW, Debounced("treeup", treeKey(-1, nil)))
+    RegisterKeyBind(Key.RIGHT_ARROW, Debounced("treeright", treeKey(nil, "out")))
+    RegisterKeyBind(Key.LEFT_ARROW, Debounced("treeleft", treeKey(nil, "in")))
+    Log("[tree] arrow keys registered")
+else
+    Log("[tree] arrow key constants missing in this UE4SS build")
+end
+
+
+
 -- F5: overlay fallback (M_Glow), restored after ~2s
 RegisterKeyBind(Key.F5, Debounced("overlay", function()
     ExecuteInGameThread(function()
@@ -1647,7 +1675,560 @@ function M.probeBrowserStack()
     Log(string.format("[probe-browser] %d PalCommonWindow instance(s) after both attempts", alive))
 end
 
+-- Warms the icon cache in the background so the first page has nothing left to
+-- encode. Four per tick is small enough not to be felt and still done long
+-- before anyone opens the window.
+LoopAsync(400, function()
+    local ok, html = pcall(require, "treehtml")
+    if not (ok and html and html.warmIcons) then return true end
+    local more = false
+    local okWarm = pcall(function() more = html.warmIcons(4) end)
+    if not okWarm then return true end
+    if not more then
+        Log("[probe-treeweb] icon cache warm")
+        return true
+    end
+    return false
+end)
+
 Log(string.format("Probes active: F3 revert(own), F4 arm radial probes, F5 overlay, F6 VFX, F7 morph FX bases, F8 fanfare, F9 freeze, F10 give EXP, END free mode, test kit on %s, conditions on HOME/PAGE_UP/PAGE_DOWN, NUM7 day/night, NUM8 status cycle, F1 finale assets, BACKSPACE full evolution run (random target, 12 stages), chat !palvolve free|kit|fx|worksuit|xnet; weather recorder writes [weather] lines on every change",
     Key.INS and "INSERT" or "POS1"))
+
+-- ---------------------------------------------------------------------------
+-- Can Lua build the in-game tree, or does every node have to come from a pak?
+--
+-- The plan for 1.6.0 is a window showing the arrangement the author built. What
+-- it costs depends on one thing: whether Lua can put widgets on a canvas at
+-- coordinates it chooses. If it can, the pak only has to supply one empty shell
+-- and every node, position and update stays in Lua, where it can be changed
+-- without the modding kit. If it cannot, every node is Blueprint work.
+--
+-- Asked in stages, and each stage says what it found, because a failure four
+-- steps in means something different from a failure at step one.
+--   1 UImage can be constructed at all
+--   2 a CanvasPanel takes it as a child and hands back a slot
+--   3 the slot accepts a position and a size
+--   4 a pal's own icon texture loads and lands in the image
+--   5 the whole thing survives 300 nodes, and what that costs in milliseconds
+-- ---------------------------------------------------------------------------
+
+local canvasProbeWidget = nil
+
+local function firstLive(className)
+    for _, o in ipairs(FindAllOf(className) or {}) do
+        local n = ""
+        pcall(function() n = tostring(o:GetFullName()) end)
+        if o:IsValid() and not n:find("Default__") then return o end
+    end
+    return nil
+end
+
+--- The icon texture Palworld uses for a species, straight from its own table.
+--- Returns nil when the path does not resolve, which is the answer for a pal
+--- the game does not ship an icon for.
+local function palIconTexture(charId)
+    local path = string.format(
+        "/Game/Pal/Texture/PalIcon/Normal/T_%s_icon_normal.T_%s_icon_normal", charId, charId)
+    local tex = nil
+    pcall(function() tex = StaticFindObject(path) end)
+    if not (tex and tex:IsValid()) then
+        pcall(function() LoadAsset(path) end)
+        pcall(function() tex = StaticFindObject(path) end)
+    end
+    if tex and tex:IsValid() then return tex end
+    return nil
+end
+
+function M.probeCanvas()
+    if canvasProbeWidget and canvasProbeWidget:IsValid() then
+        pcall(function() canvasProbeWidget:RemoveFromParent() end)
+        canvasProbeWidget = nil
+        Log("[probe-canvas] closed")
+        return
+    end
+
+    local pc = FindFirstOf("PalPlayerController")
+    if not (pc and pc:IsValid()) then
+        Log("[probe-canvas] no player controller")
+        return
+    end
+
+    -- Stage 1: a UserWidget to own the canvas. UUserWidget is what AddToViewport
+    -- takes, and a bare one is enough here: the canvas goes in by hand.
+    local userCls = StaticFindObject("/Script/UMG.UserWidget")
+    local canvasCls = StaticFindObject("/Script/UMG.CanvasPanel")
+    local imageCls = StaticFindObject("/Script/UMG.Image")
+    Log(string.format("[probe-canvas] stage 1 classes: UserWidget=%s CanvasPanel=%s Image=%s",
+        tostring(userCls and userCls:IsValid()),
+        tostring(canvasCls and canvasCls:IsValid()),
+        tostring(imageCls and imageCls:IsValid())))
+    if not (userCls and canvasCls and imageCls) then
+        Log("[probe-canvas] stage 1 FAILED: a UMG class is not resident")
+        return
+    end
+
+    local lib = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+    local okRoot, root = pcall(function() return lib:Create(pc, userCls, pc) end)
+    if not (okRoot and root and root:IsValid()) then
+        Log("[probe-canvas] stage 1 FAILED: Create returned " .. tostring(root))
+        return
+    end
+    Log("[probe-canvas] stage 1: root widget created")
+
+    -- Stage 2: a canvas under it, and a child on the canvas. AddChildToCanvas is
+    -- the call that decides the whole architecture.
+    local outer = firstLive("PalHUDInGame") or pc
+    local okCanvas, canvas = pcall(function()
+        return StaticConstructObject(canvasCls, outer, FName("PalvolveProbeCanvas"))
+    end)
+    if not (okCanvas and canvas and canvas:IsValid()) then
+        Log("[probe-canvas] stage 2 FAILED: canvas construct raised " .. tostring(canvas))
+        return
+    end
+
+    local okImg, img = pcall(function()
+        return StaticConstructObject(imageCls, outer, FName("PalvolveProbeImage"))
+    end)
+    if not (okImg and img and img:IsValid()) then
+        Log("[probe-canvas] stage 2 FAILED: image construct raised " .. tostring(img))
+        return
+    end
+
+    local slot = nil
+    local okSlot = pcall(function() slot = canvas:AddChildToCanvas(img) end)
+    Log(string.format("[probe-canvas] stage 2: AddChildToCanvas ok=%s slot=%s",
+        tostring(okSlot), tostring(slot and slot:IsValid())))
+    if not (okSlot and slot and slot:IsValid()) then
+        Log("[probe-canvas] stage 2 FAILED - nodes would have to come from a pak")
+        return
+    end
+
+    -- Stage 3: the slot decides where a node sits, which is the whole point.
+    local okPos = pcall(function()
+        slot:SetAutoSize(false)
+        slot:SetPosition({ X = 120.0, Y = 80.0 })
+        slot:SetSize({ X = 64.0, Y = 64.0 })
+    end)
+    Log("[probe-canvas] stage 3: slot position and size ok=" .. tostring(okPos))
+
+    -- Stage 4: the game's own icon for a pal, so nodes need no shipped art.
+    local tex = palIconTexture("SheepBall")
+    if tex then
+        local okBrush = pcall(function() img:SetBrushFromTexture(tex, true) end)
+        Log("[probe-canvas] stage 4: Lamball icon loaded, SetBrushFromTexture ok=" .. tostring(okBrush))
+    else
+        Log("[probe-canvas] stage 4: no icon texture at the guessed path - needs the icon table")
+    end
+
+    -- Getting it on screen is the one thing left. AddToViewport belongs to
+    -- UserWidget; a CanvasPanel is a plain widget and has no such call, which is
+    -- why the first run drew nothing. The canvas has to sit INSIDE the user
+    -- widget's tree, and a bare UserWidget arrives without one.
+    local okShow = pcall(function() root:AddToViewport(50) end)
+    Log("[probe-canvas] root on screen: " .. tostring(okShow))
+
+    local tree = nil
+    pcall(function() tree = root.WidgetTree end)
+    Log("[probe-canvas] stage 6: WidgetTree present = " .. tostring(tree and tree:IsValid()))
+
+    -- Way 1: the tree is there and its root can be pointed at our canvas.
+    local attached = false
+    if tree and tree:IsValid() then
+        local before = "nil"
+        pcall(function() before = tostring(tree.RootWidget:GetFullName()) end)
+        local okSet = pcall(function() tree.RootWidget = canvas end)
+        local after = "nil"
+        pcall(function() after = tostring(tree.RootWidget:GetFullName()) end)
+        attached = okSet and after:find("PalvolveProbeCanvas") ~= nil
+        Log(string.format("[probe-canvas] way 1 (tree.RootWidget): set=%s before=%s after=%s -> %s",
+            tostring(okSet), before, after, tostring(attached)))
+    end
+
+    -- Way 2: build a WidgetTree ourselves and hang it on the widget. Needed when
+    -- a widget created without a Blueprint arrives with no tree at all.
+    if not attached then
+        local treeCls = StaticFindObject("/Script/UMG.WidgetTree")
+        if treeCls and treeCls:IsValid() then
+            local okTree = pcall(function()
+                local t = StaticConstructObject(treeCls, root, FName("PalvolveProbeTree"))
+                t.RootWidget = canvas
+                root.WidgetTree = t
+            end)
+            local after = "nil"
+            pcall(function() after = tostring(root.WidgetTree.RootWidget:GetFullName()) end)
+            attached = okTree and after:find("PalvolveProbeCanvas") ~= nil
+            Log(string.format("[probe-canvas] way 2 (own WidgetTree): built=%s root=%s -> %s",
+                tostring(okTree), after, tostring(attached)))
+        else
+            Log("[probe-canvas] way 2 skipped: WidgetTree class not resident")
+        end
+    end
+
+    -- Way 3: skip the canvas and hand each node to the viewport on its own.
+    -- UWidgetLayoutLibrary positions a widget in screen space, which is all a
+    -- node needs. Slower per node, but it needs nothing from a pak at all.
+    if not attached then
+        local layout = StaticFindObject("/Script/UMG.Default__WidgetLayoutLibrary")
+        Log("[probe-canvas] way 3: WidgetLayoutLibrary = " .. tostring(layout and layout:IsValid()))
+    end
+
+    -- A widget already on screen does not pick up a tree swapped in underneath
+    -- it, so it goes on the viewport after the attach, not before.
+    if attached then
+        pcall(function() root:RemoveFromParent() end)
+        local okAgain = pcall(function() root:AddToViewport(50) end)
+        Log("[probe-canvas] re-added after attaching: " .. tostring(okAgain)
+            .. " - if a Lamball icon is on screen now, no pak is needed for the nodes")
+    end
+
+    -- Stage 5: 300 nodes is what a real tree costs. Time it, because a second
+    -- of hitching when the window opens is a different feature than a frame.
+    local started = os.clock()
+    local made, failed = 0, 0
+    for i = 1, 300 do
+        local okN = pcall(function()
+            local n = StaticConstructObject(imageCls, outer, FName("PalvolveProbeNode" .. i))
+            local s = canvas:AddChildToCanvas(n)
+            s:SetAutoSize(false)
+            s:SetPosition({ X = (i % 30) * 44.0, Y = math.floor(i / 30) * 44.0 })
+            s:SetSize({ X = 40.0, Y = 40.0 })
+            if tex then n:SetBrushFromTexture(tex, true) end
+        end)
+        if okN then made = made + 1 else failed = failed + 1 end
+    end
+    Log(string.format("[probe-canvas] stage 5: %d nodes built, %d failed, %.0f ms",
+        made, failed, (os.clock() - started) * 1000))
+
+    canvasProbeWidget = canvas
+    Log("[probe-canvas] run the command again to close")
+end
+
+-- ---------------------------------------------------------------------------
+-- Can a click come back out of the browser without JavaScript?
+--
+-- The earlier run tried three routes - onclick, document.title, an iframe src -
+-- and every one of them is JavaScript, which is dead in this widget. So all
+-- three failing said nothing about the browser and everything about JS.
+--
+-- A plain <a href> is different: CEF follows it itself, no script involved. If
+-- the address the widget reports changes to what the link said, that is a click
+-- channel, and with it the whole window can be HTML: draw the page, read the
+-- click, draw the next page. The game becomes the server for its own UI.
+--
+-- Unknown schemes usually land on Chromium's error page, so the page is put
+-- back after every read. That is the same reassert the news-page hijack needed.
+-- ---------------------------------------------------------------------------
+
+local linkBrowser = nil
+local linkStop = false
+local linkSeen = {}
+
+local LINK_ORIGIN = "http://palvolve.local/tree"
+
+local LINK_HTML = [[<!doctype html><html><head><meta charset="utf-8">
+<style>
+  body{margin:0;background:#1b2430;color:#eaf0f7;font:15px/1.5 system-ui,sans-serif;padding:24px}
+  h1{font-size:18px;margin:0 0 14px}
+  a{display:inline-block;margin:0 10px 10px 0;padding:10px 16px;border-radius:8px;
+    background:#2c3d51;color:#eaf0f7;text-decoration:none;border:1px solid #3f5266}
+  a:hover{background:#3a4e66;border-color:#f0c24a}
+  p{color:#9fb0c3;font-size:13px}
+</style></head><body>
+  <h1>Click a link. No script on this page.</h1>
+  <a href="palvolve://select/SheepBall">Lamball</a>
+  <a href="palvolve://select/Penguin">Pengullet</a>
+  <a href="http://palvolve.local/tree?pick=Mau">Mau (same scheme)</a>
+  <a href="/tree?pick=Relative">relative link</a>
+  <p>Every one of these is a plain anchor. If the address the mod reads changes,
+     the window can be HTML and still answer a click.</p>
+</body></html>]]
+
+function M.probeLinkClick()
+    if linkBrowser and linkBrowser:IsValid() then
+        linkStop = true
+        local pc = FindFirstOf("PalPlayerController")
+        if pc and pc:IsValid() then releaseInput(pc) end
+        if webViewWidget and webViewWidget:IsValid() then
+            pcall(function() webViewWidget:RemoveFromParent() end)
+        end
+        webViewWidget, linkBrowser = nil, nil
+        Log("[probe-link] closed")
+        return
+    end
+
+    local pc = FindFirstOf("PalPlayerController")
+    if not (pc and pc:IsValid()) then
+        Log("[probe-link] no player controller")
+        return
+    end
+
+    -- The route that is known to render. Constructing a bare UWebBrowser gives
+    -- an object whose CEF renderer never starts, which is a spinner and nothing
+    -- else; the news widget brings a browser that is already alive.
+    pcall(function() LoadAsset(NEWS_WIDGET) end)
+    local cls = StaticFindObject(NEWS_WIDGET)
+    if not (cls and cls:IsValid()) then
+        Log("[probe-link] news widget class did not load")
+        return
+    end
+
+    local lib = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+    local widget = nil
+    pcall(function() widget = lib:Create(pc, cls, pc) end)
+    if not (widget and widget:IsValid()) then
+        Log("[probe-link] could not create the news widget")
+        return
+    end
+    pcall(function() widget:AddToViewport(70) end)
+
+    -- The browser lives inside that widget; it is picked up after the widget
+    -- exists, skipping the class default object.
+    local browser = nil
+    for _, b in ipairs(FindAllOf("WebBrowser") or {}) do
+        local n = ""
+        pcall(function() n = tostring(b:GetFullName()) end)
+        if b:IsValid() and not n:find("Default__") then browser = b end
+    end
+    if not (browser and browser:IsValid()) then
+        Log("[probe-link] no live WebBrowser inside the widget")
+        pcall(function() widget:RemoveFromParent() end)
+        return
+    end
+
+    webViewWidget, linkBrowser = widget, browser
+    pcall(function() linkBrowser:LoadString(LINK_HTML, LINK_ORIGIN) end)
+    grabInput(pc)
+    Log("[probe-link] open - click a link, then run the command again to close")
+
+    -- Every tick is reported for the first few seconds. Logging only on change
+    -- made an empty address indistinguishable from a dead loop, which is what
+    -- the first run actually measured.
+    linkStop = false
+    local last, ticks = nil, 0
+    LoopAsync(250, function()
+        if linkStop or not (linkBrowser and linkBrowser:IsValid()) then
+            Log("[probe-link] watcher done after " .. ticks .. " ticks")
+            return true
+        end
+        ticks = ticks + 1
+        local url, title = "", ""
+        pcall(function() url = tostring(linkBrowser:GetUrl():ToString()) end)
+        pcall(function() title = tostring(linkBrowser:GetTitleText():ToString()) end)
+
+        if ticks <= 8 or url ~= last then
+            Log(string.format("[probe-link] tick %d url=[%s] title=[%s]", ticks, url, title))
+        end
+        if url ~= last then
+            last = url
+            local pick = url:match("select/([%w_]+)") or url:match("pick=([%w_]+)")
+            if pick and not linkSeen[pick] then
+                linkSeen[pick] = true
+                Log("[probe-link] CLICK RECEIVED: " .. pick
+                    .. " - a plain link answers, the window can be HTML")
+            end
+            -- an unknown scheme leaves an error page behind, so the page goes back
+            if url ~= "" and not url:find("palvolve.local", 1, true) then
+                pcall(function() linkBrowser:LoadString(LINK_HTML, LINK_ORIGIN) end)
+            end
+        end
+
+        -- the news widget fetches Pocketpair's page a moment after it appears
+        if ticks == 6 or ticks == 14 or ticks == 30 then
+            pcall(function() linkBrowser:LoadString(LINK_HTML, LINK_ORIGIN) end)
+        end
+        if ticks > 480 then
+            Log("[probe-link] watcher stopped after two minutes")
+            return true
+        end
+        return false
+    end)
+end
+
+-- ---------------------------------------------------------------------------
+-- [probe-pak] Does the cooked pak reach the game, and does a click come back?
+--
+-- Every earlier attempt built the window out of bare UMG classes and could not
+-- receive a click, because Lua has no way to bind a delegate: OnClicked wants a
+-- UObject with a reflected UFunction, and a Lua closure is neither.
+--
+-- The pak carries two authored widgets instead. WBP_PalvolveTree is the window
+-- with a named ListRoot and GraphRoot; WBP_PalvolveNode is one card, and its
+-- button sets the card's own Clicked flag in Blueprint. Lua reads that flag,
+-- which is an ordinary property read and needs no delegate at all.
+--
+-- Asked in stages so a failure names its half: classes missing means the pak is
+-- not mounting, a window without ListRoot means Is Variable is off, and a card
+-- that never reports means the Blueprint wiring.
+-- ---------------------------------------------------------------------------
+
+local TREE_PKG, TREE_ASSET = "/Game/Palvolve/WBP_PalvolveTree", "WBP_PalvolveTree_C"
+local NODE_PKG, NODE_ASSET = "/Game/Palvolve/WBP_PalvolveNode", "WBP_PalvolveNode_C"
+
+local pakWindow = nil
+local pakCards = {}
+local pakStop = false
+
+local function addName(s)
+    local n = FName(s, EFindName.FNAME_Find)
+    if n == NAME_None then n = FName(s, EFindName.FNAME_Add) end
+    return n
+end
+
+--- Loads a class out of a mod pak.
+---
+--- Not through UE4SS's LoadAsset: that one asks the asset registry for the
+--- path, and the registry is built when the game is cooked, so it has never
+--- heard of anything a mod pak brings along - the call comes back empty even
+--- though the pak is mounted and the file is right there.
+---
+--- The way the BP mod loader does it works instead: hand FAssetData that was
+--- filled in by hand to the registry helper, which loads the package by name
+--- rather than looking it up. UE 5.1 wants the package and the asset apart.
+local function loadClass(pkg, assetName)
+    local objPath = string.format("%s.%s", pkg, assetName)
+    local c = nil
+    pcall(function() c = StaticFindObject(objPath) end)
+    if c and c:IsValid() then return c, "already resident" end
+
+    local helpers = StaticFindObject("/Script/AssetRegistry.Default__AssetRegistryHelpers")
+    if not (helpers and helpers:IsValid()) then return nil, "no asset registry helpers" end
+
+    pcall(function()
+        c = helpers:GetAsset({
+            PackageName = addName(pkg),
+            AssetName = addName(assetName),
+        })
+    end)
+    if c and c:IsValid() then return c, "loaded from the pak" end
+
+    -- the pre-5.1 shape of the same call, in case this build wants it
+    c = nil
+    pcall(function() c = helpers:GetAsset({ ObjectPath = addName(objPath) }) end)
+    if c and c:IsValid() then return c, "loaded from the pak (legacy FAssetData)" end
+
+    return nil, "not found"
+end
+
+local function palIcon(id)
+    local path = string.format(
+        "/Game/Pal/Texture/PalIcon/Normal/T_%s_icon_normal.T_%s_icon_normal", id, id)
+    local tex = nil
+    pcall(function() tex = StaticFindObject(path) end)
+    if not (tex and tex:IsValid()) then
+        pcall(function() LoadAsset(path) end)
+        pcall(function() tex = StaticFindObject(path) end)
+    end
+    return (tex and tex:IsValid()) and tex or nil
+end
+
+function M.probePak()
+    if pakWindow and pakWindow:IsValid() then
+        pakStop = true
+        local pc = FindFirstOf("PalPlayerController")
+        if pc and pc:IsValid() then releaseInput(pc) end
+        pcall(function() pakWindow:RemoveFromParent() end)
+        pakWindow, pakCards = nil, {}
+        Log("[probe-pak] closed")
+        return
+    end
+
+    local treeCls, how1 = loadClass(TREE_PKG, TREE_ASSET)
+    local nodeCls, how2 = loadClass(NODE_PKG, NODE_ASSET)
+    Log(string.format("[probe-pak] stage 1 classes: tree=%s (%s) node=%s (%s)",
+        tostring(treeCls ~= nil), how1, tostring(nodeCls ~= nil), how2))
+    if not (treeCls and nodeCls) then
+        Log("[probe-pak] stage 1 FAILED - the pak is not reaching the game")
+        return
+    end
+
+    local pc = FindFirstOf("PalPlayerController")
+    if not (pc and pc:IsValid()) then
+        Log("[probe-pak] no player controller")
+        return
+    end
+
+    local lib = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+    local win = nil
+    pcall(function() win = lib:Create(pc, treeCls, pc) end)
+    if not (win and win:IsValid()) then
+        Log("[probe-pak] stage 2 FAILED: the window did not build")
+        return
+    end
+
+    local listRoot, graphRoot = nil, nil
+    pcall(function() listRoot = win.ListRoot end)
+    pcall(function() graphRoot = win.GraphRoot end)
+    Log(string.format("[probe-pak] stage 2 panels: ListRoot=%s GraphRoot=%s",
+        tostring(listRoot and listRoot:IsValid()),
+        tostring(graphRoot and graphRoot:IsValid())))
+    if not (listRoot and listRoot:IsValid()) then
+        Log("[probe-pak] stage 2 FAILED - Is Variable is probably off on ListRoot")
+        return
+    end
+
+    pcall(function() win:AddToViewport(60) end)
+    pakWindow = win
+
+    -- Stage 3: real Pals from the loaded tree, through the same model the Lua
+    -- window reads, so the pak never grows its own copy of the rules.
+    local ids = {}
+    local okView, view = pcall(require, "treeview")
+    if okView and view and view.listedPals then
+        local okIds, got = pcall(view.listedPals)
+        if okIds and got then ids = got end
+    end
+
+    local built = 0
+    for i = 1, math.min(#ids, 16) do
+        local id = ids[i]
+        local card = nil
+        pcall(function() card = lib:Create(pc, nodeCls, pc) end)
+        if card and card:IsValid() then
+            pcall(function() card.PalId = id end)
+            local tex = palIcon(id)
+            if tex then pcall(function() card.Icon:SetBrushFromTexture(tex, false) end) end
+            pcall(function()
+                local ktl = StaticFindObject("/Script/Engine.Default__KismetTextLibrary")
+                local name = (view and view.palName) and view.palName(id) or id
+                if ktl and ktl:IsValid() then card.Label:SetText(ktl:Conv_StringToText(name)) end
+            end)
+            pcall(function() listRoot:AddChild(card) end)
+            table.insert(pakCards, { id = id, widget = card })
+            built = built + 1
+        end
+    end
+    Log(string.format("[probe-pak] stage 3 cards: %d of %d Pals with a path", built, #ids))
+
+    grabInput(pc)
+
+    -- Stage 4: the relay. The Blueprint raises Clicked on the card that was
+    -- pressed, this lowers it again and reports which Pal it was.
+    pakStop = false
+    local ticks = 0
+    LoopAsync(200, function()
+        if pakStop or not (pakWindow and pakWindow:IsValid()) then
+            Log("[probe-pak] watcher done after " .. ticks .. " ticks")
+            return true
+        end
+        ticks = ticks + 1
+        for _, c in ipairs(pakCards) do
+            if c.widget and c.widget:IsValid() then
+                local clicked = false
+                pcall(function() clicked = c.widget.Clicked end)
+                if clicked then
+                    pcall(function() c.widget.Clicked = false end)
+                    Log("[probe-pak] CLICK: " .. c.id .. " - the relay works")
+                end
+            end
+        end
+        if ticks > 1800 then
+            Log("[probe-pak] watcher stopped after six minutes")
+            return true
+        end
+        return false
+    end)
+
+    Log("[probe-pak] open - click a card, run !palvolve pak again to close")
+end
 
 return M

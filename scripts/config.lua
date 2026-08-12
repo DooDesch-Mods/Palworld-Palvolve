@@ -27,7 +27,7 @@ local Config = {
 
     -- Mod version, reported to connected clients by the host handshake. Keep in
     -- sync with Info.json (the release flow checks this).
-    modVersion = "1.5.3",
+    modVersion = "1.6.0",
 
     -- Unlock the catch-gated technologies (saddle, Pal gear) of the target species when a
     -- pal evolves, the same way capturing one would. Needs the native companion in
@@ -79,7 +79,16 @@ local Config = {
         debugLog = false,      -- per-event spawn + anchor logging
     },
 
+    -- The evolution page in the Palpedia carries no close control of its own by
+    -- default: that screen closes with ESC like every other menu, and switching
+    -- tabs leaves the page as well, so a second way out is one the reader has to
+    -- read past. Set this to true to put it back.
+    treeCloseButton = false,
+
     -- Two-stage confirm: first press checks and announces, second press confirms.
+    -- Set confirmKeyEnabled to false to leave the key alone entirely - another
+    -- mod may want it, and the wheel entry and the chat command still evolve.
+    confirmKeyEnabled = true,
     confirmKey = "F2",
     confirmWindowSeconds = 10,
     debounceSeconds = 0.5,
@@ -1841,6 +1850,15 @@ if user then
     end
     if user.diagReveal ~= nil then
         Config.diagReveal = user.diagReveal == true
+    end
+    -- The confirm key is the one binding the mod claims globally, so a player
+    -- whose other mods want F2 can hand it back. The wheel entry and the chat
+    -- command still evolve, so nothing is lost but the shortcut.
+    if user.treeCloseButton ~= nil then
+        Config.treeCloseButton = user.treeCloseButton == true
+    end
+    if user.confirmKeyEnabled ~= nil then
+        Config.confirmKeyEnabled = user.confirmKeyEnabled == true
     end
     if user.requireStone ~= nil then
         Config.requireStone = user.requireStone == true

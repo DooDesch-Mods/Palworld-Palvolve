@@ -150,7 +150,7 @@ local function unlockCatchTech(targetId, playerCtx)
         Log(string.format("Catch-tech unlocked for %s (%s)", tostring(targetId), tostring(msg)))
     else
         Log(string.format("Catch-tech unlock skipped for %s: %s", tostring(targetId), tostring(msg)))
-        -- Species that share a Paldeck slot with their base (Gumoss Botan) have no own
+        -- Species that share a Palpedia slot with their base (Gumoss Botan) have no own
         -- EPalTribeID, so the game keeps no capture record for them and there are no
         -- catch-gated recipes to unlock. Nothing is wrong there, so the player is not asked
         -- to report it - unlike a missing enum, which breaks every species and does count
@@ -189,11 +189,23 @@ end
 -- Used for radial labels AND every player-facing message, so the chat
 -- reasons show "Pengullet Lux", never "Penguin_Electric".
 local displayNameCache = {}
+
+--- Is there a world to ask. The text system answers through the local player
+--- character, and in the main menu there is none - every name then costs a
+--- reflection round trip, fails, is not cached, and is asked again on the next
+--- pass. Hundreds of those per menu screen are the cost, and the log fills with
+--- FAIL lines that say nothing.
+local function worldIsUp()
+    local pc = FindFirstOf("PalPlayerCharacter")
+    return pc ~= nil and pc:IsValid()
+end
+
 local function palDisplayName(id)
     local cached = displayNameCache[id]
     if cached then return cached end
+    if not worldIsUp() then return id end
     -- Alphas carry a BOSS_ prefix that the text table does not know: it keys
-    -- one entry per species, exactly like the Paldeck. Asking for the prefixed
+    -- one entry per species, exactly like the Palpedia. Asking for the prefixed
     -- key returns the key itself ("PAL_NAME_BOSS_CubeTurtle_Neutral"), so the
     -- prefix is stripped for the lookup while the cache stays keyed by the
     -- original id.
@@ -232,6 +244,9 @@ Evolution.displayName = palDisplayName
 local warmedNames = {}
 local function prewarmNames(id)
     if warmedNames[id] then return end
+    -- Nothing to warm without a world: the names would all miss, and missing
+    -- names are not remembered, so the pass would be pure cost.
+    if not worldIsUp() then return end
     warmedNames[id] = true
     local pairList = Config.findPairs(id)
     if #pairList == 0 then return end
@@ -1169,7 +1184,7 @@ local function performEvolution(p)
         })
         saveSnapshots()
         -- Always the unprefixed id: the capture record is keyed by EPalTribeID, which has one
-        -- entry per species and none for the BOSS_ (alpha) rows, exactly like the Paldeck.
+        -- entry per species and none for the BOSS_ (alpha) rows, exactly like the Palpedia.
         unlockCatchTech(pair.to, playerCtx)
 
         -- Headless (dedicated server): the authoritative param swap is done.
@@ -2544,7 +2559,7 @@ function Evolution.init()
     end, ServerCheck.onPong)
 
     -- keybinds are player input - meaningless on a dedicated server
-    if not Role.isDedicated() then
+    if not Role.isDedicated() and Config.confirmKeyEnabled ~= false then
         local lastPress = 0
         RegisterKeyBind(Key[Config.confirmKey], function()
             local now = os.clock()
@@ -2703,6 +2718,67 @@ function Evolution.init()
                 if not (okProbes and probes.probeBrowserWindow) then return end
                 probes.probeBrowserWindow()
                 Role.ack(senderCtx, "browser window probe - see log")
+            end,
+            -- The evolution tree window. Arrow keys walk it while it is open;
+            -- clicking a Pal comes once a UMG button delegate is proven to
+            -- reach Lua, and the keys work either way.
+            -- Can a click leave the browser without JavaScript? A plain anchor
+            -- is followed by CEF itself, and the address is readable from Lua.
+            -- If it works, the whole window can be the HTML we already designed.
+            link = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeLinkClick) then return end
+                probes.probeLinkClick()
+                Role.ack(senderCtx, "link probe - click a link, see the log")
+            end,
+            treeview = function(senderCtx)
+                local okView, view = pcall(require, "treeview")
+                if not (okView and view) then
+                    Role.ack(senderCtx, "tree view failed to load")
+                    return
+                end
+                view.open()
+                Role.ack(senderCtx, view.isOpen()
+                    and "tree open - arrow keys to move, ESC or !palvolve tree to close"
+                    or "tree could not open, see the log")
+            end,
+            -- Decides what the in-game tree costs to build: whether Lua can
+            -- put widgets on a canvas at coordinates it picks. If it can, a pak
+            -- only has to supply an empty shell and the nodes stay in Lua.
+            canvas = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeCanvas) then return end
+                probes.probeCanvas()
+                Role.ack(senderCtx, "canvas probe - see log")
+            end,
+            -- Puts a third tab into the game's own Paldex and reports what the
+            -- tabset makes of it. Arm it in the world, then open the Paldex.
+            paldex = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probePaldex) then return end
+                probes.probePaldex()
+                Role.ack(senderCtx, "paldex probe armed - open the Paldex")
+            end,
+            -- The authored widgets from the pak: do they mount, and does a
+            -- click on one come back to Lua as a plain property read.
+            pak = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probePak) then return end
+                probes.probePak()
+                Role.ack(senderCtx, "pak probe - click a card, see the log")
+            end,
+            -- The tree drawn as a web page in our own browser widget: the same
+            -- layout and the same icons as the website.
+            web = function(senderCtx)
+                if not Config.devMode then return end
+                local okTree, tree = pcall(require, "paldextree")
+                if not (okTree and tree.toggleTreeWindow) then return end
+                tree.toggleTreeWindow(false)
+                Role.ack(senderCtx, "tree page - click a Pal, !palvolve web closes")
             end,
             -- Does the engine's web browser widget work in this build. If it
             -- does, the website's own tree view can be the in-game browser.
