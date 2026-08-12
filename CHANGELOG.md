@@ -14,7 +14,7 @@
 
 ### Changed
 
-- **Clicking through the tree is much faster, and the biggest tree anyone has published is the measure.** 613 pairs across 279 Pals: every click used to walk all 613 pairs and sort 279 Pals with a comparison that resolved two names each time, roughly 4600 name lookups before a single line of the page was written. The list is built once now, the names are resolved once, and a page you have already seen is not built again.
+- **Clicking through the tree is much faster, measured against the largest tree anyone has published.** 613 pairs across 279 Pals: every click used to walk the whole list and sort every Pal with a comparison that resolved two names each time, roughly 4600 name lookups before a single line of the page was written. The list is built once now, the names are resolved once, and a page you have already seen is not built again.
 - **A portrait costs a fraction of what it did.** Encoding one ran four string operations per byte; those are table lookups now.
 - **The mod does nothing while the tree is closed.** A hook that ran on every button press anywhere in the game now returns immediately unless the tree is open, and the pollers keep the widgets they found instead of searching for them sixteen times a second.
 - **F2 is off until you ask for it.** A mod that claims a function key on every install collides with the rest of a player's setup, and the wheel and `!palvolve evolve` already cover the same ground. Set `confirmKeyEnabled = true` in `config_user.lua` to get the key back.
