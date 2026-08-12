@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.6.0] - 2026-08-12
+
+### Added
+
+- **The evolution tree is in the game now, as a third tab in the Palpedia.** Open the Palpedia, pick a Pal, and "Evolutions" shows what it evolves from and what it evolves into, with the level, the stone and the conditions each step needs.
+- **The tree follows the list on the left.** Click another Pal and the tree moves with it. Click a Pal inside the tree and it becomes the new centre, so you can walk a whole line without leaving the screen.
+- **Conditions fold away when a Pal has many ways out.** Lamball has twenty-two; the switch in the corner shows or hides the details.
+- **The tab is in your language.** All nineteen lines of the screen come in the same seventeen languages as the rest of the mod.
+- **The page carries no close button of its own.** The Palpedia closes with ESC like every other menu, and switching tabs leaves the page too. Set `treeCloseButton = true` in `config_user.lua` to put one back.
+- **Palvolve can give up F2 entirely.** Set `confirmKeyEnabled = false` in `config_user.lua` and the mod claims no key at all. Evolving still works through the wheel and `!palvolve evolve`.
+
+### Fixed
+
+- **The main menu ran hundreds of failed name lookups per screen.** Pal names are resolved through the local player character, which does not exist in the menu, and a failed lookup is not remembered - so every pass asked again.
+
 ## [1.5.3] - 2026-08-07
 
 ### Fixed
@@ -250,7 +265,7 @@ Reported by NyX.
 ### Changed
 
 - New default tree, curated with the community (DooDesch + Patman): 143 transformations, up from 99. Every v1.1.0 pair is kept; 45 pairs join, including full crossover families (Kelpsea to Jormuntide/Suzaku Aqua, Ribbuny to Petallia, Hoocrates to Shadowbeak, Depresso to Nyafia).
-- The default tree now uses conditions: Mau becomes Sekhmet only in the desert by day and Wispaw only at night or in caves; Pengullet Lux branches into Penking Lux or - while electrified or in a wildlife sanctuary - Dynamoff; Kelpsea reaches Suzaku Aqua in water and Jormuntide while electrified or knowing a Dragon move; Relaxaurus turns Lux only while electrified (just like the Paldeck tells it); Suzaku needs water for Aqua; a Swee is only promoted to Sweepa with a Sweepa in the party.
+- The default tree now uses conditions: Mau becomes Sekhmet only in the desert by day and Wispaw only at night or in caves; Pengullet Lux branches into Penking Lux or - while electrified or in a wildlife sanctuary - Dynamoff; Kelpsea reaches Suzaku Aqua in water and Jormuntide while electrified or knowing a Dragon move; Relaxaurus turns Lux only while electrified (just like the Palpedia tells it); Suzaku needs water for Aqua; a Swee is only promoted to Sweepa with a Sweepa in the party.
 - Balance pass on the new pairs: Petallia routes 21 -> 30, Lyleen 28 -> 40, Shadowbeak 44 -> 48, Cryolinx 28 -> 36, Grizzbolt 35 -> 38, Kelpsea crossovers 33 -> 38; Teafant -> Mammorest Cryst is labeled the fun chain it is (level 40).
 
 ### Compatibility

@@ -15,6 +15,7 @@
 - **Evolve when you want to:** hold 4, pick Evolve, and your Pal transforms in front of you with a finale built from its target elements. F2 checks and confirms the summoned Pal without the menu.
 - **Keeps identity and progress:** every learned move carries over, even ones the new form could never learn on its own, and level, nickname, gender, passives, IVs, souls and condenser rank all stay. Alphas evolve into Alpha forms, Luckys stay Lucky.
 - **Conditional evolutions:** a pair can require day or night, water, a status effect, a location, a party member, a known move element, or a trainer-level, trust-rank or IV threshold. Greyed options name exactly what is still missing, in your game language.
+- **Evolution tree in the Palpedia:** a third tab, "Evolutions", shows what the selected Pal evolves from and into, with the level, the stone and the conditions each step needs. Click a Pal inside the tree to make it the new centre and walk a whole line without leaving the screen.
 - **Web configurator:** build your own evolution tree at [palvolve.doodesch.de](https://palvolve.doodesch.de/?utm_source=github&utm_medium=readme&utm_campaign=palvolve) - rewire pairs, set levels and conditions, share it as a short link, and download the config. 17 languages.
 - **Reversible by design:** every evolution is snapshotted first, `!palvolve rollback` restores the previous form, and an aborted transformation refunds what it used.
 - **Earned, not free:** evolutions cost stones from the buildable Pal Alchemy Workbench, and an optional egg filter can keep eggs hatching base forms.
@@ -121,6 +122,9 @@ Build the Pal Alchemy Workbench (unlocks at level 10, adjustable), forge an Evol
 
 **The workbench unlocks too late (or too early) for my run?**
 Set `techLevelCap` in the configurator or in `config_user.lua` to the player level you want, anywhere from 1 to 100. The mod rewrites its own technology entry on startup, so the setting survives mod updates.
+
+**F2 collides with another mod.**
+Set `confirmKeyEnabled = false` in `config_user.lua`. The mod then claims no key at all; evolving still works through the wheel (hold 4) and `!palvolve evolve`.
 
 **Why `!palvolve` and not `/palvolve`?**
 A leading slash is the game's own admin sigil: Palworld answers every such line with "You are not an Admin" before any mod ever sees it, and that reply cannot be intercepted from a mod. `/palvolve` still works if that is what you are used to - `!palvolve` is the quiet one, and the same prefix the other Palworld command mods use.
