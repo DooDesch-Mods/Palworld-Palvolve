@@ -1,21 +1,25 @@
-# Palvolve Save Cleaner
+# Palvolve Save Cleaner (command line)
 
 > 🛟 **Need help or found a bug?** Get support at [support.doodesch.de/palvolve](https://support.doodesch.de/palvolve).
 
-Removes every Palvolve trace from a Palworld world save, so the world loads on a machine that has no Palvolve installed - or never had it. The full uninstall guide, including the simpler keep-the-data-folder path, is [UNINSTALL.md](../UNINSTALL.md).
+The command line version of the Save Cleaner, for world folders a browser cannot reach: a dedicated server, or any machine you only have a shell on.
+
+For a save on your own PC use the browser version at [palvolve.doodesch.de/save-cleaner](https://palvolve.doodesch.de/save-cleaner) - same job, no download, no Python, no PalworldSaveTools. The full uninstall guide is [UNINSTALL.md](../UNINSTALL.md).
 
 ## When you need this
 
-A world that used Palvolve keeps references to the mod's items in its save files: item stacks in chests, the placed workbench, and crafting statistics inside each player file. Without the mod's item definitions those references stop resolving and the world refuses to load. That hits you when you uninstall the mod completely, reinstall the game (Steam syncs saves, not mods), or move to another PC.
+A world that used Palvolve keeps references to the mod's items in its save files: item stacks in chests, the placed workbench, and crafting records inside each player file. Without the mod's item definitions those references stop resolving and the world refuses to load. That hits you when you uninstall the mod completely, reinstall the game (Steam syncs saves, not mods), or move to another PC.
 
-The in-game command `!palvolve uninstall` cleans what a running game can reach. This tool cleans what it cannot: the crafting statistics, stacks in containers whose chest no longer exists, and a placed workbench on a save you can no longer open.
+It removes every trace: item stacks in any container, the placed workbench and its work assignment, the crafting records and the technology unlock in each player file.
 
 ## Usage
 
-1. Close Palworld.
+1. Stop the server (or close Palworld).
 2. Download `PST_standalone_*.7z` from [PalworldSaveTools releases](https://github.com/deafdudecomputers/PalworldSaveTools/releases/latest) and extract it into this folder as `PalworldSaveTools` (this provides the save file codec).
 3. Double-click `run-cleaner.bat`. It fetches a private Python runtime on first use, lists your worlds, shows what it would change (dry run), and only writes after you confirm.
-4. Start the game and load the world.
+4. Start the server and load the world.
+
+On a dedicated server the world folder sits at `.../Pal/Saved/SaveGames/0/<world>`.
 
 Before anything is written, always and automatically, a full copy of the world folder is created next to it (`<world>.palvolve-backup-<timestamp>`) - the write routine refuses to run without it. If anything looks wrong afterwards, delete the world folder and rename the backup back.
 
@@ -23,7 +27,7 @@ Before anything is written, always and automatically, a full copy of the world f
 
 - Item stacks with Palvolve ids become plain Stone (same stack size).
 - Placed Pal Alchemy Workbenches and their work assignments are removed.
-- Palvolve entries in each player's crafting statistics and technology unlocks are removed.
+- Palvolve entries in each player's crafting records and technology unlocks are removed.
 - `LocalData.sav` is never touched - it carries your revealed map, and a stale reference inside it is harmless. If an earlier cleaner version set it aside and cost you the map, running the cleaner again restores it.
 
 Anything it does not recognize is reported instead of skipped silently - if you see an `UNRESOLVED reference` line, please send it to support.
