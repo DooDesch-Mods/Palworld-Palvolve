@@ -152,21 +152,21 @@ local function greetSender(senderCtx)
     -- one visible [SYSTEM] line, delivered to just this player. The world context
     -- is the world object (as the working community mods pass), NOT the controller;
     -- the receiver list is a TArray<FGuid> (plural in the 1.0 build).
-    -- Sent straight rather than through Role.chat, so it has to ask the same
-    -- question that gate asks: this line is the mod introducing itself, which
-    -- is exactly what a quiet server does not want.
-    if (Role.chatMode or "all") == "all" then
-        pcall(function()
-            local util = palUtility()
-            local world = FindFirstOf("World")
-            local g = senderCtx.playerUId
-            if util and world then
-                util:SendSystemToPlayerChat(world,
-                    "Palvolve v" .. tostring(Config.modVersion) .. " active on this server",
-                    { { A = g.A, B = g.B, C = g.C, D = g.D } })
-            end
-        end)
-    end
+    -- Sent whatever the chat setting says. Which version a server runs is the
+    -- first question every support case starts with, and it is the one line a
+    -- player cannot look up anywhere else - a quiet server that swallows it
+    -- leaves every later symptom unexplained. Everything else the mod says on
+    -- its own still follows the setting.
+    pcall(function()
+        local util = palUtility()
+        local world = FindFirstOf("World")
+        local g = senderCtx.playerUId
+        if util and world then
+            util:SendSystemToPlayerChat(world,
+                "Palvolve v" .. tostring(Config.modVersion) .. " active on this server",
+                { { A = g.A, B = g.B, C = g.C, D = g.D } })
+        end
+    end)
     Log("Handshake: greeted client (pong v" .. tostring(Config.modVersion) .. ")")
 
     -- Payload measurement, dev builds only. It has to start here rather than
@@ -353,16 +353,12 @@ function NetChannel.initHost(handler)
                         if NetChannel.onLocalEnterWorld then
                             pcall(NetChannel.onLocalEnterWorld, char)
                         end
-                        -- Entering a world we are the authority of means this is
-                        -- our own game again. A server tree from an earlier
-                        -- session would otherwise stay in place for the rest of
-                        -- the process and quietly replace the player's own.
-                        if worldIsAuthority(char) then
-                            pcall(function()
-                                local okSync, sync = pcall(require, "treesync")
-                                if okSync and sync and sync.restoreLocal then sync.restoreLocal() end
-                            end)
-                        end
+                        -- Releasing a borrowed tree is ServerCheck's call, not
+                        -- this hook's: it classifies the world with a grace
+                        -- window, and the host's greet regularly arrives before
+                        -- this hook does. Deciding here as well would mean two
+                        -- owners for one question, and the earlier one racing
+                        -- a tree that just landed.
                     elseif isAuth and worldIsAuthority(char) then
                         -- authority side: a CONNECTED client's character finished
                         -- initializing -> greet that client. The net-mode check is a

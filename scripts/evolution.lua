@@ -1888,6 +1888,11 @@ end
 -- RPC would be interpreted as a plain otomo selection instead.
 local function remoteTransmitReady(playerCtx)
     if ServerCheck.remoteReady() then return true end
+    -- The old line asked the player to try again in a moment and then said
+    -- nothing more, so the answer only arrived if they happened to retry at the
+    -- right time. On a server without Palvolve it never resolved at all. The
+    -- check now tells them itself, whichever way it settles.
+    if ServerCheck.answerWhenSettled then ServerCheck.answerWhenSettled() end
     local msg = I18n.msg("serverCheckPending")
     Log(msg)
     Role.chat(playerCtx, msg, "reply")

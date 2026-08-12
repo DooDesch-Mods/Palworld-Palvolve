@@ -49,6 +49,25 @@ local generation = 0
 local earlyPong = nil
 local EARLY_PONG_MAX_AGE_S = 30
 
+-- Set when a player reached for evolution while the check was still running.
+-- Without it they got "still checking, try again in a moment" and then silence:
+-- the answer only arrived if they happened to try a second time at the right
+-- moment, which on a server without Palvolve never resolves into anything.
+local answerWhenSettled = false
+
+--- Remember that someone asked, so the verdict reaches them by itself.
+function ServerCheck.answerWhenSettled()
+    if state == ST.RESOLVING then answerWhenSettled = true end
+end
+
+local function deliverVerdict(msgKey)
+    if not answerWhenSettled then return end
+    answerWhenSettled = false
+    pcall(function()
+        Role.chat(Role.localPlayerCtx(), I18n.msg(msgKey), "reply")
+    end)
+end
+
 function ServerCheck.getStatus() return state end
 function ServerCheck.getServerVersion() return serverVersion end
 
@@ -147,9 +166,24 @@ end
 
 -- ------------------------------------------------------------------- settling
 
+-- The tree a server lent this client belongs to that server. Which world we are
+-- in is decided HERE, with a grace window and a generation counter, because the
+-- host's greet regularly beats our own join hook - so this is the one place
+-- that can tell "no server tree is coming" from "it has not arrived yet".
+-- Restoring anywhere earlier would race the greet and wipe a tree that just
+-- landed.
+local function releaseServerTree(why)
+    local okSync, sync = pcall(require, "treesync")
+    if not (okSync and sync and sync.isActive and sync.restoreLocal) then return end
+    if not sync.isActive() then return end
+    Log("server tree released: " .. why)
+    sync.restoreLocal()
+end
+
 local function settleLocal()
     state = ST.LOCAL
     serverVersion = Config.modVersion
+    releaseServerTree("this world is ours")
 end
 
 local function settleRemote(ver)
@@ -165,6 +199,7 @@ local function settleRemote(ver)
     end
     state = ST.REMOTE
     serverVersion = ver
+    deliverVerdict("serverCheckReady")
     local mine = tostring(Config.modVersion)
     if ver and ver ~= "" and ver ~= mine then
         -- the mismatch warning names both versions, so no extra client line
@@ -188,8 +223,14 @@ end
 -- greet has usually already restored the session.
 local function settleAbsent()
     state = ST.ABSENT
+    -- No Palvolve on this host: whatever tree we carried in came from somewhere
+    -- else and must not be presented as this server's.
+    releaseServerTree("this host does not run Palvolve")
     Log("no host greet within the grace window - evolution soft-gated (silent; "
         .. "shown only on an evolve attempt, and lifted if a late greet arrives)")
+    -- Silent unless somebody already asked. Then they get the verdict here
+    -- rather than having to guess when to try again.
+    deliverVerdict("serverNoPalvolve")
 end
 
 -- -------------------------------------------------------------------- triggers

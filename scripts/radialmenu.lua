@@ -458,11 +458,39 @@ local function setCenterText(menu, text)
     if label then pcall(function() centerWidget:SetText(label) end) end
 end
 
+-- What the wheel can be grown to without taking the process with it. The game
+-- draws seven; anything past that is our own experiment, and one at 23 crashed.
+local SUBMENU_MAX = 7
+
 local function buildSubmenu(menu)
     local wheel = wheelOf(menu)
     if not wheel then subMode = false; return end
     local options = subOptions
     if not (options and #options > 0) then subMode = false; return end
+
+    -- The wheel is grown to the number of options, and the vanilla one has
+    -- seven segments. A tree with two dozen ways out of one Pal asked for a
+    -- wheel of 23 and took the game down with it - no Lua error, just gone.
+    -- Since 1.7.0 a client can be handed a tree that big by its server, so the
+    -- cap is not optional any more. Conservative on purpose: seven is the only
+    -- width the game itself ever draws.
+    --
+    -- Reachable options come first, so what is cut is what the player could not
+    -- have used anyway, and the count of what was cut is said out loud rather
+    -- than silently dropped.
+    if #options > SUBMENU_MAX then
+        local keep, rest = {}, {}
+        for _, o in ipairs(options) do
+            if o.blocked then rest[#rest + 1] = o else keep[#keep + 1] = o end
+        end
+        for _, o in ipairs(rest) do keep[#keep + 1] = o end
+        local hidden = #keep - SUBMENU_MAX
+        for i = #keep, SUBMENU_MAX + 1, -1 do keep[i] = nil end
+        options = keep
+        subOptions = keep
+        Log(string.format("submenu capped at %d options, %d not shown - "
+            .. "the Evolutions tab in the Palpedia lists them all", SUBMENU_MAX, hidden))
+    end
 
     -- a single option still needs two segments for a drawable wheel
     local count = math.max(#options, 2)
