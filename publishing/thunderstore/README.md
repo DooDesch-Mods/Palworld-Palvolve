@@ -42,8 +42,9 @@ Dedicated server setup:
 1. Install UE4SS Experimental (Palworld) and PalSchema on the server ([installation guide](https://okaetsu.github.io/PalSchema/docs/installation)).
 2. Install Palvolve from the GitHub release zip: both folders go into `Pal\Binaries\Win64\ue4ss\Mods\`. Do not copy the Workshop item folder.
 3. Add `Palvolve : 1` to `ue4ss\Mods\mods.txt` and restart. Check `UE4SS.log` for `[PalSchema] Added building 'Palvolve_ElementExtractor'`.
+4. Put your `config_user.lua` in `<server>\Pal\Saved\Palvolve\`, the folder Palvolve creates next to the world saves. A copy inside the mod folder is replaced by the next mod update, and the log warns when it finds one there.
 
-Clients join with the normal Workshop install.
+Clients join with the normal Workshop install, and each player needs your `config_user.lua` in their own `%LocalAppData%\Pal\Saved\Palvolve\`: the Evolutions tab reads the tree from the player's machine, so someone without your file sees the built-in tree.
 
 ## Configuration
 

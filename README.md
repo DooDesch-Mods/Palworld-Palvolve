@@ -53,12 +53,22 @@ The server validates the technology unlock. If the mod is not running on the ser
 2. Install **PalSchema** on the server ([installation guide](https://okaetsu.github.io/PalSchema/docs/installation)).
 3. Install Palvolve from the [GitHub release zip](https://github.com/DooDesch-Mods/Palworld-Palvolve/releases): both folders inside the zip go into `Pal\Binaries\Win64\ue4ss\Mods\`. Do not copy the Workshop item folder - its layout is for the game's own loader.
 4. Add `Palvolve : 1` to `ue4ss\Mods\mods.txt` and restart the server.
-5. Put your `config_user.lua` in `<server>\Pal\Saved\Palvolve\` (next to the world saves). A copy inside the mod folder is gone the next time the mod is updated.
+5. Put your `config_user.lua` in `<server>\Pal\Saved\Palvolve\`, the folder Palvolve creates next to the world saves on the first start.
 6. Check the server's `UE4SS.log` for the line: `[PalSchema] Added building 'Palvolve_ElementExtractor'`
 7. ???
 8. Profit.
 
 Every player also needs Palvolve, PalSchema and UE4SS active on their own client. The normal Workshop install does that automatically.
+
+#### Where the config belongs
+
+A server looks in `<server>\Pal\Saved\Palvolve\config_user.lua` first, then in `%LocalAppData%\Pal\Saved\Palvolve\`, which on a rented server belongs to the hosting company rather than to you. The mod's own folder still works as a last resort, and the log says so when it is used: updating the mod replaces that folder and takes the config with it. Since 1.6.3 the log names the file it loaded, so one line tells you which tree the server is running:
+
+```
+[Palvolve] user config loaded (166 pairs, .../Pal/Saved/Palvolve/config_user.lua)
+```
+
+Give every player the same `config_user.lua` for their own `%LocalAppData%\Pal\Saved\Palvolve\`. The server decides what an evolution does, but the Evolutions tab in the Palpedia draws the tree from the copy on the player's machine, so someone without your file sees the built-in tree. `!palvolve tree` prints a short identity of the loaded tree and works on both sides, which makes a mismatch one command to spot.
 
 ## Multiplayer
 
