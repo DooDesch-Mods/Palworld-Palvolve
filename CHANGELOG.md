@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1] - 2026-08-12
+
+### Fixed
+
+- **The Evolutions tab stayed empty.** The page it shows lives in a small pak that 1.6.0 never packed, so the tab opened onto nothing. The pak ships now, and the tab shows the tree.
+- **The native part reported the wrong version.** It said 1.5.2 while everything around it said 1.6.0.
+
 ## [1.6.0] - 2026-08-12
 
 ### Added
