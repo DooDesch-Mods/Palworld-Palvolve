@@ -1604,6 +1604,15 @@ end
 --   evoParents[to] = { evolution froms }
 --   adaParents[to] = { adaptation froms }
 local evoParentsCache, adaParentsCache = nil, nil
+
+--- Everything the config derives from its pair map, built once and kept. When
+--- a server hands this client its own tree the map underneath them changes, and
+--- a stale spelling table or a stale parent map is the old tree still deciding.
+function Config.invalidateDerived()
+    canonicalById = nil
+    evoParentsCache, adaParentsCache = nil, nil
+end
+
 local function eggParents()
     if evoParentsCache == nil then
         evoParentsCache, adaParentsCache = {}, {}

@@ -172,6 +172,15 @@ local function greetSender(senderCtx)
     -- Deliberately behind its own switch rather than devMode: this fires on
     -- every join, and a ladder that reaches too high kills the server process
     -- rather than failing. Set Config.probeNetPayloadOnJoin = true to measure.
+    -- The tree this server runs, handed over in one message. Before this, every
+    -- player needed the same config_user.lua by hand, and a client whose file
+    -- differed did not just see a wrong tree: it sends an option INDEX, and the
+    -- host resolves that index against its own list.
+    pcall(function()
+        local okSync, sync = pcall(require, "treesync")
+        if okSync and sync and sync.sendTo then sync.sendTo(senderCtx) end
+    end)
+
     if Config.devMode then
         local okP, probes = pcall(require, "probes")
         if okP and probes then
@@ -339,6 +348,16 @@ function NetChannel.initHost(handler)
                         if NetChannel.onLocalEnterWorld then
                             pcall(NetChannel.onLocalEnterWorld, char)
                         end
+                        -- Entering a world we are the authority of means this is
+                        -- our own game again. A server tree from an earlier
+                        -- session would otherwise stay in place for the rest of
+                        -- the process and quietly replace the player's own.
+                        if worldIsAuthority(char) then
+                            pcall(function()
+                                local okSync, sync = pcall(require, "treesync")
+                                if okSync and sync and sync.restoreLocal then sync.restoreLocal() end
+                            end)
+                        end
                     elseif isAuth and worldIsAuthority(char) then
                         -- authority side: a CONNECTED client's character finished
                         -- initializing -> greet that client. The net-mode check is a
@@ -384,6 +403,20 @@ function NetChannel.initClient(onSignal, onPong)
                     -- lands, because the sender's log only proves what was sent:
                     -- what a comparison needs is the length that ARRIVED, and
                     -- whether the tail and the checksum survived the trip.
+                    if text and text:sub(1, 11) == "PVLV2|tree|" then
+                        local okSync, sync = pcall(require, "treesync")
+                        if okSync and sync and sync.applyFrame then
+                            -- off the hook: applying swaps the map and drops
+                            -- the view caches, which is not work for the frame
+                            -- a network message arrives on
+                            local frame = text
+                            ExecuteInGameThread(function()
+                                pcall(sync.applyFrame, frame)
+                            end)
+                        end
+                        return
+                    end
+
                     local xnet = text and text:match("^PVLV1|xnet|(.*)$")
                     if xnet then
                         local seq, size = xnet:match("^xnet|(%d+)|(%d+)|")

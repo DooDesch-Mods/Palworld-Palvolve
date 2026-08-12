@@ -1,0 +1,252 @@
+-- treesync.lua: the server's evolution tree, handed to every client that joins.
+--
+-- Why this exists: the host decides what an evolution does, but the client
+-- draws it and, worse, the client picks an option by INDEX. Both sides reading
+-- their own config meant a player with a different file saw a wrong tree and
+-- could send an index that means something else on the host. Handing the file
+-- to every player by hand was the only remedy, and it did not scale.
+--
+-- Measured before it was designed (docs/Palvolve/SERVER-COMPAT.md):
+-- SendScreenLogToClient carries 65535 bytes in ONE message, intact, checksum
+-- and tail verified, and twenty of 8 KB back to back at 50 ms cost nothing.
+-- 131072 bytes kill the server process. So: one message, no chunking, and a
+-- hard cap far below the fatal size.
+--
+-- The wire is text, not binary: the ids and conditions are already strings, a
+-- text frame survives a log round trip, and at this size the saving from a
+-- binary packing would buy nothing that the margin does not already give.
+local Config = require("config")
+
+local TreeSync = {}
+
+local function Log(msg)
+    print(string.format("[Palvolve] %s\n", msg))
+end
+
+-- The prefix the client watches for. PVLV1 stays what it was, so an older
+-- client ignores this and keeps working with its own file.
+TreeSync.PREFIX = "PVLV2|tree|"
+
+-- Refuses to send anything near the size that kills the process. 32 KB is half
+-- of what was proven to arrive whole, and about three times what the largest
+-- published tree needs.
+local MAX_PAYLOAD = 32 * 1024
+
+-- Field and record separators that cannot appear in an id, a category, a stone
+-- name or a condition: those are all [A-Za-z0-9_:.-].
+local FS, RS, CS = "|", "\n", ";"
+
+--- FNV-1a over the exact payload. Not Config.treeHash: that one sorts before
+--- hashing, so two trees whose pairs are in a different ORDER hash the same -
+--- and the order is exactly what the option index depends on.
+local function hashOf(s)
+    local h = 2166136261
+    for i = 1, #s do
+        h = h ~ s:byte(i)
+        h = (h * 16777619) % 4294967296
+    end
+    return string.format("%08x", h)
+end
+
+-- The words that repeat on every line get one character each; anything else
+-- travels verbatim, so a config with a category we have never seen still
+-- arrives intact rather than being silently rewritten.
+local CAT_CODE = { evolution = "e", adaptation = "a", funchain = "f" }
+local CAT_WORD = { e = "evolution", a = "adaptation", f = "funchain" }
+local STONE_CODE = { evolution = "e", adaptation = "a" }
+local STONE_WORD = { e = "evolution", a = "adaptation" }
+
+local B36 = "0123456789abcdefghijklmnopqrstuvwxyz"
+local function b36(n)
+    if n == 0 then return "0" end
+    local out = {}
+    while n > 0 do
+        local d = n % 36
+        out[#out + 1] = B36:sub(d + 1, d + 1)
+        n = (n - d) / 36
+    end
+    return string.reverse(table.concat(out))
+end
+
+local function unb36(s36)
+    local n = 0
+    for i = 1, #s36 do
+        local c = s36:sub(i, i)
+        local d = B36:find(c, 1, true)
+        if not d then return nil end
+        n = n * 36 + (d - 1)
+    end
+    return n
+end
+
+--- Every enabled pair, in the order the host reads them, because the option
+--- index a client sends is a position in this list.
+---
+--- The species ids carry the weight: 613 pairs name 279 distinct Pals, and
+--- spelled out on every line they were two thirds of the frame. Listed once and
+--- referenced by number, the largest published tree drops from 31 KB to about
+--- 12 KB, which puts it back at a comfortable distance from the size that is
+--- known to kill a server.
+function TreeSync.encode(map)
+    local dict, dictIndex = {}, {}
+    local function idOf(name)
+        local at = dictIndex[name]
+        if at then return at end
+        dict[#dict + 1] = name
+        dictIndex[name] = #dict - 1
+        return #dict - 1
+    end
+
+    local out = {}
+    for _, p in ipairs(map or {}) do
+        if p.enabled and type(p.from) == "string" and type(p.to) == "string" then
+            local conds = ""
+            if type(p.conditions) == "table" and #p.conditions > 0 then
+                conds = table.concat(p.conditions, CS)
+            end
+            out[#out + 1] = table.concat({
+                b36(idOf(p.from)), b36(idOf(p.to)),
+                CAT_CODE[p.category or "evolution"] or (p.category or "evolution"),
+                tostring(tonumber(p.minLevel) or 1),
+                STONE_CODE[p.stone or "evolution"] or (p.stone or "evolution"),
+                conds,
+            }, FS)
+        end
+    end
+    local body = table.concat(dict, ",") .. RS .. table.concat(out, RS)
+    return body, hashOf(body), #out
+end
+
+--- Turns a received body back into pairs. Everything that does not look like a
+--- pair is dropped rather than guessed at: this data comes off the wire, and a
+--- half-understood record would be a wrong tree presented as the server's.
+function TreeSync.decode(body)
+    local firstBreak = tostring(body or ""):find(RS, 1, true)
+    if not firstBreak then return {} end
+    local dict = {}
+    for name in body:sub(1, firstBreak - 1):gmatch("[^,]+") do dict[#dict + 1] = name end
+
+    local pairsOut = {}
+    for line in body:sub(firstBreak + 1):gmatch("[^" .. RS .. "]+") do
+        local from, to, cat, lvl, stone, conds =
+            line:match("^([^|]+)|([^|]+)|([^|]*)|([^|]*)|([^|]*)|(.*)$")
+        local fi, ti = from and unb36(from), to and unb36(to)
+        local fromId = fi and dict[fi + 1]
+        local toId = ti and dict[ti + 1]
+        if fromId and toId then
+            local p = {
+                from = fromId,
+                to = toId,
+                category = CAT_WORD[cat] or (cat ~= "" and cat) or "evolution",
+                minLevel = tonumber(lvl) or 1,
+                stone = STONE_WORD[stone] or (stone ~= "" and stone) or "evolution",
+                enabled = true,
+            }
+            if conds and conds ~= "" then
+                local list = {}
+                for c in conds:gmatch("[^;]+") do list[#list + 1] = c end
+                if #list > 0 then p.conditions = list end
+            end
+            pairsOut[#pairsOut + 1] = p
+        end
+    end
+    return pairsOut
+end
+
+-- ------------------------------------------------------------------- host
+
+--- Sends the tree to one joined client. One message, size checked first: a
+--- payload over the cap is a bug worth a line in the log, never a send.
+function TreeSync.sendTo(playerCtx)
+    if not playerCtx or playerCtx.isLocal then return false end
+    if not (playerCtx.pc and playerCtx.pc:IsValid()) then return false end
+    local body, hash, count = TreeSync.encode(Config.map)
+    local frame = TreeSync.PREFIX .. hash .. "|" .. count .. "|" .. body
+    if #frame > MAX_PAYLOAD then
+        Log(string.format("tree sync NOT sent: %d pairs are %d bytes, over the %d byte cap",
+            count, #frame, MAX_PAYLOAD))
+        return false
+    end
+    local ok = pcall(function()
+        playerCtx.pc:SendScreenLogToClient(frame,
+            { R = 0.2, G = 1.0, B = 0.4, A = 1.0 }, 0.1, FName("PalvolveTree"))
+    end)
+    if ok then
+        Log(string.format("tree sync sent: %d pairs, %d bytes, %s", count, #frame, hash))
+    else
+        Log("tree sync failed to send")
+    end
+    return ok
+end
+
+-- ----------------------------------------------------------------- client
+
+-- What the client had before a server tree replaced it, so leaving the server
+-- does not leave the player's own tree overwritten for the rest of the session.
+local localMap = nil
+local activeHash = nil
+
+--- True while this client is drawing a tree that came from a server.
+function TreeSync.isActive()
+    return activeHash ~= nil
+end
+
+function TreeSync.activeHash()
+    return activeHash
+end
+
+--- Drops what the tree feeds: both modules cache derived lists, and a swapped
+--- map that leaves those standing shows the old tree with the new rules.
+local function invalidateViews()
+    -- The config's own derived tables first: the spelling map and the egg
+    -- filter's parent lists are built once from the pair map, so leaving them
+    -- standing means the old tree still answers those two questions.
+    pcall(function()
+        if Config.invalidateDerived then Config.invalidateDerived() end
+    end)
+    pcall(function()
+        local ok, view = pcall(require, "treeview")
+        if ok and view and view.invalidate then view.invalidate() end
+    end)
+    pcall(function()
+        local ok, html = pcall(require, "treehtml")
+        if ok and html and html.invalidate then html.invalidate() end
+    end)
+end
+
+--- Applies a received tree. Returns false when nothing usable came out of it,
+--- in which case the client keeps its own file rather than showing an empty
+--- tree that claims to be the server's.
+function TreeSync.applyFrame(frame)
+    local hash, count, body = frame:match("^" .. TreeSync.PREFIX:gsub("|", "%%|")
+        .. "(%x+)|(%d+)|(.*)$")
+    if not (hash and body) then return false end
+    if activeHash == hash then return true end
+    local received = TreeSync.decode(body)
+    if #received == 0 then
+        Log("server tree arrived empty, keeping the local one")
+        return false
+    end
+    if tonumber(count) and #received ~= tonumber(count) then
+        Log(string.format("server tree incomplete: %d of %s pairs, keeping the local one",
+            #received, count))
+        return false
+    end
+    if localMap == nil then localMap = Config.map end
+    Config.map = received
+    activeHash = hash
+    invalidateViews()
+    Log(string.format("server tree active: %d pairs, %s", #received, hash))
+    return true
+end
+
+--- Back to the player's own tree, for when this client leaves the server.
+function TreeSync.restoreLocal()
+    if localMap == nil then return end
+    Config.map = localMap
+    localMap, activeHash = nil, nil
+    invalidateViews()
+    Log("back to the local tree")
+end
+
+return TreeSync
