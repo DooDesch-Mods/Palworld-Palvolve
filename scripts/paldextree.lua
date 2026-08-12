@@ -24,6 +24,10 @@
 
 local M = {}
 
+-- only for devMode, which gates the noisier diagnostics in here
+local okCfg, Config = pcall(require, "config")
+if not okCfg or type(Config) ~= "table" then Config = { devMode = false } end
+
 local function Log(msg)
     print(string.format("[Palvolve] %s\n", msg))
 end
@@ -113,6 +117,9 @@ local treeWebOpen = false
 local treeWebCurrent = nil
 local treeWebPage = nil
 local treeWebPageFor = nil  -- which Pal treeWebPage was built for
+-- and in which layout: docked leaves the side list and the close link out, so a
+-- page built for one of the two is the wrong page for the other
+local treeWebPageDocked = nil
 -- The page is rebuilt on every click, so the list starts at the top again and
 -- the Pal that was just picked is somewhere out of sight. The fragment cannot
 -- ride along in the load URL - tried, and the page then stops answering clicks
@@ -213,7 +220,11 @@ local function startTreeWebWatcher(html, firstDelivery)
             if url:find("palvolve.local", 1, true) then
                 delivered = true
                 Log("tree page delivered after " .. ticks .. " ticks")
-            elseif ticks <= 40 then
+            elseif ticks <= 40 and (ticks <= 2 or ticks % 8 == 0) then
+                -- The page is the whole document, portraits included, so
+                -- offering it on every one of forty ticks meant handing the
+                -- browser megabytes for nothing. Twice quickly, then once a
+                -- second, which is still well inside what UMG needs.
                 pcall(function() treeWebBrowser:LoadString(treeWebPage, TREE_ORIGIN) end)
             elseif ticks == 41 then
                 Log("the browser never took the tree page - url [" .. url .. "]")
@@ -243,7 +254,12 @@ local function startTreeWebWatcher(html, firstDelivery)
             local t = os.clock()
             treeWebPage = html.page(pick)
             pcall(function() treeWebBrowser:LoadString(treeWebPage, TREE_ORIGIN) end)
-            treeWebAnchor, treeWebAnchorAt = pick, ticks + 3
+            -- Only the free-standing window has a side list to scroll; docked,
+            -- that list is not on the page, so the second navigation had no
+            -- anchor to find and cost a load for nothing.
+            if not treeWebDocked then
+                treeWebAnchor, treeWebAnchorAt = pick, ticks + 3
+            end
             Log(string.format("tree page centred on %s (%d ms)",
                 pick, math.floor((os.clock() - t) * 1000)))
         end
@@ -310,7 +326,15 @@ function M.toggleTreeWindow(keepInput)
         -- shown as plain Visible it takes every click outside the window with
         -- it. That is why the Paldex went dead the second time it was opened.
         pcall(function() treeWebWidget:SetVisibility(4) end)
-        treeWebPage = html.page(treeWebCurrent)
+        -- The click handler already built this page off the game thread. Building
+        -- it again here is the same work a second time, in the one place where
+        -- the game is waiting for it.
+        if not (treeWebPage and treeWebPageFor == treeWebCurrent
+            and treeWebPageDocked == treeWebDocked) then
+            treeWebPage = html.page(treeWebCurrent)
+            treeWebPageFor = treeWebCurrent
+            treeWebPageDocked = treeWebDocked
+        end
         pcall(function() treeWebBrowser:LoadString(treeWebPage, TREE_ORIGIN) end)
         local pc = FindFirstOf("PalPlayerController")
         if pc and pc:IsValid() and not treeWebKeepInput then grabInput(pc) end
@@ -361,9 +385,11 @@ function M.toggleTreeWindow(keepInput)
     -- here costs seconds on a cold icon cache, and every one of them is a
     -- second the game stands still.
     local t2 = os.clock()
-    if not (treeWebPage and treeWebPageFor == treeWebCurrent) then
+    if not (treeWebPage and treeWebPageFor == treeWebCurrent
+        and treeWebPageDocked == treeWebDocked) then
         treeWebPage = html.page(treeWebCurrent)
         treeWebPageFor = treeWebCurrent
+        treeWebPageDocked = treeWebDocked
         Log(string.format("tree page %d KB in %d ms",
             math.floor(#treeWebPage / 1024), math.floor((os.clock() - t2) * 1000)))
     end
@@ -541,19 +567,25 @@ local function dockIntoPaldex(barCanvas)
     -- at HitTestInvisible swallows the mouse for everything below it, no matter
     -- what the page or the input mode do. 0 Visible, 3 HitTestInvisible,
     -- 4 self only.
-    local w = treeWebWidget
-    local chain = {}
-    for _ = 1, 8 do
-        local name, vis = "?", -1
-        pcall(function() name = tostring(w:GetFName():ToString()) end)
-        pcall(function() vis = w:GetVisibility() end)
-        chain[#chain + 1] = string.format("%s vis=%d", name, vis)
-        local up = nil
-        pcall(function() up = w.Slot.Parent end)
-        if not (up and up:IsValid()) then break end
-        w = up
+    -- Eight widgets, each with two engine calls and a formatted string, all on
+    -- the game thread and only ever read by us. It answered its question long
+    -- ago, so it stays for the next time that question comes back and costs
+    -- nothing until then.
+    if Config.devMode then
+        local w = treeWebWidget
+        local chain = {}
+        for _ = 1, 8 do
+            local name, vis = "?", -1
+            pcall(function() name = tostring(w:GetFName():ToString()) end)
+            pcall(function() vis = w:GetVisibility() end)
+            chain[#chain + 1] = string.format("%s vis=%d", name, vis)
+            local up = nil
+            pcall(function() up = w.Slot.Parent end)
+            if not (up and up:IsValid()) then break end
+            w = up
+        end
+        Log("tree window sits under: " .. table.concat(chain, " < "))
     end
-    Log("tree window sits under: " .. table.concat(chain, " < "))
 
     Log("tree page docked where the habitat map sits")
     return true
@@ -636,6 +668,15 @@ local paldexWant = nil       -- "open" or "close", set by the click hook
 local paldexLit = false      -- true while the highlight is ours, not the game's
 local paldexBusy = false     -- true while the mod is inside a call to the game
 local paldexPendingRowName = nil -- the button whose row was just clicked
+-- The Palpedia screen we are working with, kept between polls: finding it walks
+-- the object list and resolves a full name per candidate, and the fast loop asks
+-- for it sixteen times a second.
+local paldexScreenSeen = nil
+-- Which screen the "is our tab still in a live bar" question was last answered
+-- for, and how many slow passes have run since, so that answer is not recomputed
+-- from scratch on every pass.
+local paldexCheckedScreen = 0
+local slowChecks = 0
 
 --- A widget that is really on screen. Not just "not the default object": every
 --- widget blueprint also keeps a cooked template of its whole tree, and that one
@@ -927,6 +968,17 @@ function M.start()
                 RegisterHook("/Script/CommonUI.CommonButtonBase:HandleButtonClicked",
                     function(ctx)
                         if paldexBusy then return end
+                        -- EVERY CommonUI button in the game arrives here, on the
+                        -- game thread, including every click in every menu that
+                        -- has nothing to do with this tab. Resolving a full
+                        -- object name is not free, so it only happens on the one
+                        -- screen where a click can mean something to us. The tab
+                        -- exists exactly while a live Palpedia is up, which is
+                        -- also the answer to "is the list being browsed": gated
+                        -- on our page instead, a Pal picked before the tab was
+                        -- clicked went unseen and the tree opened on the Pal from
+                        -- the visit before.
+                        if not (paldexTab or (treeWebOpen and treeWebDocked)) then return end
                         local obj = nil
                         pcall(function() obj = ctx:get() end)
                         local n = "?"
@@ -937,7 +989,7 @@ function M.start()
                         -- one belongs to the model view and stands still while
                         -- the habitat page is up. Remembered here, asked later:
                         -- a Blueprint call from inside a hook freezes the game.
-                        if n:find("Paldex", 1, true) then
+                        if Config.devMode and n:find("Paldex", 1, true) then
                             Log("a Palpedia button was clicked: " .. n)
                         end
                         -- Only the name is taken here. Walking the owner chain
@@ -993,6 +1045,14 @@ function M.start()
     --- attempt counter never reset either - after eight tries the mod gave up
     --- and the tab was missing from every Palpedia afterwards.
     local function paldexOnScreen()
+        -- Asked sixteen times a second while the page is up, and the answer is
+        -- the same object every time. Held on to, because the scan below walks
+        -- the whole object list and resolves a full name per candidate.
+        if paldexScreenSeen and paldexScreenSeen:IsValid() then
+            local stillShown = false
+            pcall(function() stillShown = paldexScreenSeen:IsVisible() end)
+            if stillShown then return paldexScreenSeen end
+        end
         -- The one that is showing, not the first one that exists. The game
         -- keeps more than one Palpedia alive - one of them inside its display
         -- wrapper - and asking the wrong one whether it is visible answers no
@@ -1004,9 +1064,13 @@ function M.start()
                 and not n:find("Default__", 1, true) then
                 local shown = false
                 pcall(function() shown = o:IsVisible() end)
-                if shown then return o end
+                if shown then
+                    paldexScreenSeen = o
+                    return o
+                end
             end
         end
+        paldexScreenSeen = nil
         return nil
     end
 
@@ -1030,10 +1094,21 @@ function M.start()
         -- leaving the Paldex and coming back builds the screen again, and the
         -- old tab kept the mod from ever putting a new one in.
         if paldexTab and paldexTab:IsValid() then
-            local _, liveBox = liveTabsetWithBox()
-            if addrOf(parentPanelOf(paldexTab)) ~= addrOf(liveBox) then
-                paldexTab, paldexIndex, paldexLit = nil, -1, false
-                Log("the tab belongs to a Palpedia that is gone")
+            -- The check itself walks every tabset and every horizontal box in
+            -- the game, which is far too much to spend twice a second on a
+            -- question that only changes when the screen is rebuilt. Asked when
+            -- this is a different screen than last time, and otherwise every
+            -- fourth pass, so a rebuild that keeps the same object is still
+            -- noticed within two seconds.
+            local screenAddr = addrOf(screen)
+            slowChecks = slowChecks + 1
+            if screenAddr ~= paldexCheckedScreen or slowChecks % 4 == 0 then
+                paldexCheckedScreen = screenAddr
+                local _, liveBox = liveTabsetWithBox()
+                if addrOf(parentPanelOf(paldexTab)) ~= addrOf(liveBox) then
+                    paldexTab, paldexIndex, paldexLit = nil, -1, false
+                    Log("the tab belongs to a Palpedia that is gone")
+                end
             end
         end
         if not (paldexTab and paldexTab:IsValid()) then
@@ -1156,6 +1231,7 @@ function M.start()
                 treeWebCurrent = id
                 treeWebPage = page
                 treeWebPageFor = id
+                treeWebPageDocked = treeWebDocked
                 ExecuteInGameThread(function()
                     -- Several switches can be queued before the game thread
                     -- gets here; only the newest page is worth showing.
@@ -1185,6 +1261,7 @@ function M.start()
                 treeWebCurrent = id
                 treeWebPage = html.page(id)
                 treeWebPageFor = id
+                treeWebPageDocked = true
             end
         end
 
@@ -1263,17 +1340,25 @@ end
 -- Warms the icon cache in the background so the first page has nothing left to
 -- encode. Every portrait is read off disk and turned into base64 in plain Lua,
 -- which is cheap once and slow all at once: a player's log shows a first page
--- taking 7.4 seconds with a cold cache, against 30 ms with a warm one. Four
--- icons per tick is small enough not to be felt and done long before anyone
--- opens the Palpedia.
+-- taking 7.4 seconds with a cold cache, against 30 ms with a warm one. The
+-- pace below is set to have the whole set warm within a few seconds of the mod
+-- starting, long before anyone opens the Palpedia.
+local warmStarted = os.clock()
 LoopAsync(400, function()
     local ok, html = pcall(require, "treehtml")
     if not (ok and html and html.warmIcons) then return true end
     local more = false
-    local okWarm = pcall(function() more = html.warmIcons(4) end)
+    -- Small batches on a slow beat. A faster pace does finish the cache sooner,
+    -- but it competes with the engine's own loading for CPU and for the disk,
+    -- and that was felt as stutter. The page itself no longer depends on this
+    -- being finished, so it stays out of the way.
+    local okWarm = pcall(function() more = html.warmIcons(8) end)
     if not okWarm then return true end
     if not more then
-        Log("Pal portraits ready")
+        local warmed, total = 0, 0
+        pcall(function() warmed, total = html.warmProgress() end)
+        Log(string.format("Pal portraits ready: %d of %d in %d ms",
+            warmed, total, math.floor((os.clock() - warmStarted) * 1000)))
         -- Verdict on the pak while nobody is waiting on it, so a support log
         -- answers "is the page even installed" without anyone having to open a
         -- Palpedia first. Loading it here also takes the cost off the first open.

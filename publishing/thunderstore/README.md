@@ -7,7 +7,7 @@
 ## Features
 
 - **143 curated transformations** as the starting point: evolution chains like Pengullet to Penking, fun chains like Sweepa to Snugloo, and 87 element adaptations.
-- **Evolve when you want to:** hold 4, pick Evolve, and your Pal transforms in front of you with a finale built from its target elements. F2 checks and confirms the summoned Pal without the menu.
+- **Evolve when you want to:** hold 4, pick Evolve, and your Pal transforms in front of you with a finale built from its target elements. F2 does the same without the menu once you switch it on (`confirmKeyEnabled = true`).
 - **Keeps identity and progress:** every learned move carries over, even ones the new form could never learn on its own, and level, nickname, gender, passives, IVs, souls and condenser rank all stay. Alphas evolve into Alpha forms, Luckys stay Lucky.
 - **Conditional evolutions:** a pair can require day or night, water, a status effect, a location, a party member, a known move element, or a trainer-level, trust-rank or IV threshold. Greyed options name what is still missing, in your game language.
 - **The tree in the game:** the Palpedia gets a third tab next to Stats and Habitat, showing what the selected Pal evolves from and into, with the level, the stone and the conditions each step needs.
@@ -98,6 +98,6 @@ When you report something, include your Palvolve version, your Palworld version 
 
 ## Notes
 
-- Tested with Palworld 1.0 build 619 - singleplayer, co-op and dedicated servers.
+- Tested with Palworld 1.0.3 build 1283 - singleplayer, co-op and dedicated servers.
 - Never use mods on official servers.
 - Source and releases: [GitHub](https://github.com/DooDesch-Mods/Palworld-Palvolve)

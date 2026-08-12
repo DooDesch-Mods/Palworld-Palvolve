@@ -2,9 +2,9 @@
   "ModName": "Palvolve",
   "PackageName": "Palvolve",
   "Thumbnail": "thumbnail.png",
-  "Version": "1.6.3",
+  "Version": "1.6.4",
   "DebugMode": false,
-  "MinRevision": 619,
+  "MinRevision": 1283,
   "Author": "DooDesch",
   "Dependencies": null,
   "Tags": [
@@ -45,7 +45,7 @@
     {
       "Type": "LogicMods",
       "Targets": [
-        "./LogicMods"
+        "./LogicMods/"
       ]
     }
   ]

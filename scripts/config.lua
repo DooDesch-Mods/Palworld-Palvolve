@@ -31,7 +31,7 @@ local Config = {
 
     -- Mod version, reported to connected clients by the host handshake. Keep in
     -- sync with Info.json (the release flow checks this).
-    modVersion = "1.6.3",
+    modVersion = "1.6.4",
 
     -- Unlock the catch-gated technologies (saddle, Pal gear) of the target species when a
     -- pal evolves, the same way capturing one would. Needs the native companion in
@@ -90,9 +90,11 @@ local Config = {
     treeCloseButton = false,
 
     -- Two-stage confirm: first press checks and announces, second press confirms.
-    -- Set confirmKeyEnabled to false to leave the key alone entirely - another
-    -- mod may want it, and the wheel entry and the chat command still evolve.
-    confirmKeyEnabled = true,
+    -- Off by default since 1.6.4, because a mod that claims a function key on
+    -- every install collides with the rest of a player's setup for a path the
+    -- wheel and the chat command already cover. Set it to true to get the key
+    -- back; nothing else about evolving changes either way.
+    confirmKeyEnabled = false,
     confirmKey = "F2",
     confirmWindowSeconds = 10,
     debounceSeconds = 0.5,
@@ -179,9 +181,11 @@ local Config = {
     -- author picked and label may be empty, so whatever draws a frame needs a
     -- fallback for a color it does not know.
     arrangement = { positions = {}, frames = {}, copies = {} },
-    -- Palworld revision: the trailing digits of the title-screen version
-    -- (v1.0.1.100619 -> 619), the identifier the official mod loader uses
-    gameBuild = 619,
+    -- Palworld revision: the last five digits of the title-screen version
+    -- (v1.0.3.101283 -> 1283), the identifier the official mod loader uses.
+    -- Five, not three: v1.0.1.100619 gave 619 either way, which hid the rule
+    -- until a version arrived where the two readings disagree.
+    gameBuild = 1283,
 
     map = {
     -- ==================== True evolutions (small -> big form) ====================
@@ -1768,6 +1772,14 @@ local function installSavedDir()
     local src = ""
     pcall(function() src = debug.getinfo(1, "S").source or "" end)
     local palDir = src:match("^@?(.*)[/\\][Bb]inaries[/\\]")
+    if not palDir then
+        -- Some loaders hand out a chunk name rather than a path. The module
+        -- search knows where this file really came from, and it answers with an
+        -- absolute path on every layout tested.
+        local found = nil
+        pcall(function() found = package.searchpath("config", package.path) end)
+        if found then palDir = found:match("^(.*)[/\\][Bb]inaries[/\\]") end
+    end
     if not palDir then return nil end
     return palDir .. "\\Saved\\Palvolve"
 end
@@ -1794,14 +1806,23 @@ end
 
 -- Makes a drop folder exist so users only have to paste the path; probes
 -- first to avoid a shell call on every start.
+--- Makes the drop folder exist and says whether it does. It used to try once
+--- and never look: a server where os.execute is not allowed to spawn a shell
+--- kept reporting nothing at all, and the admin saw no folder and no reason.
 local function ensureDir(dir)
-    local probe = io.open(dir .. "\\.palvolve", "w")
-    if probe then
+    local function writable()
+        local probe = io.open(dir .. "\\.palvolve", "w")
+        if not probe then return false end
         probe:close()
         os.remove(dir .. "\\.palvolve")
-    else
-        pcall(os.execute, 'mkdir "' .. dir .. '" >nul 2>nul')
+        return true
     end
+    if writable() then return true end
+    pcall(os.execute, 'mkdir "' .. dir .. '" >nul 2>nul')
+    if writable() then return true end
+    print(string.format("[Palvolve] could not create %s - create the folder by hand "
+        .. "and put config_user.lua in it\n", dir))
+    return false
 end
 
 -- Optional user overlay: the configurator at palvolve.doodesch.de generates
@@ -1822,7 +1843,19 @@ local function loadUserConfig()
     local dirs = {}
     if Role.isDedicated() then
         local installDir = installSavedDir()
-        if installDir then table.insert(dirs, installDir) end
+        if installDir then
+            table.insert(dirs, installDir)
+            -- Made to exist before anything is read, not after a failed search.
+            -- An admin who already had a config somewhere else never saw this
+            -- folder appear, because the lookup below returns on the first hit
+            -- and the creation used to sit behind it. The folder is the whole
+            -- point on a server: it is the one place FTP reaches that an update
+            -- does not replace.
+            ensureDir(installDir)
+        else
+            print("[Palvolve] could not work out where this server is installed, so "
+                .. "the update-proof config folder was not created\n")
+        end
     end
     if appDataDir then table.insert(dirs, appDataDir) end
 
@@ -1834,13 +1867,16 @@ local function loadUserConfig()
     end
     -- only the folder that side can actually use gets created, so a client
     -- install never grows a stray folder inside the Steam directory
-    local preferred = dirs[1]
-    if preferred then ensureDir(preferred) end
+    -- A server already has its folder from above; this is the player's one.
+    if not Role.isDedicated() and appDataDir then ensureDir(appDataDir) end
 
     local fallback = scriptsConfigPath()
     table.insert(checked, fallback or "scripts\\config_user.lua")
     local okReq, result = pcall(require, "config_user")
     if okReq and type(result) == "table" then
+        -- The update-proof spot for this side: the install folder on a server,
+        -- %LocalAppData% for a player.
+        local preferred = dirs[1]
         if preferred then
             print(string.format("[Palvolve] this config sits in the mod folder, where the next "
                 .. "mod update replaces it. Update-proof location: %s\\config_user.lua\n", preferred))

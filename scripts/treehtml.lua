@@ -48,15 +48,43 @@ end
 local iconCache = {}
 local iconRoot = nil
 
+-- Relative to the process working directory, which is the Win64 folder. These
+-- only ever covered the manual install: the game's own loader puts the mod four
+-- levels deeper, under Mods\NativeMods\UE4SS\Mods\, and every player who
+-- installed from the Workshop got a tree with no portraits in it at all.
 local ICON_ROOTS = {
     "Mods/Palvolve/scripts/icons/",
     "ue4ss/Mods/Palvolve/scripts/icons/",
+    "Mods/NativeMods/UE4SS/Mods/Palvolve/Scripts/icons/",
     "Pal/Binaries/Win64/ue4ss/Mods/Palvolve/scripts/icons/",
+    "Pal/Binaries/Win64/Mods/NativeMods/UE4SS/Mods/Palvolve/Scripts/icons/",
 }
+
+--- Where this very file was loaded from, which is the only answer that holds
+--- for every install layout there is or will be. The list above stays as the
+--- fallback for the case where the loader hands out no usable path.
+local function scriptIconRoot()
+    local path = nil
+    pcall(function() path = package.searchpath("treehtml", package.path) end)
+    if not path then
+        pcall(function()
+            local src = debug.getinfo(1, "S").source or ""
+            path = src:match("^@(.+)$")
+        end)
+    end
+    if not path then return nil end
+    local dir = path:match("^(.*[/\\])[^/\\]*$")
+    if not dir then return nil end
+    return dir .. "icons/"
+end
 
 local function findIconRoot()
     if iconRoot ~= nil then return iconRoot or nil end
-    for _, root in ipairs(ICON_ROOTS) do
+    local own = scriptIconRoot()
+    local roots = {}
+    if own then roots[#roots + 1] = own end
+    for _, r in ipairs(ICON_ROOTS) do roots[#roots + 1] = r end
+    for _, root in ipairs(roots) do
         local f = io.open(root .. "SheepBall.webp", "rb")
         if f then
             f:close()
@@ -72,34 +100,44 @@ end
 
 local B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
---- Plain base64. Lua has no bit library guaranteed here, so the three bytes are
---- taken apart with arithmetic, which is fast enough for a few dozen small
---- files and works on every build.
+-- Base64 without a bit library, which is not guaranteed on this build.
+--
+-- Speed matters more here than anywhere else in the file: a portrait is 5 KB,
+-- 287 of them ship with the mod, and the first page a player opens used to take
+-- seconds because every byte went through four string.sub calls that each
+-- allocate a one-character string. The tables below turn the inner loop into
+-- lookups: CHAR maps a 6-bit value to its character, and PAIR maps a whole
+-- 12-bit value to the two characters it produces, so three input bytes cost two
+-- table reads instead of four calls plus three concatenations.
+local CHAR = {}
+for i = 1, 64 do CHAR[i - 1] = B64:sub(i, i) end
+local PAIR = {}
+for hi = 0, 63 do
+    local c = CHAR[hi]
+    local base = hi * 64
+    for lo = 0, 63 do PAIR[base + lo] = c .. CHAR[lo] end
+end
+
 local function base64(data)
     local out = {}
     local n = #data
     local i = 1
+    local k = 0
+    -- Chunked so the out table stays small: table.concat over a few hundred
+    -- entries beats one over tens of thousands.
     while i + 2 <= n do
         local a, b, c = data:byte(i, i + 2)
-        local v = a * 65536 + b * 256 + c
-        out[#out + 1] = B64:sub(math.floor(v / 262144) % 64 + 1, math.floor(v / 262144) % 64 + 1)
-            .. B64:sub(math.floor(v / 4096) % 64 + 1, math.floor(v / 4096) % 64 + 1)
-            .. B64:sub(math.floor(v / 64) % 64 + 1, math.floor(v / 64) % 64 + 1)
-            .. B64:sub(v % 64 + 1, v % 64 + 1)
+        k = k + 1
+        out[k] = PAIR[a * 16 + math.floor(b / 16)] .. PAIR[(b % 16) * 256 + c]
         i = i + 3
     end
     local left = n - i + 1
     if left == 1 then
         local a = data:byte(i)
-        local v = a * 65536
-        out[#out + 1] = B64:sub(math.floor(v / 262144) % 64 + 1, math.floor(v / 262144) % 64 + 1)
-            .. B64:sub(math.floor(v / 4096) % 64 + 1, math.floor(v / 4096) % 64 + 1) .. "=="
+        out[k + 1] = PAIR[a * 16] .. "=="
     elseif left == 2 then
         local a, b = data:byte(i, i + 1)
-        local v = a * 65536 + b * 256
-        out[#out + 1] = B64:sub(math.floor(v / 262144) % 64 + 1, math.floor(v / 262144) % 64 + 1)
-            .. B64:sub(math.floor(v / 4096) % 64 + 1, math.floor(v / 4096) % 64 + 1)
-            .. B64:sub(math.floor(v / 64) % 64 + 1, math.floor(v / 64) % 64 + 1) .. "="
+        out[k + 1] = PAIR[a * 16 + math.floor(b / 16)] .. CHAR[(b % 16) * 4] .. "="
     end
     return table.concat(out)
 end
@@ -112,6 +150,13 @@ local function icon(palId)
         return nil
     end
     local f = io.open(root .. palId .. ".webp", "rb")
+    if not f then
+        -- An adaptation is a recolour of its base form, and for a few of them
+        -- no art exists anywhere. The base portrait is the wrong colour but it
+        -- is the right Pal, which beats the empty box players were reporting.
+        local base = tostring(palId):match("^(.+)_[^_]+$")
+        if base then f = io.open(root .. base .. ".webp", "rb") end
+    end
     if not f then
         iconCache[palId] = false
         return nil
@@ -559,8 +604,66 @@ body.docked .watermark{left:26px}
 -- a way out that is visible beats one the reader has to know about.
 local docked = false
 
+-- Reading a line means clicking back and forth between the same handful of
+-- Pals, and a finished page does not change while the world runs: same tree,
+-- same language, same layout. Keeping the last few turns every step back into
+-- a paste instead of a rebuild, which is where most of the wait went. A page
+-- carries its portraits as text, so the number is kept small on purpose.
+-- A docked page is small, but the free-standing window carries the whole side
+-- list, which is every portrait in the tree as text. Counting entries alone
+-- would let sixteen of those add up to tens of megabytes, so the bytes are
+-- capped as well and the oldest entries go first.
+local PAGE_CACHE_MAX = 16
+local PAGE_CACHE_BYTES = 8 * 1024 * 1024
+local pageCache = {}
+local pageOrder = {}
+local pageBytes = 0
+
+local function dropPages()
+    pageCache = {}
+    pageOrder = {}
+    pageBytes = 0
+end
+
+-- Lower-case id -> the spelling this world's tree uses. The Paldex row hands
+-- out "SheepBall" while the config says "Sheepball", and a key that is off by
+-- one capital finds nothing: the Pal then shows as a dead end with every one of
+-- its twenty-two ways out missing. Built once per list rather than scanned
+-- twice per click, which on a 279 Pal tree is two full passes before the page
+-- cache is even consulted.
+local canonList = nil
+local canonMap = nil
+
+local function canonicalOf(pals)
+    if canonMap and canonList == pals then return canonMap end
+    local map = {}
+    for _, id in ipairs(pals) do map[id:lower()] = id end
+    canonList, canonMap = pals, map
+    return map
+end
+
+local function rememberPage(key, html)
+    if pageCache[key] == nil then
+        pageOrder[#pageOrder + 1] = key
+    else
+        pageBytes = pageBytes - #pageCache[key]
+    end
+    pageCache[key] = html
+    pageBytes = pageBytes + #html
+    while #pageOrder > PAGE_CACHE_MAX
+        or (pageBytes > PAGE_CACHE_BYTES and #pageOrder > 1) do
+        local oldest = table.remove(pageOrder, 1)
+        local gone = pageCache[oldest]
+        if gone then pageBytes = pageBytes - #gone end
+        pageCache[oldest] = nil
+    end
+end
+
 function M.setDocked(on)
-    docked = on == true
+    local want = on == true
+    -- the two layouts differ, so the cached pages of the other one are wrong
+    if want ~= docked then dropPages() end
+    docked = want
 end
 
 function M.page(centerId)
@@ -574,19 +677,8 @@ function M.page(centerId)
     -- off by a capital letter finds nothing - the Pal then shows as a dead end
     -- with every one of its twenty-two ways out missing.
     if centerId then
-        local exact = false
-        for _, id in ipairs(pals) do
-            if id == centerId then exact = true break end
-        end
-        if not exact then
-            local low = tostring(centerId):lower()
-            for _, id in ipairs(pals) do
-                if id:lower() == low then
-                    centerId = id
-                    break
-                end
-            end
-        end
+        local canon = canonicalOf(pals)[tostring(centerId):lower()]
+        if canon then centerId = canon end
     end
 
     if #pals == 0 then
@@ -597,13 +689,35 @@ function M.page(centerId)
     end
     if not centerId then centerId = pals[1] end
 
+    -- After the spelling is settled, so both spellings of a Pal share one entry.
+    -- The fold switch and the language are part of the key because both change
+    -- every rule on the page: keyed by the Pal alone, clicking the switch on a
+    -- page that had been built once handed back the same page, and a language
+    -- that only resolves after the first page would have left that one English.
+    -- The same two numbers the configurator prints under a shared tree, so a
+    -- player comparing the website with the game reads one answer, not two.
+    local stepActive, stepTotal = 0, 0
+    if m.stepCount then
+        local okSteps, a, b = pcall(m.stepCount)
+        if okSteps then stepActive, stepTotal = a or 0, b or 0 end
+    end
+
+    local cacheKey = tostring(centerId) .. "|" .. conditionMode .. "|" .. I18n.lang()
+    local ready = pageCache[cacheKey]
+    if ready then return ready end
+
     -- By paldex number, not by name: the number is what the game prints next to
     -- every Pal, and a player looking for #020 does not want to know that it is
     -- called Melpaca first. The strings are zero padded, so plain text order is
     -- numeric order, and a variant lands right behind its base form ("#111"
     -- before "#111B"). Anything without a number goes last rather than to the
     -- front, where an empty string would otherwise sort it.
-    table.sort(pals, function(a, b)
+    -- A copy: the model hands out one and the same list to every caller now, so
+    -- sorting it in place leaves its own list in paldex order - and the widget
+    -- window that reads it draws its Pals by name.
+    local ordered = {}
+    for i = 1, #pals do ordered[i] = pals[i] end
+    table.sort(ordered, function(a, b)
         local na, nb = Paldex[a], Paldex[b]
         if na and nb and na ~= nb then return na < nb end
         if na and not nb then return true end
@@ -614,7 +728,7 @@ function M.page(centerId)
     -- Skipped entirely when docked, not just hidden: the list is 289 portraits
     -- in base64 and by far the largest part of the page.
     local list = {}
-    for _, id in ipairs(docked and {} or pals) do
+    for _, id in ipairs(docked and {} or ordered) do
         local img = icon(id)
         list[#list + 1] = string.format(
             '<a class="item%s" id="pick/%s" href="#pick/%s" style="--tint:%s">%s'
@@ -663,7 +777,10 @@ function M.page(centerId)
     -- Above this many on either side the portraits shrink, which is what keeps
     -- a Pal with twenty ways out on one screen instead of scrolling off it, and
     -- the conditions fold away with them.
-    local crowded = #incoming > 6 or #outgoing > 6
+    -- The same number the wings switch layout at. Left at six, a side with
+    -- exactly six entries drew dense cards and kept the condition chips that
+    -- density is supposed to fold away.
+    local crowded = #incoming > 5 or #outgoing > 5
     showConditions = (conditionMode == "on")
         or (conditionMode == "auto" and not crowded)
 
@@ -681,7 +798,10 @@ function M.page(centerId)
 
         -- Each side decides its own density: one crowded wing used to shrink
         -- the quiet one too, which made a lone neighbour look unimportant.
-        local crowded = #entries > 6
+        -- Six was one too many: six roomy cards are wider than the space beside
+        -- the hub, so the column was pushed out of the frame and the portraits
+        -- on the left were cut in half. Five is what fits.
+        local crowded = #entries > 5
 
         if crowded then
             -- Read left to right: the grid fills a row before it starts the
@@ -723,12 +843,12 @@ function M.page(centerId)
             title, dir, rows, table.concat(parts))
     end
 
-    return table.concat({
+    local html = table.concat({
         '<!doctype html><html><head><meta charset="utf-8"><style>', CSS,
         '</style></head><body', docked and ' class="docked"' or '', '>',
         '<div class="top"><span class="brand">Palvolve</span>',
         string.format('<span class="meta">%s</span><span class="spacer"></span>',
-            t("treeCount", #pals)),
+            t("treeCount", #pals, stepActive, stepTotal)),
         string.format('<a class="switch" href="#conditions/%s">%s</a>',
             showConditions and "off" or "on",
             t(showConditions and "treeHideConditions" or "treeShowConditions")),
@@ -758,22 +878,53 @@ function M.page(centerId)
             esc(t("treeBadgeHint"))),
         '</body></html>',
     })
+    rememberPage(cacheKey, html)
+    return html
 end
 
---- Fills the icon cache a few files at a time. The caller decides the pace;
---- doing it all at once would freeze the game for as long as it takes, which is
---- the very thing this avoids. Returns false when there is nothing left to do.
+--- Fills the icon cache. This runs off the game thread, so the pace is about
+--- not hogging a core rather than about frames: a batch stops at whichever
+--- comes first, the count or the time budget, so a slow disk cannot turn one
+--- call into a long one. Returns false when there is nothing left to do.
 local warmIndex = 1
-function M.warmIcons(count)
+
+--- How many portraits are cached and how many there are in total, for the line
+--- the loader prints when it is done. A support log that says "48 of 61" tells
+--- the difference between a slow warm-up and portraits that do not exist.
+function M.warmProgress()
+    local m = model()
+    if not m then return 0, 0 end
+    local okIds, ids = pcall(m.listedPals)
+    if not (okIds and ids) then return 0, 0 end
+    return math.min(warmIndex - 1, #ids), #ids
+end
+
+function M.warmIcons(count, budgetSeconds)
     local m = model()
     if not m then return false end
     local okIds, ids = pcall(m.listedPals)
     if not (okIds and ids) then return false end
+    -- Measured, twice, and the second measurement is the one that counts.
+    -- One portrait costs 5 to 10 ms, and while the game loads this loop is only
+    -- given a turn every 2.4 seconds, so a bigger batch does finish sooner: 221
+    -- portraits in 113 s instead of several minutes. It also made the game
+    -- stutter, because those are CPU seconds and file reads taken while the
+    -- engine is streaming its own assets. Being early is worth less than being
+    -- quiet, so the batch stays small: the cache only has to be warm before
+    -- someone opens the Palpedia, and a page builds its own missing portraits
+    -- anyway.
+    local budget = budgetSeconds or 0.012
+    local started = os.clock()
     local done = 0
     while warmIndex <= #ids and done < (count or 4) do
         icon(ids[warmIndex])
         warmIndex = warmIndex + 1
         done = done + 1
+        if (os.clock() - started) >= budget then break end
+    end
+    if Config.devMode and done > 0 then
+        print(string.format("[Palvolve] [warm] %d portraits in %d ms (%d of %d done)\n",
+            done, math.floor((os.clock() - started) * 1000), warmIndex - 1, #ids))
     end
     return warmIndex <= #ids
 end

@@ -63,7 +63,19 @@ end
 
 --- Every Pal the loaded tree knows a step for, in paldex order where known.
 --- Only these go in the list: a Pal without a path answers no question.
+-- Built once and handed out again afterwards. Every page asks for this list
+-- before anything else, so on a 613 pair tree the walk and the sort used to run
+-- on every single click. The cached list is dropped when the names change
+-- underneath it, which happens exactly once: the text system answers with raw
+-- ids until a world is up, so the first list is sorted by id and every later
+-- one by the name the player reads.
+local listedCache = nil
+local listedProbe = nil
+
 local function listedPals()
+    if listedCache and listedProbe and palName(listedProbe.id) == listedProbe.name then
+        return listedCache
+    end
     local seen, ids = {}, {}
     for _, p in ipairs(Config.map or {}) do
         if p.enabled then
@@ -76,8 +88,14 @@ local function listedPals()
         end
     end
     -- by the name the player reads, not by the internal id: nobody looking for
-    -- Lamball is scanning for "SheepBall"
-    table.sort(ids, function(a, b) return palName(a) < palName(b) end)
+    -- Lamball is scanning for "SheepBall". The names are resolved once into a
+    -- lookup instead of inside the comparator, which table.sort calls O(n log n)
+    -- times: 279 lookups rather than the roughly 4600 that cost.
+    local byName = {}
+    for _, id in ipairs(ids) do byName[id] = palName(id) end
+    table.sort(ids, function(a, b) return byName[a] < byName[b] end)
+    listedCache = ids
+    listedProbe = ids[1] and { id = ids[1], name = byName[ids[1]] } or nil
     return ids
 end
 
@@ -361,6 +379,20 @@ end
 -- The model is the same whoever draws it. The window below is one reader; the
 -- widgets in the pak are another, and they get it through here rather than
 -- rebuilding the same three walks over Config.map.
+--- Active and total pairs, counted the way the configurator counts them, so the
+--- header in the game and the line on the website say the same thing about the
+--- same config. The Pal count alone was read as the number of evolutions twice
+--- in one hour by two different people.
+local function stepCount()
+    local active, total = 0, 0
+    for _, p in ipairs(Config.map or {}) do
+        total = total + 1
+        if p.enabled then active = active + 1 end
+    end
+    return active, total
+end
+
+M.stepCount = stepCount
 M.listedPals = listedPals
 M.neighbours = neighbours
 M.onwardCount = onwardCount

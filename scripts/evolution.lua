@@ -195,9 +195,34 @@ local displayNameCache = {}
 --- reflection round trip, fails, is not cached, and is asked again on the next
 --- pass. Hundreds of those per menu screen are the cost, and the log fills with
 --- FAIL lines that say nothing.
+-- The text system needs two objects, and both are the same for a whole world:
+-- the local character and the master data utility. Looking them up per name is
+-- what made a name cost milliseconds, because FindFirstOf walks the object
+-- list every time and a single tree page asks for two dozen names. Held here
+-- and revalidated, so a page pays for one lookup instead of two per Pal.
+local cachedNameCtx = nil
+local cachedNameMdt = nil
+
+local function nameLookupPair()
+    if not (cachedNameCtx and cachedNameCtx:IsValid()) then
+        cachedNameCtx = FindFirstOf("PalPlayerCharacter")
+    end
+    if not (cachedNameCtx and cachedNameCtx:IsValid()) then return nil, nil end
+    if not (cachedNameMdt and cachedNameMdt:IsValid()) then
+        cachedNameMdt = StaticFindObject("/Script/Pal.Default__PalMasterDataTablesUtility")
+    end
+    if not (cachedNameMdt and cachedNameMdt:IsValid()) then return nil, nil end
+    return cachedNameMdt, cachedNameCtx
+end
+
 local function worldIsUp()
+    if cachedNameCtx and cachedNameCtx:IsValid() then return true end
     local pc = FindFirstOf("PalPlayerCharacter")
-    return pc ~= nil and pc:IsValid()
+    if pc and pc:IsValid() then
+        cachedNameCtx = pc
+        return true
+    end
+    return false
 end
 
 local function palDisplayName(id)
@@ -212,9 +237,8 @@ local function palDisplayName(id)
     local lookupId = id:gsub("^BOSS_", "")
     local name = nil
     pcall(function()
-        local mdt = StaticFindObject("/Script/Pal.Default__PalMasterDataTablesUtility")
-        local ctx = FindFirstOf("PalPlayerCharacter")
-        if not (mdt and mdt:IsValid() and ctx and ctx:IsValid()) then return end
+        local mdt, ctx = nameLookupPair()
+        if not (mdt and ctx) then return end
         -- EPalLocalizeTextCategory::PalMonsterName = 4
         local txt = mdt:GetLocalizedText(ctx, 4, FName("PAL_NAME_" .. lookupId))
         if txt then
@@ -732,9 +756,59 @@ local sequenceStartedAt = 0
 local sequenceBudgetS = 30
 local currentAbort = nil
 
+-- Heartbeat for the mod's own timers. Every timed step runs on callbacks that
+-- UE4SS delivers from its Lua tick hook, and that hook is removed as soon as
+-- one callback reference has been garbage collected while still scheduled
+-- ("Ref was not function"). From then on nothing timed happens: an evolution
+-- that is mid-flight never reaches its next phase, the Pal stays hidden and
+-- the stone is already spent, with no line in the log to say why. Hooks keep
+-- firing though, so anything hook-driven can still notice the silence.
+local lastBeat = os.clock()
+local lastTimersNotice = -1000
+LoopAsync(1000, function()
+    lastBeat = os.clock()
+    return false
+end)
+
+-- Deliberately generous: five missed beats, so a loading screen or a frame
+-- spike is never mistaken for a dead tick.
+local function timersDead()
+    return (os.clock() - lastBeat) > 5
+end
+
+-- Long past any stall a running process can produce, so this one is safe to
+-- act on: starting an evolution here would take the cost and then stop at the
+-- first timed step, leaving the player a hidden Pal and a spent stone.
+local function timersGone()
+    return (os.clock() - lastBeat) > 15
+end
+
+-- Said from both entry points, at most twice a minute: the state does not heal
+-- on its own, so repeating it on every press would bury the chat.
+local function reportDeadTimers(playerCtx)
+    if (os.clock() - lastTimersNotice) <= 30 then return end
+    lastTimersNotice = os.clock()
+    Log("the timers are not running: UE4SS removed this mod's Lua tick hook, "
+        .. "so no timed step of the mod happens any more. A game restart brings them back.")
+    Role.chat(playerCtx or Role.localPlayerCtx(), I18n.msg("timersDead"))
+end
+
+--- True while the mod's timed steps are still being delivered.
+function Evolution.timersAlive()
+    return not timersDead()
+end
+
 -- Frees a stuck lock (budget exceeded); returns true while the lock is busy.
 local function lockBusy()
     if not sequenceRunning then return false end
+    if timersDead() then
+        Log("the timers stopped while an evolution was running, so the sequence "
+            .. "cannot finish: UE4SS removed this mod's Lua tick hook, which is "
+            .. "what delivers every timed step. Aborting the run; the cost comes "
+            .. "back unless the species swap already went through.")
+        if currentAbort then pcall(currentAbort) else sequenceRunning = false end
+        return sequenceRunning
+    end
     if (os.clock() - sequenceStartedAt) > sequenceBudgetS then
         Log("Sequence lock stuck - watchdog aborting the sequence")
         if currentAbort then pcall(currentAbort) else sequenceRunning = false end
@@ -800,6 +874,9 @@ local function findEligibleFor(playerCtx)
     pcall(function() level = param:GetLevel() end)
     local condCtx = { actor = actor, param = param, playerCtx = playerCtx, holder = holder }
     local pair, pairIndex, firstReason, alphaBlockedTo = nil, nil, nil, nil
+    -- First target that only lacks materials, kept as the fallback: if nothing
+    -- is affordable, its missing list is the useful thing to report.
+    local unpaid, unpaidIndex = nil, nil
     for i, cand in ipairs(pairList) do
         if isAlpha and not swapTargetId(cand, true) then
             alphaBlockedTo = alphaBlockedTo or cand.to
@@ -808,12 +885,26 @@ local function findEligibleFor(playerCtx)
         else
             local condOk, unmet = Conditions.evaluate(cand, condCtx)
             if condOk then
-                pair = cand
-                pairIndex = i
-                break
+                -- The cost belongs in this loop. Checked only afterwards, a
+                -- species whose first target lacks a stone reported that stone
+                -- and never mentioned the target the player could pay for.
+                local affordable = true
+                pcall(function()
+                    affordable = (Costs.check(playerCtx, Costs.resolve(cand, level, holder)))
+                end)
+                if affordable then
+                    pair = cand
+                    pairIndex = i
+                    break
+                end
+                if not unpaid then unpaid, unpaidIndex = cand, i end
+            else
+                firstReason = firstReason or I18n.msg("needsConditions", palDisplayName(cand.to), unmet)
             end
-            firstReason = firstReason or I18n.msg("needsConditions", palDisplayName(cand.to), unmet)
         end
+    end
+    if not pair and unpaid then
+        pair, pairIndex = unpaid, unpaidIndex
     end
     if not pair then
         return nil, firstReason
@@ -1785,6 +1876,18 @@ function Evolution.check()
         Role.chat(Role.localPlayerCtx(), I18n.msg("serverNoPalvolve"))
         return
     end
+    -- Said here because F2 runs off a key bind rather than a timer, so this is
+    -- the one place that still speaks once the tick hook is gone. Rate limited:
+    -- the state does not heal on its own and the player would otherwise get the
+    -- same line on every press.
+    -- Past the long threshold the answer is certain, and starting anyway would
+    -- charge the player for an evolution that stops after its first step. The
+    -- short threshold only warns, so a stalled async thread costs a line in the
+    -- chat rather than the use of the key.
+    if timersDead() then
+        reportDeadTimers(nil)
+        if timersGone() then return end
+    end
     if lockBusy() then
         Log(I18n.msg("evolutionRunning"))
         return
@@ -2191,6 +2294,13 @@ end
 function Evolution.executeOption(opt)
     if not (opt and opt.pair) then return end
     local playerCtx = Role.localPlayerCtx()
+    -- The wheel is the path everyone has: F2 is off unless a player turns it
+    -- on, so the timer warning cannot live on the key alone. Same two
+    -- thresholds as there, warn early and refuse once it is certain.
+    if timersDead() then
+        reportDeadTimers(playerCtx)
+        if timersGone() then return end
+    end
     -- the option was greyed out in the wheel (missing materials, too low a
     -- level, no Alpha form): the reason goes to the player chat, not
     -- only to the log
@@ -3022,8 +3132,15 @@ function Evolution.init()
         if okCmd then Log("Chat commands active: !palvolve rollback") end
     end)
 
-    Log(string.format("Evolution core active: %s = check/confirm, chat: !palvolve rollback",
-        Config.confirmKey))
+    -- The banner has to say what is actually bound: the key is off unless the
+    -- player asks for it, and a log that promises F2 sends the next support
+    -- case chasing a key that was never claimed.
+    if Role.isDedicated() or Config.confirmKeyEnabled == false then
+        Log("Evolution core active: wheel (hold 4), chat: !palvolve rollback")
+    else
+        Log(string.format("Evolution core active: %s = check/confirm, chat: !palvolve rollback",
+            Config.confirmKey))
+    end
 end
 
 return Evolution

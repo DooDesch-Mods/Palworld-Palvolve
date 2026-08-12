@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.6.4] - 2026-08-12
+
+### Fixed
+
+- **The Evolutions tab had no portraits in it after a Workshop install.** The mod looked for its images at a few fixed paths that only ever matched a manual install, while the game's own loader puts the mod four folders deeper. Every subscriber got circles with two letters in them. The mod now reads its images from wherever it was loaded, which covers both layouts.
+- **137 portraits were missing from the mod.** The website had them all along; the mod shipped 287 of 424. Custom trees hit the gaps first, which is why some Pals stayed blank while their neighbours were fine.
+- **Three adaptations have no artwork anywhere.** Snock Ignis, Tanzee Cryst and Gumoss Botan now show their base form instead of an empty circle.
+- **A dedicated server never got its config folder.** It was only created when the mod found no config at all, so every server that already had one somewhere kept looking for a folder that was never there. A server now creates `<server>\Pal\Saved\Palvolve` on startup before it reads anything, and says so in the log if it cannot.
+- **The Workshop install left a second LogicMods folder inside the first one.** The install rule named a folder instead of its contents. The pak worked from there, it was just in a place nobody would look.
+- **F2 named a target you could not afford while ignoring one you could.** The check picked the first target that passed level and conditions, and only looked at materials afterwards. A Pal with several ways out reported a missing stone and never mentioned the evolution that was ready. Materials are part of the choice now.
+- **An evolution can no longer hang silently.** When another mod tears down the shared timer hook that UE4SS gives Lua mods, every timed step of this mod stops: the Pal stays recalled, the stone is spent and nothing says why. The mod now notices when the timer stops, names the cause, aborts the run and refunds the cost, from the wheel as well as from the key.
+
+### Changed
+
+- **Clicking through the tree is much faster, and the biggest tree anyone has published is the measure.** 613 pairs across 279 Pals: every click used to walk all 613 pairs and sort 279 Pals with a comparison that resolved two names each time, roughly 4600 name lookups before a single line of the page was written. The list is built once now, the names are resolved once, and a page you have already seen is not built again.
+- **A portrait costs a fraction of what it did.** Encoding one ran four string operations per byte; those are table lookups now.
+- **The mod does nothing while the tree is closed.** A hook that ran on every button press anywhere in the game now returns immediately unless the tree is open, and the pollers keep the widgets they found instead of searching for them sixteen times a second.
+- **F2 is off until you ask for it.** A mod that claims a function key on every install collides with the rest of a player's setup, and the wheel and `!palvolve evolve` already cover the same ground. Set `confirmKeyEnabled = true` in `config_user.lua` to get the key back.
+- **The tree header counts the way the configurator does.** It read "224 Pals" and was taken for the number of evolutions twice in one hour. It now says the same two numbers the website prints for the same file: Pals, and how many pairs of it are active.
+- **The mod reports the game build it was tested against as 1283** (Palworld v1.0.3.101283). That is the last five digits of the title screen version, which is what the Workshop item asks for.
+
+Reported by players on Discord: the empty portraits with a screenshot, the doubled LogicMods folder, and the server whose config folder never appeared.
+
+Tested against the largest published community tree, "我的树(仿造数码树)" with 613 pairs across 279 Pals.
+
 ## [1.6.3] - 2026-08-12
 
 ### Fixed
