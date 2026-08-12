@@ -236,18 +236,30 @@ local function palDisplayName(id)
     -- original id.
     local lookupId = id:gsub("^BOSS_", "")
     local name = nil
-    pcall(function()
-        local mdt, ctx = nameLookupPair()
-        if not (mdt and ctx) then return end
-        -- EPalLocalizeTextCategory::PalMonsterName = 4
-        local txt = mdt:GetLocalizedText(ctx, 4, FName("PAL_NAME_" .. lookupId))
-        if txt then
-            local s = txt:ToString()
-            -- An unknown key comes back as the key. Treating that as a name
-            -- would also cache it, so the raw key would stick for the session.
-            if s and s ~= "" and s:sub(1, 9) ~= "PAL_NAME_" then name = s end
-        end
-    end)
+    local function ask()
+        pcall(function()
+            local mdt, ctx = nameLookupPair()
+            if not (mdt and ctx) then return end
+            -- EPalLocalizeTextCategory::PalMonsterName = 4
+            local txt = mdt:GetLocalizedText(ctx, 4, FName("PAL_NAME_" .. lookupId))
+            if txt then
+                local s = txt:ToString()
+                -- An unknown key comes back as the key. Treating that as a name
+                -- would also cache it, so the raw key would stick for the session.
+                if s and s ~= "" and s:sub(1, 9) ~= "PAL_NAME_" then name = s end
+            end
+        end)
+    end
+    ask()
+    if not name then
+        -- The two objects the lookup rides on are held between calls, and a
+        -- held character does not survive its player leaving: on a server that
+        -- turned every name into its raw id from the first disconnect onwards.
+        -- IsValid still answers yes for an object that is on its way out, so
+        -- the only reliable signal is the lookup itself failing.
+        cachedNameCtx, cachedNameMdt = nil, nil
+        ask()
+    end
     if Config.devMode then
         Log(string.format("[radial] name lookup %s -> %s", id, name or "FAIL"))
     end
@@ -872,6 +884,16 @@ local function findEligibleFor(playerCtx)
     end
     local level = 0
     pcall(function() level = param:GetLevel() end)
+    if Config.devMode then
+        -- Which Pal the authority actually looked at. A rejection that names a
+        -- level the player does not recognise is usually a different Pal than
+        -- the one they had in mind, and the id alone does not say which.
+        local nick, uid = "", ""
+        pcall(function() nick = tostring(param:GetNickname():ToString()) end)
+        pcall(function() uid = tostring(param.IndividualId.InstanceId):sub(1, 8) end)
+        Log(string.format("[evolve] evaluating %s lv %d (nick '%s', uid %s)",
+            tostring(id), level, nick, uid))
+    end
     local condCtx = { actor = actor, param = param, playerCtx = playerCtx, holder = holder }
     local pair, pairIndex, firstReason, alphaBlockedTo = nil, nil, nil, nil
     -- First target that only lacks materials, kept as the fallback: if nothing
