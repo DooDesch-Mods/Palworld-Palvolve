@@ -133,7 +133,31 @@ end
 -- ("[Name]: ...") and fed it into the global chat everyone sees - kept only
 -- as the fallback when no PlayerUId is available. Message must be a plain
 -- string in both paths; FText userdata kills the process natively.
-function Role.chat(playerCtx, msg)
+-- How talkative the mod is in the chat. Set by config.lua after the user file
+-- is read; role.lua cannot ask for it, because config requires THIS module and
+-- a require back would close the circle.
+--   "all"     everything
+--   "replies" only what answers something the player did
+--   "off"     nothing but command replies
+Role.chatMode = "all"
+
+--- kind: "info" for anything the mod says on its own, "reply" for a refusal or
+--- another answer to a player action, "command" for the reply to a chat command.
+--- A command reply is never silenced: silence there reads as a broken mod.
+local function chatAllowed(kind)
+    local mode = Role.chatMode or "all"
+    if kind == "command" then return true end
+    if mode == "off" then return false end
+    if mode == "replies" then return kind == "reply" end
+    return true
+end
+
+function Role.chat(playerCtx, msg, kind)
+    if not chatAllowed(kind or "info") then return true end
+    return Role.chatRaw(playerCtx, msg)
+end
+
+function Role.chatRaw(playerCtx, msg)
     if not (playerCtx and playerCtx.pc and playerCtx.pc:IsValid()) then return false end
     -- The targeted system chat is proven only for REMOTE receivers (authority
     -- sending to a connected client) - exactly the case where the legacy RPC
@@ -176,7 +200,7 @@ end
 -- line. In standalone/host the local run IS the authority and chats normally.
 function Role.ack(playerCtx, msg)
     if Role.hasWorldAuthority() then
-        return Role.chat(playerCtx, msg)
+        return Role.chat(playerCtx, msg, "command")
     end
     Log("(ack suppressed on client, authority replies) " .. tostring(msg))
     return true

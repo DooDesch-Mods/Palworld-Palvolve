@@ -162,7 +162,7 @@ local function unlockCatchTech(targetId, playerCtx)
         local noticeKey = uid ~= "" and uid or "unresolved"
         if not noRecordSlot and not techUnlockNoticeSent[noticeKey] then
             techUnlockNoticeSent[noticeKey] = true
-            pcall(function() Role.chat(playerCtx, I18n.msg("techUnlockFailed")) end)
+            pcall(function() Role.chat(playerCtx, I18n.msg("techUnlockFailed"), "reply") end)
         end
     end
 end
@@ -1895,7 +1895,7 @@ end
 
 function Evolution.check()
     if ServerCheck.blocked() then
-        Role.chat(Role.localPlayerCtx(), I18n.msg("serverNoPalvolve"))
+        Role.chat(Role.localPlayerCtx(), I18n.msg("serverNoPalvolve"), "reply")
         return
     end
     -- Said here because F2 runs off a key bind rather than a timer, so this is
@@ -1930,7 +1930,7 @@ function Evolution.check()
             -- second return value carries the reason message when present
             local reason = param or I18n.msg("noPalSummoned")
             Log(reason)
-            Role.chat(playerCtx, reason)
+            Role.chat(playerCtx, reason, "reply")
         end
         return
     end
@@ -1946,7 +1946,7 @@ function Evolution.check()
         Log(reason)
         if Role.hasWorldAuthority() then
             -- authority (single player / host): this check is final, show it here
-            Role.chat(playerCtx, reason)
+            Role.chat(playerCtx, reason, "reply")
         elseif remoteTransmitReady(playerCtx) then
             -- pure client: emitting the reason locally would attribute it to the
             -- player ("[Name]: ..."). Send the request instead so the host rejects
@@ -2329,7 +2329,7 @@ function Evolution.executeOption(opt)
     if opt.blocked then
         Log(opt.blocked)
         if Role.hasWorldAuthority() then
-            Role.chat(playerCtx, opt.blocked)
+            Role.chat(playerCtx, opt.blocked, "reply")
         elseif remoteTransmitReady(playerCtx) then
             -- pure client: don't attribute the reason locally ("[Name]: ..."). Send
             -- the picked option so the host re-validates and rejects it with a

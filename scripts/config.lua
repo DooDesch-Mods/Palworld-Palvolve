@@ -89,6 +89,17 @@ local Config = {
     -- read past. Set this to true to put it back.
     treeCloseButton = false,
 
+    -- How much the mod says in the chat. Every line is private to the player it
+    -- concerns, but on a busy server that is still a lot of lines for one
+    -- person, which is what a player asked to be rid of.
+    --   "all"     everything: greeting, what an evolution is doing, refusals
+    --   "replies" only answers to something the player did: refusals and the
+    --             replies to !palvolve commands
+    --   "off"     nothing at all; the log still has every line
+    -- Answers to a chat command are never silenced: a command that produces
+    -- silence reads as a broken mod.
+    chatMessages = "all",
+
     -- Two-stage confirm: first press checks and announces, second press confirms.
     -- Off by default since 1.6.4, because a mod that claims a function key on
     -- every install collides with the rest of a player's setup for a path the
@@ -1950,6 +1961,15 @@ if user then
     if user.treeCloseButton ~= nil then
         Config.treeCloseButton = user.treeCloseButton == true
     end
+    if type(user.chatMessages) == "string" then
+        local want = user.chatMessages:lower()
+        if want == "all" or want == "replies" or want == "off" then
+            Config.chatMessages = want
+        else
+            print(string.format("[Palvolve] chatMessages '%s' is not one of all, replies, off "
+                .. "- keeping %s\n", tostring(user.chatMessages), Config.chatMessages))
+        end
+    end
     if user.confirmKeyEnabled ~= nil then
         Config.confirmKeyEnabled = user.confirmKeyEnabled == true
     end
@@ -1971,6 +1991,9 @@ if user then
     end
     Config.loadArrangement(user)
     print(string.format("[Palvolve] user config loaded (%d pairs, %s)\n", #Config.map, tostring(userSource)))
+    -- Pushed rather than pulled: role.lua is what this file requires, so it
+    -- cannot ask back without closing the circle.
+    Role.chatMode = Config.chatMessages
     local shadowed = scriptsConfigPath()
     if shadowed and shadowed ~= userSource then
         print(string.format("[Palvolve] a second config_user.lua sits at %s and is IGNORED while the one above loads\n",

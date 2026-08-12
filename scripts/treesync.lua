@@ -79,6 +79,63 @@ local function unb36(s36)
     return n
 end
 
+-- Everything besides the pairs that decides what an evolution asks for. A tree
+-- alone is not the server's rules: the same pair costs different materials
+-- under a different cost model, and a client showing its own numbers is a
+-- client telling the player something the host will not honour.
+--
+-- Scalars only, and named one by one rather than copied wholesale: this comes
+-- off the wire, and a blanket merge would let a server set anything at all in
+-- the client's config.
+local GLOBALS = {
+    { key = "requireStone", kind = "bool" },
+    { key = "techLevelCap", kind = "number" },
+    { key = "costs.enabled", kind = "bool" },
+    { key = "costs.slots", kind = "number" },
+    { key = "costs.minRate", kind = "number" },
+    { key = "costs.countScale", kind = "number" },
+    { key = "costs.maxCount", kind = "number" },
+    { key = "eggFilter.enabled", kind = "bool" },
+    { key = "chatMessages", kind = "enum", values = { all = true, replies = true, off = true } },
+}
+
+local function readPath(root, path)
+    local cur = root
+    for part in path:gmatch("[^.]+") do
+        if type(cur) ~= "table" then return nil end
+        cur = cur[part]
+    end
+    return cur
+end
+
+local function writePath(root, path, value)
+    local parts = {}
+    for part in path:gmatch("[^.]+") do parts[#parts + 1] = part end
+    local cur = root
+    for i = 1, #parts - 1 do
+        if type(cur[parts[i]]) ~= "table" then cur[parts[i]] = {} end
+        cur = cur[parts[i]]
+    end
+    cur[parts[#parts]] = value
+end
+
+local function encodeGlobals()
+    local out = {}
+    for _, g in ipairs(GLOBALS) do
+        local v = readPath(Config, g.key)
+        if v ~= nil then
+            if g.kind == "bool" then
+                out[#out + 1] = g.key .. "=" .. (v and "1" or "0")
+            elseif g.kind == "enum" then
+                if g.values[tostring(v)] then out[#out + 1] = g.key .. "=" .. tostring(v) end
+            elseif type(tonumber(v)) == "number" then
+                out[#out + 1] = g.key .. "=" .. tostring(tonumber(v))
+            end
+        end
+    end
+    return table.concat(out, ",")
+end
+
 --- Every enabled pair, in the order the host reads them, because the option
 --- index a client sends is a position in this list.
 ---
@@ -113,7 +170,7 @@ function TreeSync.encode(map)
             }, FS)
         end
     end
-    local body = table.concat(dict, ",") .. RS .. table.concat(out, RS)
+    local body = encodeGlobals() .. RS .. table.concat(dict, ",") .. RS .. table.concat(out, RS)
     return body, hashOf(body), #out
 end
 
@@ -121,13 +178,35 @@ end
 --- pair is dropped rather than guessed at: this data comes off the wire, and a
 --- half-understood record would be a wrong tree presented as the server's.
 function TreeSync.decode(body)
-    local firstBreak = tostring(body or ""):find(RS, 1, true)
-    if not firstBreak then return {} end
+    body = tostring(body or "")
+    -- line 1: globals, line 2: the id dictionary, the rest: one pair per line
+    local firstBreak = body:find(RS, 1, true)
+    if not firstBreak then return {}, {} end
+    local secondBreak = body:find(RS, firstBreak + 1, true)
+    if not secondBreak then return {}, {} end
+
+    local globals = {}
+    local spec = {}
+    for _, g in ipairs(GLOBALS) do spec[g.key] = g end
+    for entry in body:sub(1, firstBreak - 1):gmatch("[^,]+") do
+        local key, value = entry:match("^([%w.]+)=(.+)$")
+        local g = key and spec[key]
+        if g and g.kind == "bool" then
+            globals[key] = (value == "1")
+        elseif g and g.kind == "number" and tonumber(value) then
+            globals[key] = tonumber(value)
+        elseif g and g.kind == "enum" and g.values[value] then
+            globals[key] = value
+        end
+    end
+
     local dict = {}
-    for name in body:sub(1, firstBreak - 1):gmatch("[^,]+") do dict[#dict + 1] = name end
+    for name in body:sub(firstBreak + 1, secondBreak - 1):gmatch("[^,]+") do
+        dict[#dict + 1] = name
+    end
 
     local pairsOut = {}
-    for line in body:sub(firstBreak + 1):gmatch("[^" .. RS .. "]+") do
+    for line in body:sub(secondBreak + 1):gmatch("[^" .. RS .. "]+") do
         local from, to, cat, lvl, stone, conds =
             line:match("^([^|]+)|([^|]+)|([^|]*)|([^|]*)|([^|]*)|(.*)$")
         local fi, ti = from and unb36(from), to and unb36(to)
@@ -150,7 +229,7 @@ function TreeSync.decode(body)
             pairsOut[#pairsOut + 1] = p
         end
     end
-    return pairsOut
+    return pairsOut, globals
 end
 
 -- ------------------------------------------------------------------- host
@@ -184,6 +263,7 @@ end
 -- What the client had before a server tree replaced it, so leaving the server
 -- does not leave the player's own tree overwritten for the rest of the session.
 local localMap = nil
+local localGlobals = nil
 local activeHash = nil
 
 --- True while this client is drawing a tree that came from a server.
@@ -204,6 +284,12 @@ local function invalidateViews()
     pcall(function()
         if Config.invalidateDerived then Config.invalidateDerived() end
     end)
+    -- Prices are cached per pair and level, so a changed cost model that leaves
+    -- them standing keeps quoting the old numbers.
+    pcall(function()
+        local okCosts, costs = pcall(require, "costs")
+        if okCosts and costs and costs.clearCache then costs.clearCache() end
+    end)
     pcall(function()
         local ok, view = pcall(require, "treeview")
         if ok and view and view.invalidate then view.invalidate() end
@@ -222,7 +308,7 @@ function TreeSync.applyFrame(frame)
         .. "(%x+)|(%d+)|(.*)$")
     if not (hash and body) then return false end
     if activeHash == hash then return true end
-    local received = TreeSync.decode(body)
+    local received, globals = TreeSync.decode(body)
     if #received == 0 then
         Log("server tree arrived empty, keeping the local one")
         return false
@@ -232,11 +318,32 @@ function TreeSync.applyFrame(frame)
             #received, count))
         return false
     end
-    if localMap == nil then localMap = Config.map end
+    if localMap == nil then
+        localMap = Config.map
+        localGlobals = {}
+        for _, g in ipairs(GLOBALS) do localGlobals[g.key] = readPath(Config, g.key) end
+    end
     Config.map = received
+    -- The rules the pairs are read under travel with them. Without these the
+    -- client shows its own material costs and its own stone requirement for a
+    -- tree the host prices differently, which reads as the mod contradicting
+    -- itself the moment a player compares.
+    local applied = 0
+    for key, value in pairs(globals or {}) do
+        writePath(Config, key, value)
+        applied = applied + 1
+    end
+    -- Role holds the chat mode as its own field, because config requires role
+    -- and cannot be required back. A setting that only lands in Config is a
+    -- setting the chat gate never sees.
+    pcall(function()
+        local okRole, Role = pcall(require, "role")
+        if okRole and Role then Role.chatMode = Config.chatMessages end
+    end)
     activeHash = hash
     invalidateViews()
-    Log(string.format("server tree active: %d pairs, %s", #received, hash))
+    Log(string.format("server tree active: %d pairs, %d settings, %s",
+        #received, applied, hash))
     return true
 end
 
@@ -244,7 +351,14 @@ end
 function TreeSync.restoreLocal()
     if localMap == nil then return end
     Config.map = localMap
-    localMap, activeHash = nil, nil
+    for key, value in pairs(localGlobals or {}) do
+        if value ~= nil then writePath(Config, key, value) end
+    end
+    localMap, localGlobals, activeHash = nil, nil, nil
+    pcall(function()
+        local okRole, Role = pcall(require, "role")
+        if okRole and Role then Role.chatMode = Config.chatMessages end
+    end)
     invalidateViews()
     Log("back to the local tree")
 end

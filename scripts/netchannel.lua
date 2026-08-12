@@ -152,16 +152,21 @@ local function greetSender(senderCtx)
     -- one visible [SYSTEM] line, delivered to just this player. The world context
     -- is the world object (as the working community mods pass), NOT the controller;
     -- the receiver list is a TArray<FGuid> (plural in the 1.0 build).
-    pcall(function()
-        local util = palUtility()
-        local world = FindFirstOf("World")
-        local g = senderCtx.playerUId
-        if util and world then
-            util:SendSystemToPlayerChat(world,
-                "Palvolve v" .. tostring(Config.modVersion) .. " active on this server",
-                { { A = g.A, B = g.B, C = g.C, D = g.D } })
-        end
-    end)
+    -- Sent straight rather than through Role.chat, so it has to ask the same
+    -- question that gate asks: this line is the mod introducing itself, which
+    -- is exactly what a quiet server does not want.
+    if (Role.chatMode or "all") == "all" then
+        pcall(function()
+            local util = palUtility()
+            local world = FindFirstOf("World")
+            local g = senderCtx.playerUId
+            if util and world then
+                util:SendSystemToPlayerChat(world,
+                    "Palvolve v" .. tostring(Config.modVersion) .. " active on this server",
+                    { { A = g.A, B = g.B, C = g.C, D = g.D } })
+            end
+        end)
+    end
     Log("Handshake: greeted client (pong v" .. tostring(Config.modVersion) .. ")")
 
     -- Payload measurement, dev builds only. It has to start here rather than
@@ -317,7 +322,7 @@ function NetChannel.initHost(handler)
                         local ok, msg = handler(senderCtx, pairIndex)
                         if not ok then
                             Log("Evolve rejected: " .. tostring(msg or "no reason given"))
-                            if msg then Role.chat(senderCtx, msg) end
+                            if msg then Role.chat(senderCtx, msg, "reply") end
                         end
                     end
                 end)
