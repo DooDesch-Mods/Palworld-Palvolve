@@ -106,6 +106,24 @@ local GLOBALS = {
     { key = "stoneCount", kind = "number" },
     { key = "eggFilter.enabled", kind = "bool" },
     { key = "chatMessages", kind = "enum", values = { all = true, replies = true, off = true } },
+
+    -- How the transformation looks, so a server decides what its players see
+    -- rather than each of them running their own cut. These are read per
+    -- evolution (finale.lua finaleCfg/timings, fx.lua digimonCfg,
+    -- evolution.lua performEvolution), so a value that arrives with the tree
+    -- applies from the next evolution without anything being reloaded.
+    --
+    -- What deliberately does NOT travel: the confirm key and its timings,
+    -- because a server has no business over someone's keyboard; the effect
+    -- budget, because it exists for the machine the frames are drawn on; the
+    -- close button; and the diagnostics.
+    { key = "digimon.spinUpMs", kind = "number" },
+    { key = "digimon.shrinkMs", kind = "number" },
+    { key = "digimon.growMs", kind = "number" },
+    { key = "digimon.finaleHoldMs", kind = "number" },
+    { key = "digimon.peakDegPerSec", kind = "number" },
+    { key = "digimon.elementColors", kind = "bool" },
+    { key = "finale.style", kind = "enum", values = { layered = true, legacy = true } },
 }
 
 local function readPath(root, path)
