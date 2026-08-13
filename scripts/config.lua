@@ -113,7 +113,6 @@ local Config = {
     -- Multiplayer request channel (host-side limits per requesting player)
     net = {
         rateLimitSeconds = 2, -- minimum spacing between evolve requests
-        reqIdCacheSize = 32,  -- replay protection window (request ids)
     },
 
     -- IV bonus per evolution stage (applied to Talent_HP/Melee/Shot/Defense, capped)
@@ -2125,7 +2124,6 @@ local USER_KEYS = {
     -- multiplayer
     { path = "chatMessages", kind = "enum", values = { "all", "replies", "off" } },
     { path = "net.rateLimitSeconds", kind = "num", min = 0, max = 60 },
-    { path = "net.reqIdCacheSize", kind = "int", min = 8, max = 512 },
     { path = "serverCheck.enabled", kind = "bool" },
     { path = "serverCheck.timeoutSeconds", kind = "num", min = 5, max = 300 },
 
