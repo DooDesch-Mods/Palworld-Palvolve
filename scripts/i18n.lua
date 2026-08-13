@@ -125,6 +125,16 @@ function I18n.condition(id)
         or (Catalog.en.conditions and Catalog.en.conditions[id])
 end
 
+-- Name for a species the game's own text table has no row for (nil otherwise).
+-- Five Pals answer GetLocalizedText with nothing, so the wheel used to show the
+-- raw CharacterID for them. The generator bakes their names per language from
+-- the same source the website shows.
+function I18n.palName(id)
+    local cat = catalogFor(I18n.lang())
+    return (cat.palNames and cat.palNames[id])
+        or (Catalog.en.palNames and Catalog.en.palNames[id])
+end
+
 -- localized element display name ("Dragon" -> "Drache")
 function I18n.element(name)
     local cat = catalogFor(I18n.lang())

@@ -113,6 +113,7 @@ Close the game and clean the save at **[palvolve.doodesch.de/save-cleaner](https
 ## Known issues
 
 - Removing the mod without cleaning the save first can stop the world from loading. The [Save Cleaner](https://palvolve.doodesch.de/save-cleaner?utm_source=github&utm_medium=readme&utm_campaign=palvolve) repairs that world as well.
+- A rollback does not re-lock catch-gated technologies. Evolving into a species unlocks its saddle and Pal Gear the way catching one does, and `!palvolve rollback` gives the Pal and the materials back but leaves that unlock in place. Taking it away again would also take it from someone who had caught the species themselves, which is the worse mistake of the two.
 
 ## FAQ
 

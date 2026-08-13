@@ -344,14 +344,14 @@ html,body{margin:0;height:100%;overflow:hidden}
    wide again, and in fixed pixels everything then keeps its size and the page
    thins out - same drawing, lost in the space. So the sizes that carry the
    composition live here and grow with the window. */
-:root{--pal:80px;--hub:130px;--list:296px;--arm:160px;--base:14px;--small:11px}
+:root{--pal:80px;--hub:130px;--list:296px;--arm:160px;--base:15px;--small:12.5px}
 .dense{--pal:50px;--arm:120px}
 @media (min-width:1500px){
-  :root{--pal:96px;--hub:158px;--list:330px;--arm:176px;--base:15px;--small:11.5px}
+  :root{--pal:96px;--hub:158px;--list:330px;--arm:176px;--base:16px;--small:13px}
   .dense{--pal:58px;--arm:136px}
 }
 @media (min-width:1800px){
-  :root{--pal:112px;--hub:184px;--list:360px;--arm:196px;--base:16.5px;--small:12.5px}
+  :root{--pal:112px;--hub:184px;--list:360px;--arm:196px;--base:17.5px;--small:14px}
   .dense{--pal:66px;--arm:150px}
 }
 /* The game's panels are not flat: a cool dark blue that lifts towards the
@@ -492,7 +492,7 @@ a{text-decoration:none;color:inherit}
    twenty-two ways out did. auto-fill takes as many columns as fit and the rest
    wrap under them. */
 .col.dense{display:grid;grid-auto-flow:row;
-     grid-template-columns:repeat(auto-fill,minmax(118px,1fr));
+     grid-template-columns:repeat(auto-fill,minmax(132px,1fr));
      gap:10px;align-items:stretch;align-content:start;
      flex:1 1 auto;width:100%;min-height:0;
      overflow-y:auto;overflow-x:hidden;padding-right:14px}
@@ -544,12 +544,12 @@ a{text-decoration:none;color:inherit}
       rgba(138,116,52,0) 0%, #8a7434 38%, #b89a4a 100%)}
 .col.out .link .line::after{border-left-color:#b89a4a}
 .rule{text-align:center;margin-top:4px}
-.rule .req{display:block;font-size:var(--small);color:#93a6ba}
+.rule .req{display:block;font-size:var(--small);color:#b6c6d6}
 .chips{display:flex;flex-wrap:wrap;gap:4px;justify-content:center;margin-top:4px}
-.chip{font-size:calc(var(--small) - 1px);background:#26313f;border:1px solid #46596f;
+.chip{font-size:var(--small);background:#26313f;border:1px solid #46596f;
       color:#cfe0f0;padding:1px 8px}
-.orword{font-size:10.5px;color:#63748a;margin:5px 0 1px}
-.folded{display:inline-block;margin-top:4px;font-size:calc(var(--small) - 1px);
+.orword{font-size:calc(var(--small) - 1.5px);color:#63748a;margin:5px 0 1px}
+.folded{display:inline-block;margin-top:4px;font-size:var(--small);
      color:#e0c274;background:#2b2415;border:1px solid #6b5a2c;padding:1px 7px}
 
 /* The game puts the screen's name in the bottom-left corner, where nothing else
@@ -588,9 +588,9 @@ body.docked .watermark{left:26px}
      width:100%;min-height:36px}
 
 
-.col.dense .rule .req{font-size:10px}
-.col.dense .chip{font-size:9px;padding:0 6px}
-.col.dense .pal .pname{font-size:11px;line-height:1.15}
+.col.dense .rule .req{font-size:calc(var(--small) - 1px)}
+.col.dense .chip{font-size:calc(var(--small) - 2px);padding:0 6px}
+.col.dense .pal .pname{font-size:calc(var(--base) - 2px);line-height:1.2}
 ]]
 
 -- ----------------------------------------------------------------- the page

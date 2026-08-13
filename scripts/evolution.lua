@@ -260,6 +260,10 @@ local function palDisplayName(id)
         cachedNameCtx, cachedNameMdt = nil, nil
         ask()
     end
+    -- Five species have no PAL_NAME_ row at all, so no amount of retrying
+    -- produces a name and the raw CharacterID was what the wheel showed. Their
+    -- names are baked per language from the same source the website uses.
+    if not name then name = I18n.palName(id) end
     if Config.devMode then
         Log(string.format("[radial] name lookup %s -> %s", id, name or "FAIL"))
     end
@@ -455,53 +459,24 @@ end
 -- promise; undoing your history is not.
 local snapshots = {}
 
+-- Rollback lives in memory for the session, so there is no state file any more.
+-- Until 1.8.1 one was written on the game thread after every evolution and never
+-- read back: loadSnapshots only ever truncated it. It also survived an uninstall
+-- while UNINSTALL.md said nothing about it. This removes the leftover once.
 local function loadSnapshots()
     snapshots = {}
-    -- Start the file over so old entries cannot be mistaken for this session's.
-    -- The file exists from the second launch onwards, so its mere presence says
-    -- nothing; only a file with entries in it means something was discarded.
-    local existed, hadEntries = false, false
+    local hadEntries = false
     pcall(function()
         local f = io.open(STATE_FILE, "r")
         if not f then return end
-        existed = true
         local body = f:read("*a") or ""
         f:close()
         hadEntries = body:find("{ key =", 1, true) ~= nil
+        os.remove(STATE_FILE)
     end)
-    if existed then
-        pcall(function()
-            local f = io.open(STATE_FILE, "w")
-            if f then f:write("return {\n}\n"); f:close() end
-        end)
-    end
     if hadEntries then
         Log("Rollback restore points from earlier sessions discarded - rollback covers this session")
     end
-end
-
-local function saveSnapshots()
-    local ok, err = pcall(function()
-        local f = assert(io.open(STATE_FILE, "w"))
-        f:write("return {\n")
-        for _, s in ipairs(snapshots) do
-            local cost = ""
-            for _, c in ipairs(s.cost or {}) do
-                -- floored: material counts come from the user config verbatim,
-                -- and "%d" on a non-integer number raises rather than rounding
-                cost = cost .. string.format("{ id = %q, count = %d }, ",
-                    c.id, math.floor(tonumber(c.count) or 0))
-            end
-            f:write(string.format(
-                "  { key = %q, from = %q, to = %q, level = %d, nickname = %q, ivHP = %d, ivMelee = %d, ivShot = %d, ivDefense = %d, uid = %q, cost = { %s} },\n",
-                s.key or "", s.from, s.to, s.level, s.nickname or "",
-                s.ivHP or -1, s.ivMelee or -1, s.ivShot or -1, s.ivDefense or -1,
-                s.uid or "", cost))
-        end
-        f:write("}\n")
-        f:close()
-    end)
-    if not ok then Log("Snapshot file not writable: " .. tostring(err)) end
 end
 
 -- ---------------------------------------------------------------- sound
@@ -1298,7 +1273,6 @@ local function performEvolution(p)
                 return paid
             end)(),
         })
-        saveSnapshots()
         -- Always the unprefixed id: the capture record is keyed by EPalTribeID, which has one
         -- entry per species and none for the BOSS_ (alpha) rows, exactly like the Palpedia.
         unlockCatchTech(pair.to, playerCtx)
@@ -2660,18 +2634,27 @@ function Evolution.rollbackLast(playerCtx)
         -- Give the price back: the evolution is undone, so keeping the stones
         -- would charge for something that no longer happened. Only after the
         -- restore actually succeeded, and only what this evolution recorded.
+        -- Three outcomes, and until 1.8.1 two of them shared a message: a
+        -- refund that could not be paid out read exactly like a rollback with
+        -- nothing to pay back. The stones were gone, the restore point was
+        -- gone, and the line said "Rollback: X -> Y" like any other.
+        local hadCost = last.cost and #last.cost > 0
         local refunded = false
-        pcall(function()
-            if last.cost and #last.cost > 0 then
+        if hadCost then
+            pcall(function()
                 refunded = Costs.refund(playerCtx, last.cost)
                 Log(refunded and ("Rollback refunded: " .. Costs.describe(last.cost))
-                    or "Rollback refund PARTIALLY FAILED - please report")
-            end
-        end)
+                    or "Rollback refund FAILED (inventory full?) - "
+                       .. Costs.describe(last.cost) .. " not returned")
+            end)
+        end
+        -- The snapshot goes either way: the species is already reverted, so
+        -- keeping it would offer a second rollback of something that has
+        -- already been rolled back.
         table.remove(snapshots, snapIdx)
-        saveSnapshots()
-        say(I18n.msg(refunded and "rollbackDoneRefunded" or "rollbackDone",
-            palDisplayName(last.to), palDisplayName(last.from)))
+        local key = "rollbackDone"
+        if hadCost then key = refunded and "rollbackDoneRefunded" or "rollbackDoneRefundFailed" end
+        say(I18n.msg(key, palDisplayName(last.to), palDisplayName(last.from)))
     else
         say(I18n.msg("rollbackNoMatch", palDisplayName(last.to)))
     end
@@ -3166,8 +3149,14 @@ function Evolution.init()
                         (#orphans > 0 and (" " .. I18n.msg("uninstOrphanHint")) or ""))
                 end
             end,
+            -- One line per command. The chat DROPS a line past roughly a
+            -- hundred characters instead of truncating it, and the single
+            -- combined line ran to 121 characters in English and 149 in German,
+            -- so `!palvolve help` answered with nothing at all in 13 of the 17
+            -- languages while the log showed it being sent.
             help = function(senderCtx)
-                Role.ack(senderCtx, I18n.msg("helpLine"))
+                Role.ack(senderCtx, I18n.msg("helpRollback"))
+                Role.ack(senderCtx, I18n.msg("helpUninstall"))
             end,
         })
         if okCmd then Log("Chat commands active: !palvolve rollback") end
