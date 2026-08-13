@@ -2699,17 +2699,28 @@ function Evolution.init()
     end, ServerCheck.onPong)
 
     -- keybinds are player input - meaningless on a dedicated server
+    local confirmKeyBound = false
     if not Role.isDedicated() and Config.confirmKeyEnabled ~= false then
-        local lastPress = 0
-        RegisterKeyBind(Key[Config.confirmKey], function()
-            local now = os.clock()
-            if (now - lastPress) < Config.debounceSeconds then return end
-            lastPress = now
-            ExecuteInGameThread(function()
-                local ok, err = pcall(Evolution.check)
-                if not ok then Log("check FAIL: " .. tostring(err)) end
+        -- config.lua only lets confirmKey through as one of a fixed list, so a
+        -- miss here means UE4SS spells that name differently or offers no key
+        -- table at all. Binding nil takes the whole registration down, and with
+        -- it everything after it in this function.
+        local keyCode = Key and Key[Config.confirmKey]
+        if keyCode == nil then
+            Log("confirmKey '" .. tostring(Config.confirmKey) .. "' is unknown to UE4SS - no key bound")
+        else
+            confirmKeyBound = true
+            local lastPress = 0
+            RegisterKeyBind(keyCode, function()
+                local now = os.clock()
+                if (now - lastPress) < Config.debounceSeconds then return end
+                lastPress = now
+                ExecuteInGameThread(function()
+                    local ok, err = pcall(Evolution.check)
+                    if not ok then Log("check FAIL: " .. tostring(err)) end
+                end)
             end)
-        end)
+        end
     end
 
     -- Level-up notification: fires ONCE per individual and target once the
@@ -3165,7 +3176,7 @@ function Evolution.init()
     -- The banner has to say what is actually bound: the key is off unless the
     -- player asks for it, and a log that promises F2 sends the next support
     -- case chasing a key that was never claimed.
-    if Role.isDedicated() or Config.confirmKeyEnabled == false then
+    if not confirmKeyBound then
         Log("Evolution core active: wheel (hold 4), chat: !palvolve rollback")
     else
         Log(string.format("Evolution core active: %s = check/confirm, chat: !palvolve rollback",

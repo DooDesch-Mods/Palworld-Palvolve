@@ -128,7 +128,10 @@ On the server **and** every client. UE4SS, PalSchema and Palvolve have to be act
 Clean the save at [palvolve.doodesch.de/save-cleaner](https://palvolve.doodesch.de/save-cleaner?utm_source=github&utm_medium=readme&utm_campaign=palvolve). It runs in your browser and repairs a world that already refuses to load. Full steps: [UNINSTALL.md](UNINSTALL.md).
 
 **Breeding changed, or an evolved variant will not hatch?**
-The egg filter is off by default, so eggs hatch what they normally would. If you turned it on (it makes eggs hatch base forms only), turn it back off in `scripts\config.lua` or the configurator. What it does and why, with diagrams: [EGG-FILTER.md](EGG-FILTER.md).
+The egg filter is off by default, so eggs hatch what they normally would. If you turned it on, eggs of evolved forms hatch base forms instead. Turn it back off in the configurator or in your `config_user.lua`. What it does and why, with diagrams: [EGG-FILTER.md](EGG-FILTER.md).
+
+**Where do I change a setting that is not on the quick setup page?**
+All of them are at [palvolve.doodesch.de/simple](https://palvolve.doodesch.de/simple?utm_source=github&utm_medium=readme&utm_campaign=palvolve), under the four switches: grouped and searchable, each one marked as belonging in the server's file or in a player's own. Load your running `config_user.lua` there to start from what your server does today. Editing `scripts\config.lua` also works, but the next mod update replaces that file.
 
 **Evolution vs. adaptation?**
 Evolution turns a Pal into a different Pal (Pengullet to Penking). Adaptation changes its element (Pengullet to Pengullet Lux).
@@ -149,7 +152,7 @@ Since 1.6.4 the mod claims no key unless you ask it to: set `confirmKeyEnabled =
 A leading slash is the game's own admin sigil: Palworld answers every such line with "You are not an Admin" before any mod ever sees it, and that reply cannot be intercepted from a mod. `/palvolve` still works if that is what you are used to - `!palvolve` is the quiet one, and the same prefix the other Palworld command mods use.
 
 **I evolved a Pal but its saddle is missing from the Tech Tree and Pal Gear Workbench?**
-Since 1.4.0 the mod unlocks those recipes for you when you evolve a Pal into that species. If the saddle still does not show up, the native component behind it is not loading. Check the UE4SS log for a line starting with `[PalvolveNative]`, and make sure your UE4SS build matches the one the mod was built against. If you prefer the vanilla rule that only catching a species unlocks its gear, set `unlockCatchTech = false` in the config.
+Since 1.4.0 the mod unlocks those recipes for you when you evolve a Pal into that species. If the saddle still does not show up, the native component behind it is not loading. Check the UE4SS log for a line starting with `[PalvolveNative]`, and make sure your UE4SS build matches the one the mod was built against. If you prefer the vanilla rule that only catching a species unlocks its gear, set `unlockCatchTech = false` in your `config_user.lua`. Before 1.8.0 that line was only read from the mod's own copy, which every update replaced.
 
 **Compatible with other mods?**
 Mostly, with a few known conflicts - see [Known mod conflicts](#known-mod-conflicts) below. Keep every mod updated, and send your mod list if an option stays greyed out.

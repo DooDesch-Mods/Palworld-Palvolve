@@ -31,7 +31,7 @@ local Config = {
 
     -- Mod version, reported to connected clients by the host handshake. Keep in
     -- sync with Info.json (the release flow checks this).
-    modVersion = "1.7.1",
+    modVersion = "1.8.0",
 
     -- Unlock the catch-gated technologies (saddle, Pal gear) of the target species when a
     -- pal evolves, the same way capturing one would. Needs the native companion in
@@ -1906,6 +1906,159 @@ local function loadUserConfig()
     return nil, nil, checked
 end
 
+-- Every setting a config_user.lua may set, and nothing else.
+--
+-- A whitelist, not a merge: this file is a stranger's data on a dedicated
+-- server, and `for k, v in pairs(user)` would let it replace the stone item
+-- ids, the schema version or the map loader itself. Naming the keys means a
+-- config can only ever move a value inside a range this file chose.
+--
+-- The website generates exactly these paths from
+-- Palvolve-Web/web/src/data/settings.vocab.json, and its
+-- scripts/selfcheck-settings.ts reads THIS table to prove the two lists match.
+-- A setting the site writes and this table omits would download cleanly and do
+-- nothing in game, which is the hardest kind of bug to report.
+--
+-- kind:
+--   bool  anything but true is false
+--   int   clamped, then floored (a fraction would reach something that counts)
+--   num   clamped, fraction kept (durations and rates: 0.5 s is a real value,
+--         and costs.countScale = 1.5 is documented as one)
+--   enum  one of `values`, case-insensitively, or the shipped value stands
+local USER_KEYS = {
+    -- gameplay
+    { path = "eggFilter.enabled", kind = "bool" },
+    { path = "requireStone", kind = "bool" },
+    -- written into the PalSchema building file, where a junk level breaks the
+    -- technology entry
+    { path = "techLevelCap", kind = "int", min = 1, max = 100 },
+    { path = "unlockCatchTech", kind = "bool" },
+    { path = "ivBonusPerStage", kind = "int", min = 0, max = 100 },
+    { path = "ivCap", kind = "int", min = 0, max = 100 },
+
+    -- costs
+    { path = "stoneCount", kind = "int", min = 1, max = 99 },
+    { path = "costs.enabled", kind = "bool" },
+    { path = "costs.slots", kind = "int", min = 0, max = 10000 },
+    { path = "costs.minRate", kind = "num", min = 0, max = 10000 },
+    { path = "costs.countScale", kind = "num", min = 0, max = 10000 },
+    { path = "costs.maxCount", kind = "int", min = 0, max = 10000 },
+
+    -- multiplayer
+    { path = "chatMessages", kind = "enum", values = { "all", "replies", "off" } },
+    { path = "net.rateLimitSeconds", kind = "num", min = 0, max = 60 },
+    { path = "net.reqIdCacheSize", kind = "int", min = 8, max = 512 },
+    { path = "serverCheck.enabled", kind = "bool" },
+    { path = "serverCheck.timeoutSeconds", kind = "num", min = 5, max = 300 },
+
+    -- evolution sequence
+    { path = "finale.style", kind = "enum", values = { "layered", "legacy" } },
+    { path = "finale.maxLiveSystems", kind = "int", min = 1, max = 64 },
+    { path = "digimon.elementColors", kind = "bool" },
+    { path = "digimon.spinUpMs", kind = "int", min = 0, max = 20000 },
+    { path = "digimon.shrinkMs", kind = "int", min = 0, max = 20000 },
+    { path = "digimon.growMs", kind = "int", min = 0, max = 20000 },
+    { path = "digimon.finaleHoldMs", kind = "int", min = 0, max = 20000 },
+    { path = "digimon.peakDegPerSec", kind = "num", min = 0, max = 10000 },
+
+    -- interface and keys
+    { path = "treeCloseButton", kind = "bool" },
+    { path = "confirmKeyEnabled", kind = "bool" },
+    -- An unknown name would reach RegisterKeyBind(Key[name]) as nil and take
+    -- the binding down with it, so the list is the one the website offers.
+    -- F11 belongs to the game's fullscreen toggle and F12 to Steam.
+    { path = "confirmKey", kind = "enum", upper = true, values = {
+        "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10",
+        "INS", "DEL", "HOME", "END", "PAGE_UP", "PAGE_DOWN",
+    } },
+    { path = "confirmWindowSeconds", kind = "num", min = 1, max = 120 },
+    { path = "debounceSeconds", kind = "num", min = 0, max = 5 },
+
+    -- diagnostics: the traces that name a CharacterID sit behind devMode, and
+    -- the copy of this file next to the mod belongs to Steam on a Workshop
+    -- install, where the next update reverts an edit to it
+    { path = "devMode", kind = "bool" },
+    { path = "diagReveal", kind = "bool" },
+    { path = "finale.debugLog", kind = "bool" },
+}
+
+local function readPath(root, path)
+    local cur = root
+    for part in path:gmatch("[^.]+") do
+        if type(cur) ~= "table" then return nil end
+        cur = cur[part]
+    end
+    return cur
+end
+
+local function writePath(root, path, value)
+    local parts = {}
+    for part in path:gmatch("[^.]+") do parts[#parts + 1] = part end
+    local cur = root
+    for i = 1, #parts - 1 do
+        if type(cur[parts[i]]) ~= "table" then cur[parts[i]] = {} end
+        cur = cur[parts[i]]
+    end
+    cur[parts[#parts]] = value
+end
+
+--- Copies the whitelisted settings out of a user config into Config.
+---
+--- A value that cannot be used is REPORTED, never silently swallowed: the whole
+--- point of a config file is that the author believes it took effect, and a typo
+--- that produces no line in the log is a support thread that starts from
+--- nothing.
+local function applyUserKeys(user)
+    for _, entry in ipairs(USER_KEYS) do
+        local raw = readPath(user, entry.path)
+        if raw ~= nil then
+            local value, why = nil, nil
+            if entry.kind == "bool" then
+                value = raw == true
+                -- Anything that is not a boolean counts as false, so a quoted
+                -- `requireStone = "true"` switches the setting OFF - the one
+                -- outcome nobody would look for in their own file.
+                if type(raw) ~= "boolean" then
+                    why = string.format("expected true or false, read a %s", type(raw))
+                end
+            elseif entry.kind == "enum" then
+                if type(raw) == "string" then
+                    local want = entry.upper and raw:upper() or raw:lower()
+                    for _, allowed in ipairs(entry.values) do
+                        if allowed == want then value = allowed break end
+                    end
+                    if value == nil then
+                        why = string.format("'%s' is not one of %s",
+                            raw, table.concat(entry.values, ", "))
+                    end
+                else
+                    why = "expected a string"
+                end
+            else
+                local n = tonumber(raw)
+                if n == nil or n ~= n then
+                    why = "expected a number"
+                else
+                    if entry.min and n < entry.min then n = entry.min end
+                    if entry.max and n > entry.max then n = entry.max end
+                    value = (entry.kind == "int") and math.floor(n) or n
+                end
+            end
+
+            if value ~= nil then
+                writePath(Config, entry.path, value)
+                if why then
+                    print(string.format("[Palvolve] %s: %s - reading it as %s\n",
+                        entry.path, why, tostring(value)))
+                end
+            else
+                print(string.format("[Palvolve] %s: %s - keeping %s\n",
+                    entry.path, why or "unusable value", tostring(readPath(Config, entry.path))))
+            end
+        end
+    end
+end
+
 local user, userSource, userChecked = loadUserConfig()
 if user then
     if type(user.map) == "table" then
@@ -1943,52 +2096,7 @@ if user then
             Config.resetCanonical()
         end
     end
-    if type(user.eggFilter) == "table" and user.eggFilter.enabled ~= nil then
-        Config.eggFilter.enabled = user.eggFilter.enabled == true
-    end
-    -- Whitelisted on purpose: the diagnostics that name a CharacterID sit behind
-    -- devMode, and the copy next to the mod belongs to Steam on a Workshop
-    -- install, where the next update reverts an edit to it.
-    if user.devMode ~= nil then
-        Config.devMode = user.devMode == true
-    end
-    if user.diagReveal ~= nil then
-        Config.diagReveal = user.diagReveal == true
-    end
-    -- The confirm key is the one binding the mod claims globally, so a player
-    -- whose other mods want F2 can hand it back. The wheel entry and the chat
-    -- command still evolve, so nothing is lost but the shortcut.
-    if user.treeCloseButton ~= nil then
-        Config.treeCloseButton = user.treeCloseButton == true
-    end
-    if type(user.chatMessages) == "string" then
-        local want = user.chatMessages:lower()
-        if want == "all" or want == "replies" or want == "off" then
-            Config.chatMessages = want
-        else
-            print(string.format("[Palvolve] chatMessages '%s' is not one of all, replies, off "
-                .. "- keeping %s\n", tostring(user.chatMessages), Config.chatMessages))
-        end
-    end
-    if user.confirmKeyEnabled ~= nil then
-        Config.confirmKeyEnabled = user.confirmKeyEnabled == true
-    end
-    if user.requireStone ~= nil then
-        Config.requireStone = user.requireStone == true
-    end
-    -- Clamped here rather than trusted: this value is written into the PalSchema
-    -- building file, where a junk level would break the technology entry.
-    if tonumber(user.techLevelCap) then
-        local lvl = math.floor(tonumber(user.techLevelCap))
-        if lvl < 1 then lvl = 1 end
-        if lvl > 100 then lvl = 100 end
-        Config.techLevelCap = lvl
-    end
-    if type(user.costs) == "table" then
-        for _, k in ipairs({ "enabled", "slots", "minRate", "countScale", "maxCount" }) do
-            if user.costs[k] ~= nil then Config.costs[k] = user.costs[k] end
-        end
-    end
+    applyUserKeys(user)
     Config.loadArrangement(user)
     print(string.format("[Palvolve] user config loaded (%d pairs, %s)\n", #Config.map, tostring(userSource)))
     -- Pushed rather than pulled: role.lua is what this file requires, so it

@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.8.0] - 2026-08-13
+
+### Added
+
+- **Your `config_user.lua` can now set twenty settings it could only read about before.** The animation timings, the finale style, the multiplayer request limits, the talent bonus per stage, how many stones an evolution costs, which key confirms - all of it used to mean editing `scripts\config.lua`, which the next mod update overwrites. The website writes them and `config_user.lua` carries them through updates.
+- **Every setting is on the website, grouped and searchable.** [palvolve.doodesch.de/simple](https://palvolve.doodesch.de/simple) keeps the four quick switches at the top and puts the full list under them, with a search box, a running list of what you changed, and a reset for each value.
+- **Each setting says which file it belongs in.** "Server file" or "Player file", and for the ones the host hands to its players, that too. Guessing which half of a dedicated setup a value belongs to was the most common way to set it in the wrong place.
+- **You can load your running config back into the website.** Drop your `config_user.lua` on the quick setup page, change the two values you came for, download it again. Your tree and every other setting survive the trip.
+- **The settings you changed copy out as text.** One block for a Discord thread or a ticket, with both the readable name and the line to put in the file.
+
+### Fixed
+
+- **`unlockCatchTech = false` in a user config did nothing.** The README has described that switch since 1.4.0, but the loader never read it - the only way to get the vanilla rule back was editing the mod's own copy, which every update replaced.
+- **An unknown `confirmKey` took the whole key binding down with it.** A name UE4SS does not know reached the binding as nil. The config now accepts sixteen keys and says so in the log when it rejects one, and the binding step checks before it registers.
+
 ## [1.7.1] - 2026-08-13
 
 ### Fixed
