@@ -62,7 +62,11 @@ Every player also needs Palvolve, PalSchema and UE4SS active on their own client
 
 #### Where the config belongs
 
-A server looks in `<server>\Pal\Saved\Palvolve\config_user.lua` first, then in `%LocalAppData%\Pal\Saved\Palvolve\`, which on a rented server belongs to the hosting company rather than to you. The mod's own folder still works as a last resort, and the log says so when it is used: updating the mod replaces that folder and takes the config with it. Since 1.6.3 the log names the file it loaded, so one line tells you which tree the server is running:
+A server looks in `<server>\Pal\Saved\Palvolve\config_user.lua` first, then in `%LocalAppData%\Pal\Saved\Palvolve\`, which on a rented server belongs to the hosting company rather than to you.
+
+Since 1.8.0 you can also just drop the file in the mod's own `scripts\` folder. On the next start it is moved to whichever of those two paths applies, a note is left behind saying where it went, and any config already there is kept as `config_user.lua.bak`. That folder is the one most people find first and the one a mod update replaces, so nothing is meant to stay there.
+
+Since 1.6.3 the log names the file it loaded, so one line tells you which tree the server is running:
 
 ```
 [Palvolve] user config loaded (166 pairs, .../Pal/Saved/Palvolve/config_user.lua)

@@ -1845,6 +1845,107 @@ local function ensureDir(dir)
     return false
 end
 
+--- Copies a file byte for byte. Binary mode on both ends, because a config is
+--- UTF-8 and text mode would rewrite its line endings on the way through.
+local function copyFile(from, to)
+    local src = io.open(from, "rb")
+    if not src then return false, "cannot read " .. from end
+    local data = src:read("*a")
+    src:close()
+    if not data then return false, "read nothing from " .. from end
+    local dst = io.open(to, "wb")
+    if not dst then return false, "cannot write " .. to end
+    dst:write(data)
+    dst:close()
+    return true
+end
+
+local MOVED_NOTICE = "config_user-moved.txt"
+
+--- Moves a config_user.lua dropped into the mod's own scripts folder to the
+--- update-proof location, and leaves a note behind saying where it went.
+---
+--- The scripts folder is the one spot people find on their own, because it is
+--- where the mod is. It is also the one spot a mod update replaces, so a config
+--- left there disappears without warning at the worst possible moment. Warning
+--- about it, which is what this used to do, puts the work back on the reader
+--- and only when they happen to read the log.
+---
+--- The dropped file wins over whatever is already at the target: someone who
+--- just put a file next to the mod means that one. The previous config is kept
+--- as .bak - it is still overwritten, but a wrong drop does not cost someone
+--- the tree they spent an evening on.
+---
+--- A file that does not compile is NOT moved. It would replace a working config
+--- with one the mod refuses to load, and the loader would then fall back to the
+--- built-in tree while the author's own config sat in .bak, which is a worse
+--- place to be than the one they started in.
+local function migrateScriptsConfig(targetDir)
+    local source = scriptsConfigPath()
+    if not source or not targetDir then return end
+    local target = targetDir .. "\\config_user.lua"
+    if source:lower() == target:lower() then return end
+
+    if not readConfigAt(source) then
+        print(string.format("[Palvolve] %s is not a usable config, so it was left where it is\n",
+            source))
+        return
+    end
+    if not ensureDir(targetDir) then return end
+
+    local existing = io.open(target, "rb")
+    if existing then
+        existing:close()
+        local okBak, bakErr = copyFile(target, target .. ".bak")
+        if not okBak then
+            print(string.format("[Palvolve] could not back up the config already at %s (%s) "
+                .. "- leaving both files alone\n", target, tostring(bakErr)))
+            return
+        end
+    end
+
+    local okCopy, copyErr = copyFile(source, target)
+    if not okCopy then
+        print(string.format("[Palvolve] could not move the config out of the mod folder (%s) "
+            .. "- it still loads from %s, but the next mod update deletes it\n",
+            tostring(copyErr), source))
+        return
+    end
+
+    -- Only now is the original expendable: the copy is on disk and readable.
+    local removed = os.remove(source)
+    -- package.loaded would otherwise hand the moved-away file back to a later
+    -- require, from a path that no longer exists.
+    package.loaded["config_user"] = nil
+
+    local noticePath = source:gsub("[^/\\]+$", "") .. MOVED_NOTICE
+    local notice = io.open(noticePath, "w")
+    if notice then
+        notice:write(
+            "Your config_user.lua was moved.\n\n"
+            .. "It is now at:\n    " .. target .. "\n\n"
+            .. "Palvolve reads it from there, and that folder survives a mod update.\n"
+            .. "This folder does not: updating Palvolve replaces it, and anything you\n"
+            .. "leave here goes with it.\n\n"
+            .. (existing and ("The config that was already there was kept as:\n    "
+                .. target .. ".bak\n\n") or "")
+            .. "Edit the file at the path above, or drop a new one here and it will be\n"
+            .. "moved the same way on the next start.\n\n"
+            .. "You can delete this note.\n"
+        )
+        notice:close()
+    end
+
+    if removed then
+        print(string.format("[Palvolve] moved config_user.lua out of the mod folder to %s "
+            .. "(that one survives a mod update)\n", target))
+    else
+        print(string.format("[Palvolve] copied config_user.lua to %s, but could not delete the "
+            .. "one at %s - delete it by hand, or it comes back on the next start\n",
+            target, source))
+    end
+end
+
 -- Optional user overlay: the configurator at palvolve.doodesch.de generates
 -- a config_user.lua. It replaces the pair map wholesale and merges a
 -- whitelist of globals. Players keep it where they always have:
@@ -1852,7 +1953,8 @@ end
 -- A dedicated server cannot reach that account, so it looks in its own install
 -- first:
 --   <install>\Pal\Saved\Palvolve\config_user.lua
--- Last resort is the mod's own scripts folder, which a mod update wipes.
+-- A file dropped in the mod's own scripts folder is moved to whichever of those
+-- two applies, because a mod update wipes that folder.
 local function loadUserConfig()
     local checked = {}
     local localAppData = os.getenv("LOCALAPPDATA")
@@ -1879,6 +1981,11 @@ local function loadUserConfig()
     end
     if appDataDir then table.insert(dirs, appDataDir) end
 
+    -- Before the search, not after it: the dropped file is meant to be the one
+    -- that loads, and the search below returns on its first hit. Migrating
+    -- afterwards would move the file and then load the older one it replaced.
+    migrateScriptsConfig(dirs[1])
+
     for _, dir in ipairs(dirs) do
         local path = dir .. "\\config_user.lua"
         table.insert(checked, path)
@@ -1894,8 +2001,10 @@ local function loadUserConfig()
     table.insert(checked, fallback or "scripts\\config_user.lua")
     local okReq, result = pcall(require, "config_user")
     if okReq and type(result) == "table" then
-        -- The update-proof spot for this side: the install folder on a server,
-        -- %LocalAppData% for a player.
+        -- Reaching here means migrateScriptsConfig could not move this file:
+        -- no target folder, or one that refused to be written to. It still
+        -- loads, and the line above already said why the move failed. This one
+        -- says what it costs, because that is the part that bites later.
         local preferred = dirs[1]
         if preferred then
             print(string.format("[Palvolve] this config sits in the mod folder, where the next "
@@ -2039,8 +2148,18 @@ local function applyUserKeys(user)
                 if n == nil or n ~= n then
                     why = "expected a number"
                 else
+                    -- A clamp is a value the author did not ask for, so it is
+                    -- reported for the same reason a rejected enum is: silence
+                    -- here means someone sets a number, sees the old behaviour
+                    -- and has nothing to go on. Only a clamp that actually
+                    -- moved the value says anything.
+                    local wanted = n
                     if entry.min and n < entry.min then n = entry.min end
                     if entry.max and n > entry.max then n = entry.max end
+                    if n ~= wanted then
+                        why = string.format("%s is outside %s..%s",
+                            tostring(wanted), tostring(entry.min), tostring(entry.max))
+                    end
                     value = (entry.kind == "int") and math.floor(n) or n
                 end
             end

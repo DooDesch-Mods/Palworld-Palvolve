@@ -9,6 +9,8 @@
 - **Each setting says which file it belongs in.** "Server file" or "Player file", and for the ones the host hands to its players, that too. Guessing which half of a dedicated setup a value belongs to was the most common way to set it in the wrong place.
 - **You can load your running config back into the website.** Drop your `config_user.lua` on the quick setup page, change the two values you came for, download it again. Your tree and every other setting survive the trip.
 - **The settings you changed copy out as text.** One block for a Discord thread or a ticket, with both the readable name and the line to put in the file.
+- **A config dropped next to the mod moves itself somewhere an update cannot reach.** The mod's own `scripts\` folder is the one people find on their own, and the one a mod update replaces. A `config_user.lua` left there is now moved to `%LocalAppData%\Pal\Saved\Palvolve\`, or on a server to `<server>\Pal\Saved\Palvolve\`, and a note stays behind saying where it went. A config already at that path is kept as `config_user.lua.bak`. A file that does not compile is left where it is rather than replacing a working one.
+- **A value the mod cannot use says so in the log.** A number outside its range names the range and what it was read as, an unknown `chatMessages` or `confirmKey` lists what is accepted. Values used to be corrected in silence, which left an author watching the old behaviour with nothing to go on.
 
 ### Fixed
 
