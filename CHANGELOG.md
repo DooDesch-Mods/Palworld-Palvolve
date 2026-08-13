@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.1] - 2026-08-13
+
+### Fixed
+
+- **A second dropped config used to erase the backup of the first.** The config that a migration replaces is kept, but the backup had one fixed name, so dropping another file overwrote it. That is the moment it mattered: something looks wrong, you drop a second file to fix it, and the config you actually wanted back is already gone. Backups now carry the date and time they were made, and the five most recent are kept.
+
 ## [1.8.0] - 2026-08-13
 
 ### Added

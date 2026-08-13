@@ -31,7 +31,7 @@ local Config = {
 
     -- Mod version, reported to connected clients by the host handshake. Keep in
     -- sync with Info.json (the release flow checks this).
-    modVersion = "1.8.0",
+    modVersion = "1.8.1",
 
     -- Unlock the catch-gated technologies (saddle, Pal gear) of the target species when a
     -- pal evolves, the same way capturing one would. Needs the native companion in
@@ -1862,6 +1862,73 @@ end
 
 local MOVED_NOTICE = "config_user-moved.txt"
 
+--- How many replaced configs are kept. Five, because the drop that costs
+--- someone their tree is rarely the first one: something looks wrong, they drop
+--- another file to fix it, and a single backup slot has already forgotten the
+--- config they actually wanted back.
+local BACKUP_KEEP = 5
+
+--- The files in `dir` whose name starts with `prefix`, or nil if the folder
+--- cannot be listed.
+---
+--- Shelling out because Lua has no directory listing and UE4SS ships no lfs.
+--- `dir /b` writes bare names, one per line. This runs only when a config is
+--- actually migrated, which is rare, so the cost of a shell call does not sit
+--- on the startup path.
+local function listFiles(dir, prefix)
+    local temp = os.tmpname()
+    -- os.tmpname returns a bare name on Windows, which lands in the working
+    -- directory - the game's, not ours. Anchor it next to the file instead.
+    if not temp:find("[/\\]") then temp = dir .. "\\" .. temp end
+    local ok = pcall(os.execute,
+        string.format('dir /b "%s\\%s*" > "%s" 2>nul', dir, prefix, temp))
+    if not ok then return nil end
+    local handle = io.open(temp, "r")
+    if not handle then return nil end
+    local names = {}
+    for line in handle:lines() do
+        local name = line:gsub("%s+$", "")
+        if name ~= "" then table.insert(names, name) end
+    end
+    handle:close()
+    os.remove(temp)
+    return names
+end
+
+--- Copies whatever is at `target` aside under a timestamped name and drops the
+--- oldest ones past BACKUP_KEEP.
+---
+--- The timestamp is fixed width and ordered biggest unit first, so sorting the
+--- names sorts them by age and no file has to be stat-ed to find the oldest.
+---
+--- Returns the backup path, or nil plus a reason. A folder that cannot be
+--- listed is NOT a failure: the backup is written and nothing is pruned, which
+--- errs towards keeping too much rather than deleting someone's config.
+local function backupExisting(target)
+    local stamp = os.date("%Y-%m-%d_%H%M%S")
+    local path = string.format("%s.%s.bak", target, stamp)
+    local ok, err = copyFile(target, path)
+    if not ok then return nil, err end
+
+    local dir, file = target:match("^(.*)[/\\]([^/\\]+)$")
+    if not dir then return path end
+    local names = listFiles(dir, file .. ".")
+    if not names then return path end
+
+    local backups = {}
+    for _, name in ipairs(names) do
+        if name:match("^" .. file:gsub("%p", "%%%0") .. "%.%d.*%.bak$") then
+            table.insert(backups, name)
+        end
+    end
+    if #backups <= BACKUP_KEEP then return path end
+    table.sort(backups) -- oldest first
+    for i = 1, #backups - BACKUP_KEEP do
+        os.remove(dir .. "\\" .. backups[i])
+    end
+    return path
+end
+
 --- Moves a config_user.lua dropped into the mod's own scripts folder to the
 --- update-proof location, and leaves a note behind saying where it went.
 ---
@@ -1893,11 +1960,13 @@ local function migrateScriptsConfig(targetDir)
     end
     if not ensureDir(targetDir) then return end
 
+    local backupPath = nil
     local existing = io.open(target, "rb")
     if existing then
         existing:close()
-        local okBak, bakErr = copyFile(target, target .. ".bak")
-        if not okBak then
+        local bakErr
+        backupPath, bakErr = backupExisting(target)
+        if not backupPath then
             print(string.format("[Palvolve] could not back up the config already at %s (%s) "
                 .. "- leaving both files alone\n", target, tostring(bakErr)))
             return
@@ -1927,8 +1996,8 @@ local function migrateScriptsConfig(targetDir)
             .. "Palvolve reads it from there, and that folder survives a mod update.\n"
             .. "This folder does not: updating Palvolve replaces it, and anything you\n"
             .. "leave here goes with it.\n\n"
-            .. (existing and ("The config that was already there was kept as:\n    "
-                .. target .. ".bak\n\n") or "")
+            .. (backupPath and ("The config that was already there was kept as:\n    "
+                .. backupPath .. "\n\nThe five most recent ones are kept; older ones are removed.\n\n") or "")
             .. "Edit the file at the path above, or drop a new one here and it will be\n"
             .. "moved the same way on the next start.\n\n"
             .. "You can delete this note.\n"

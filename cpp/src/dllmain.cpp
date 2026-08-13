@@ -68,7 +68,7 @@ using namespace RC::Unreal;
 
 namespace
 {
-    constexpr const wchar_t* ModVersionString = STR("1.8.0");
+    constexpr const wchar_t* ModVersionString = STR("1.8.1");
 
     // A world context object is required by the *_ForServer setters. The game mode is the
     // first reliable one available and exists only on the authority, which doubles as the
