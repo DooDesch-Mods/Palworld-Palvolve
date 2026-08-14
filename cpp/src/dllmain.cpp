@@ -283,15 +283,24 @@ namespace
     void* g_rank_thunk{nullptr};
     void* g_hasrank_thunk{nullptr};
     void* g_hassuit_thunk{nullptr};
+    // The work SPEED asks its rank through this one, not through GetWorkSuitabilityRank. An
+    // evolved pal can answer "yes, kindling, rank 3" to every other hook here and still cook
+    // at zero, because the speed getter reads the rank from the per-pal cache through a shared
+    // body that none of those hooks sit on. The speed itself is then a plain table lookup in
+    // UPalGameSetting - kindling rank 3 is 140, transport rank 2 is 5 - so answering the rank
+    // correctly is enough.
+    void* g_rankwcr_thunk{nullptr};
 
     // Every call target inside an exec thunk. One of them is the C++ method; which one is
     // decided by measurement, not by position.
     std::vector<uintptr_t> g_rank_candidates;
     std::vector<uintptr_t> g_hasrank_candidates;
     std::vector<uintptr_t> g_hassuit_candidates;
+    std::vector<uintptr_t> g_rankwcr_candidates;
     std::atomic<uintptr_t> g_rank_native{0};
     std::atomic<uintptr_t> g_hasrank_native{0};
     std::atomic<uintptr_t> g_hassuit_native{0};
+    std::atomic<uintptr_t> g_rankwcr_native{0};
 
     // The database hands its rank map back in a different key space than the getter the base
     // camp asks. Measured once per session rather than hardcoded, so a game patch that moves
@@ -402,6 +411,8 @@ namespace
     auto flatten_ranks(const std::vector<uint8>& Storage,
                        std::array<int32, WorkSuitabilityMax>& Out, int32 KeyOffset) -> bool;
     auto clear_work_override(UObject* Param) -> bool;
+    auto rewrite_craft_speeds(UObject* Param,
+                              const std::array<int32, WorkSuitabilityMax>& Ranks) -> std::wstring;
     auto probe_native_getter() -> std::wstring;
     auto install_native_rank_hook() -> void;
 
@@ -704,6 +715,11 @@ namespace
         {
             g_hassuit_thunk = reinterpret_cast<void*>(HasSuitFn->GetFuncPtr());
         }
+        if (auto* RankWcrFn = find_fn(
+                STR("/Script/Pal.PalIndividualCharacterParameter:GetWorkSuitabilityRankWithCharacterRank")))
+        {
+            g_rankwcr_thunk = reinterpret_cast<void*>(RankWcrFn->GetFuncPtr());
+        }
 
         int32 Installed = 0;
         for (const auto& Spec : ScalarHooks)
@@ -819,6 +835,33 @@ namespace
         scan_thunk_calls(g_rank_thunk, STR("rank"), g_rank_candidates);
         scan_thunk_calls(g_hasrank_thunk, STR("hasrank"), g_hasrank_candidates);
         scan_thunk_calls(g_hassuit_thunk, STR("hassuit"), g_hassuit_candidates);
+        scan_thunk_calls(g_rankwcr_thunk, STR("rankwcr"), g_rankwcr_candidates);
+        // The call in that thunk lands on a wrapper that only sets up two flags and then jumps
+        // to the shared body. The speed getter calls that body directly, so hooking the wrapper
+        // would sit on the wrong side of the jump and never fire for the number this is about.
+        // The jump is a few bytes in rather than at the entry, so the head is scanned for it.
+        for (auto& Address : g_rankwcr_candidates)
+        {
+            const auto* At = reinterpret_cast<const uint8*>(Address);
+            uintptr_t Base = 0, End = 0;
+            if (!module_range(Base, End)) break;
+            for (size_t i = 0; i + 5 <= 0x20; ++i)
+            {
+                if (At[i] == 0xC3) break;              // returned before any jump
+                if (At[i] != 0xE9) continue;
+                int32 Rel = 0;
+                std::memcpy(&Rel, At + i + 1, sizeof(Rel));
+                const uintptr_t Body =
+                    Address + i + 5 + static_cast<uintptr_t>(static_cast<intptr_t>(Rel));
+                if (Body < Base || Body >= End || Body == Address) break;
+                Output::send<LogLevel::Normal>(
+                    STR("[PalvolveNative]   rankwcr wrapper {:#x} jumps at +{:#x} to body {:#x} "
+                        "(rva {:#x})\n"),
+                    Address, i, Body, Body - Base);
+                Address = Body;
+                break;
+            }
+        }
         if (g_rank_candidates.empty() && g_hasrank_candidates.empty())
         {
             return STR("no call found in either thunk - the methods may be inlined");
@@ -953,6 +996,22 @@ namespace
         __try
         {
             Out = reinterpret_cast<TRankGetter>(Address)(Self, Work);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    using TRankWcr = int32(__fastcall*)(void*, uint8, bool, bool);
+
+    __declspec(noinline) auto try_call_rankwcr(uintptr_t Address, void* Self, uint8 Work,
+                                               bool bA, bool bB, int32& Out) -> bool
+    {
+        __try
+        {
+            Out = reinterpret_cast<TRankWcr>(Address)(Self, Work, bA, bB);
             return true;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
@@ -1118,6 +1177,39 @@ namespace
             g_hassuit_native.store(SuitMatches ? SuitAddress : 0);
         }
 
+        // The rank body the work SPEED reads through. Same measurement as the others: call the
+        // candidate for every work type and keep it only if it agrees with the reflected answer.
+        // Two extra arguments come after the work type; both are true on the speed getter's
+        // path, and both are passed through unchanged.
+        if (!g_rankwcr_candidates.empty())
+        {
+            auto* RankWcrFn = find_fn(
+                STR("/Script/Pal.PalIndividualCharacterParameter:GetWorkSuitabilityRankWithCharacterRank"));
+            const uintptr_t WcrAddress = g_rankwcr_candidates.back();
+            bool WcrMatches = RankWcrFn != nullptr;
+
+            for (uint8 Work = 0; Work < static_cast<uint8>(WorkSuitabilityMax) && WcrMatches; ++Work)
+            {
+                FParamBuffer Buffer(RankWcrFn);
+                Buffer.Set(STR("WorkSuitability"), Work);
+                Buffer.Call(Sample);
+                const int32 ExpectedValue = Buffer.Get<int32>(STR("ReturnValue"));
+
+                int32 Value = 0;
+                if (!try_call_rankwcr(WcrAddress, Sample, Work, true, true, Value) ||
+                    Value != ExpectedValue)
+                {
+                    WcrMatches = false;
+                }
+            }
+
+            Output::send<LogLevel::Normal>(
+                STR("[PalvolveNative] native rank-with-character-rank {:#x} (rva {:#x}): {}\n"),
+                WcrAddress, WcrAddress - reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)),
+                WcrMatches ? STR("MATCHES the reflected answer") : STR("does not match - not hooking"));
+            g_rankwcr_native.store(WcrMatches ? WcrAddress : 0);
+        }
+
         s_done.store(true);
         install_native_rank_hook();
     }
@@ -1125,11 +1217,15 @@ namespace
     SafetyHookInline g_rank_hook{};
     SafetyHookInline g_hasrank_hook{};
     SafetyHookInline g_hassuit_hook{};
+    SafetyHookInline g_rankwcr_hook{};
 
     // Work types whose gate this mod opened for an evolved pal, one bit per EPalWorkSuitability
     // value. A mask rather than a counter: the camp asks the same question hundreds of times per
     // minute, so a count would answer "how often" where the report says "how many".
     std::atomic<uint32> g_opened_work_mask{0};
+
+    // How often the work speed asked and got the new species' rank instead of the old one.
+    std::atomic<uint64> g_rankwcr_overridden{0};
     std::atomic<uint64> g_hassuit_overridden{0};
     std::atomic<uint64> g_hasrank_overridden{0};
     // Set once the one-line report has gone out, so it stays one line per world.
@@ -1275,13 +1371,28 @@ namespace
         return Answer;
     }
 
+    // The rank the work SPEED is built from. GetCraftSpeedByWorkSuitability reaches this body
+    // directly, which is why every other hook in this file could answer correctly while an
+    // evolved pal still contributed nothing: the camp let it work, and the speed table was then
+    // indexed with the OLD species' rank. Kindling absent gives index 0 gives speed 0.
+    auto __fastcall rankwcr_detour(void* Self, uint8 Work, bool bA, bool bB) -> int32
+    {
+        int32 Rank = 0;
+        if (evolved_rank(Self, Work, Rank))
+        {
+            g_rankwcr_overridden.fetch_add(1, std::memory_order_relaxed);
+            return Rank;
+        }
+        return g_rankwcr_hook.call<int32>(Self, Work, bA, bB);
+    }
+
     auto install_native_rank_hook() -> void
     {
         const uintptr_t Address = g_rank_native.load();
         const uintptr_t HasAddress = g_hasrank_native.load();
         const uintptr_t SuitAddress = g_hassuit_native.load();
-        if ((Address == 0 && HasAddress == 0 && SuitAddress == 0) ||
-            g_rank_hook || g_hasrank_hook || g_hassuit_hook)
+        if ((Address == 0 && HasAddress == 0 && SuitAddress == 0 && g_rankwcr_native.load() == 0) ||
+            g_rank_hook || g_hasrank_hook || g_hassuit_hook || g_rankwcr_hook)
         {
             return;
         }
@@ -1297,6 +1408,27 @@ namespace
             Output::send<LogLevel::Warning>(
                 STR("[PalvolveNative] native work suitability hook disabled by marker file\n"));
             return;
+        }
+
+        // Never two inline hooks on one address. The other three are un-followed thunk targets
+        // while this one is the body behind a jump, so they normally differ - but a build where
+        // one of them calls the same body directly would land two detours on the same bytes.
+        const uintptr_t WcrRaw = g_rankwcr_native.load();
+        const bool WcrDistinct = WcrRaw != 0 && WcrRaw != Address && WcrRaw != HasAddress
+                                 && WcrRaw != SuitAddress;
+        if (WcrRaw != 0 && !WcrDistinct)
+        {
+            Output::send<LogLevel::Warning>(
+                STR("[PalvolveNative] work speed rank body {:#x} is already hooked - skipping\n"),
+                WcrRaw);
+        }
+        if (const uintptr_t WcrAddress = WcrDistinct ? WcrRaw : 0; WcrAddress != 0)
+        {
+            g_rankwcr_hook = safetyhook::create_inline(reinterpret_cast<void*>(WcrAddress),
+                                                       reinterpret_cast<void*>(&rankwcr_detour));
+            Output::send<LogLevel::Normal>(
+                STR("[PalvolveNative] native work speed rank hook at {:#x}: {}\n"),
+                WcrAddress, g_rankwcr_hook ? STR("installed") : STR("FAILED"));
         }
 
         if (Address != 0)
@@ -1384,9 +1516,10 @@ namespace
         }
         Output::send<LogLevel::Normal>(
             STR("[PalvolveNative] work suitability: {} ask(s) about {} pal(s), {} override(s), ")
-            STR("{} gate answer(s), {} job type(s) opened up\n"),
+            STR("{} gate answer(s), {} speed answer(s), {} job type(s) opened up\n"),
             Total, Distinct, g_work_override_count.load(std::memory_order_relaxed),
-            g_hassuit_overridden.load(std::memory_order_relaxed), Opened);
+            g_hassuit_overridden.load(std::memory_order_relaxed),
+            g_rankwcr_overridden.load(std::memory_order_relaxed), Opened);
         Output::send<LogLevel::Normal>(STR("[PalvolveNative]   eligibility asks: {}\n"),
                                        HasTypes.empty() ? STR("none") : HasTypes);
         Output::send<LogLevel::Normal>(STR("[PalvolveNative]   rank asks: {}\n"),
@@ -1426,6 +1559,7 @@ namespace
         g_opened_work_mask.store(0, std::memory_order_relaxed);
         g_hassuit_overridden.store(0, std::memory_order_relaxed);
         g_hasrank_overridden.store(0, std::memory_order_relaxed);
+        g_rankwcr_overridden.store(0, std::memory_order_relaxed);
         g_effect_reported.store(false, std::memory_order_relaxed);
         std::lock_guard<std::mutex> Lock(g_seen_mutex);
         g_seen_objects.clear();
@@ -1500,16 +1634,199 @@ namespace
                 CharacterId, Line.empty() ? std::wstring(STR("none")) : Line);
         }
 
+        // The rank answers alone leave the pal able but useless: its stored per-work-type
+        // table still describes the old species, and that is what the work speed reads.
+        {
+            const std::wstring Speeds = rewrite_craft_speeds(Param, Ranks);
+            Output::send<LogLevel::Normal>(STR("[PalvolveNative] {}\n"), Speeds);
+        }
+
         // Nothing else has to be pushed, told or re-registered. The native hooks answer the
         // base camp's own question from here on; notifying the camp, re-applying the work
         // preferences or re-registering the worker has no effect on this path.
         return {true, CharacterId};
     }
 
+    // Rewrite the pal's OWN per-work-type table from the species it just became.
+    //
+    // The rank hooks answer "may this pal do X" and the base camp believes them, which
+    // is why an evolved pal is assigned and walks to the station. How MUCH it
+    // contributes comes from somewhere else entirely:
+    //
+    //   PalCharacterParameterComponent::GetCraftSpeed_WorkSuitability(type)
+    //     -> GetCraftSpeed_withBuff_WorkSuitability(type)
+    //     -> GetCraftSpeedByWorkSuitability(type)
+    //     -> SaveParameter.CraftSpeeds, the entry whose WorkSuitability matches
+    //
+    // CraftSpeeds is an array of {WorkSuitability, Rank} that is SEARCHED, not indexed.
+    // A work type the old species never had has no entry at all, so the search finds
+    // nothing and the contribution is zero: the pal sits at the campfire, plays the
+    // animation, and the fire cooks at its own unaided speed.
+    //
+    // The array reads back unusable from Lua, so it is rewritten here, where the species
+    // ranks are already in hand. The log line names how many work types found a slot, so
+    // a pal whose new form needs more slots than its old one had is visible rather than
+    // silently half fixed.
+    auto rewrite_craft_speeds(UObject* Param, const std::array<int32, WorkSuitabilityMax>& Ranks)
+        -> std::wstring
+    {
+        if (!Param) return STR("no parameter object");
+
+        int32 Entries = 0;
+        for (size_t W = 1; W < WorkSuitabilityMax; ++W) { if (Ranks[W] > 0) ++Entries; }
+
+        int32 Written = 0;
+        int32 Missing = 0;
+        for (const wchar_t* Which : {STR("SaveParameter"), STR("SaveParameterMirror")})
+        {
+            auto* SaveProp = CastField<FStructProperty>(Param->GetPropertyByNameInChain(Which));
+            if (!SaveProp) continue;
+            auto* Base = static_cast<uint8*>(SaveProp->ContainerPtrToValuePtr<void>(Param));
+            if (!Base) continue;
+
+            FArrayProperty* ArrProp = nullptr;
+            for (FProperty* Inner : SaveProp->GetStruct()->ForEachProperty())
+            {
+                if (Inner->GetName() == STR("CraftSpeeds"))
+                {
+                    ArrProp = CastField<FArrayProperty>(Inner);
+                    break;
+                }
+            }
+            if (!ArrProp) continue;
+
+            auto* ElemStruct = CastField<FStructProperty>(ArrProp->GetInner());
+            if (!ElemStruct) continue;
+
+            FProperty* WorkProp = nullptr;
+            FProperty* RankProp = nullptr;
+            for (FProperty* Member : ElemStruct->GetStruct()->ForEachProperty())
+            {
+                if (Member->GetName() == STR("WorkSuitability")) WorkProp = Member;
+                else if (Member->GetName() == STR("Rank")) RankProp = Member;
+            }
+            if (!(WorkProp && RankProp)) continue;
+
+            // The enum member is a byte on this build, but its width is read rather
+            // than assumed: writing four bytes into a one byte field would trample
+            // the Rank sitting behind it.
+            const int32 WorkSize = WorkProp->GetElementSize();
+            if (WorkSize != 1 && WorkSize != 4) continue;
+            // The rank is written as an int32. A build where it is not is skipped for the
+            // same reason: the write would run past the member into whatever follows it.
+            if (RankProp->GetElementSize() != static_cast<int32>(sizeof(int32))) continue;
+
+            // The array is never resized. Growing a TArray needs the engine's
+            // allocator, and UE4SS exports no symbol for it - FScriptArrayHelper's
+            // resizing calls do not link from a mod dll. So the existing slots get
+            // reused: a slot the new species has no use for is re-labelled and
+            // handed to a work type that has no slot yet.
+            FScriptArrayHelper Helper(ArrProp, Base + ArrProp->GetOffset_Internal());
+            const int32 Slots = Helper.Num();
+            if (Slots <= 0) continue;
+
+            const auto ReadWork = [&](uint8* Elem) -> int32 {
+                uint8* At = Elem + WorkProp->GetOffset_Internal();
+                return WorkSize == 1 ? static_cast<int32>(*reinterpret_cast<uint8*>(At))
+                                     : *reinterpret_cast<int32*>(At);
+            };
+            const auto WriteWork = [&](uint8* Elem, int32 Work) {
+                uint8* At = Elem + WorkProp->GetOffset_Internal();
+                if (WorkSize == 1) *reinterpret_cast<uint8*>(At) = static_cast<uint8>(Work);
+                else *reinterpret_cast<int32*>(At) = Work;
+            };
+            const auto WriteRank = [&](uint8* Elem, int32 Rank) {
+                *reinterpret_cast<int32*>(Elem + RankProp->GetOffset_Internal()) = Rank;
+            };
+
+            // Pass one: every slot that already names a work type the new species
+            // has keeps its label and gets the new rank. Every other slot is zeroed
+            // and noted as free.
+            std::array<bool, WorkSuitabilityMax> Placed{};
+            std::vector<uint8*> Free;
+            for (int32 i = 0; i < Slots; ++i)
+            {
+                uint8* Elem = Helper.GetRawPtr(i);
+                if (!Elem) continue;
+                const int32 Work = ReadWork(Elem);
+                if (Work > 0 && Work < static_cast<int32>(WorkSuitabilityMax) && Ranks[Work] > 0)
+                {
+                    WriteRank(Elem, Ranks[Work]);
+                    Placed[Work] = true;
+                }
+                else
+                {
+                    WriteRank(Elem, 0);
+                    Free.push_back(Elem);
+                }
+            }
+
+            // Pass two: the work types the new species brought along that had no
+            // slot take over the free ones.
+            size_t NextFree = 0;
+            int32 MissingHere = 0;
+            for (size_t W = 1; W < WorkSuitabilityMax; ++W)
+            {
+                if (Ranks[W] <= 0 || Placed[W]) continue;
+                if (NextFree >= Free.size()) { ++MissingHere; continue; }
+                uint8* Elem = Free[NextFree++];
+                WriteWork(Elem, static_cast<int32>(W));
+                WriteRank(Elem, Ranks[W]);
+                Placed[W] = true;
+            }
+            // The copies hold the same array, so the count is per copy rather than the
+            // sum: added up it would report twice as many dropped work types as there are.
+            if (MissingHere > Missing) Missing = MissingHere;
+            ++Written;
+        }
+
+        if (Written == 0) return STR("craft speeds: no writable CraftSpeeds array");
+        if (Missing > 0)
+        {
+            return std::format(
+                STR("craft speeds: {} of {} entr(ies) into {} copy/copies, {} found no free slot"),
+                Entries - Missing, Entries, Written, Missing);
+        }
+        return std::format(STR("craft speeds: {} entr(ies) into {} copy/copies"), Entries, Written);
+    }
+
+    // Puts the pal's stored craft speed table back in line with the id it currently carries.
+    // Everything else this mod does to a pal lives in memory and is gone when the override is
+    // dropped; the CraftSpeeds rewrite is the one part that persists into the save. Without
+    // this, a rollback leaves the new species' table sitting under the old species' id.
+    auto realign_craft_speeds(UObject* Param) -> void
+    {
+        if (!Param) return;
+        const std::wstring CharacterId = character_name_fast(Param).ToString();
+        if (CharacterId.empty()) return;
+
+        auto* WorldCtx = g_world_context.load();
+        if (!WorldCtx)
+        {
+            std::vector<UObject*> Chars;
+            UObjectGlobals::FindAllOf(STR("PalPlayerCharacter"), Chars);
+            for (auto* C : Chars) { if (is_live(C)) { WorldCtx = C; break; } }
+        }
+        if (!WorldCtx || !g_work_map_prop) return;
+
+        std::vector<uint8> Storage;
+        if (!build_species_map(WorldCtx, CharacterId, Storage)) return;
+
+        std::array<int32, WorkSuitabilityMax> Ranks{};
+        const bool Ok = flatten_ranks(Storage, Ranks, g_key_offset.load());
+        g_work_map_prop->DestroyValue(Storage.data());
+        if (!Ok) return;
+
+        const std::wstring Message = rewrite_craft_speeds(Param, Ranks);
+        Output::send<LogLevel::Normal>(STR("[PalvolveNative] realigned to '{}': {}\n"),
+                                       CharacterId, Message);
+    }
+
     auto clear_work_override(UObject* Param) -> bool
     {
         FWorkKey Key{};
         if (!object_key(Param, Key)) return false;
+        realign_craft_speeds(Param);
         std::lock_guard<std::mutex> Lock(g_work_mutex);
         auto It = g_work_overrides.find(Key);
         if (It == g_work_overrides.end()) return false;

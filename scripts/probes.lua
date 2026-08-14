@@ -5,7 +5,8 @@
 --          [probe-waterstatus] [probe-wazaelem] [probe-hpscale] [cond]
 --          [probe-finale-assets] [probe-finale-play] [probe-finale-duo]
 --
--- Keybinds (test world "ModDev", own pal summoned):
+-- Keybinds (test world "ModDev", own pal summoned) - all disarmed, see
+-- PROBE_HOTKEYS below:
 --   F5 = overlay glow on/off (M_Glow)     F6 = cycle visual effects
 --   F7 = morph summoned pal through FX test bases (test world ONLY!)
 --   F8 = fanfare (AKE_CampLevelUp)        F9 = freeze/unfreeze nearest pal
@@ -22,6 +23,16 @@
 --   cycle at the summoned pal)
 --
 local M = {}
+
+-- Every keybind listed above is OFF. They fire during ordinary play, and two of
+-- them change the world while they do: BACKSPACE runs a full evolution, F7
+-- morphs the summoned pal's species. The chat commands stay - those only fire
+-- when they are typed. Set this to true to arm the keys again.
+local PROBE_HOTKEYS = false
+local RegisterAnyKeyBind = RegisterKeyBind
+local function RegisterKeyBind(key, fn)
+    if PROBE_HOTKEYS then RegisterAnyKeyBind(key, fn) end
+end
 
 local function Log(msg)
     print(string.format("[Palvolve] %s\n", msg))
@@ -87,7 +98,7 @@ if Key and Key.DOWN_ARROW then
     RegisterKeyBind(Key.UP_ARROW, Debounced("treeup", treeKey(-1, nil)))
     RegisterKeyBind(Key.RIGHT_ARROW, Debounced("treeright", treeKey(nil, "out")))
     RegisterKeyBind(Key.LEFT_ARROW, Debounced("treeleft", treeKey(nil, "in")))
-    Log("[tree] arrow keys registered")
+    Log(PROBE_HOTKEYS and "[tree] arrow keys registered" or "[tree] probe hotkeys are off")
 else
     Log("[tree] arrow key constants missing in this UE4SS build")
 end

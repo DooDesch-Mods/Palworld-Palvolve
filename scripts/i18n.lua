@@ -129,8 +129,16 @@ end
 -- Five Pals answer GetLocalizedText with nothing, so the wheel used to show the
 -- raw CharacterID for them. The generator bakes their names per language from
 -- the same source the website shows.
+--
+-- This one never asks the engine. I18n.lang() calls GetCurrentLanguage, and the
+-- Palpedia tree page is built OFF the game thread on purpose (paldextree.lua
+-- builds the HTML before handing over, so seconds of work stay invisible). The
+-- page names every species, so routing that through lang() put an engine call
+-- on the wrong thread and took the process down with no Lua error and nothing
+-- in the log. Only the already-resolved language is used; before it is known,
+-- English is the answer, and English is what the raw id was replacing anyway.
 function I18n.palName(id)
-    local cat = catalogFor(I18n.lang())
+    local cat = Catalog[cachedLang or "en"] or Catalog.en
     return (cat.palNames and cat.palNames[id])
         or (Catalog.en.palNames and Catalog.en.palNames[id])
 end

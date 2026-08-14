@@ -459,10 +459,9 @@ end
 -- promise; undoing your history is not.
 local snapshots = {}
 
--- Rollback lives in memory for the session, so there is no state file any more.
--- Until 1.8.1 one was written on the game thread after every evolution and never
--- read back: loadSnapshots only ever truncated it. It also survived an uninstall
--- while UNINSTALL.md said nothing about it. This removes the leftover once.
+-- Rollback lives in memory for the session, so there is no state file. Older
+-- versions wrote one on the game thread after every evolution, never read it
+-- back, and left it behind on uninstall - so it is deleted here, once.
 local function loadSnapshots()
     snapshots = {}
     local hadEntries = false
@@ -595,15 +594,6 @@ local function applyIvBonus(param)
     if #parts > 0 then Log("Evolution bonus (IVs): " .. table.concat(parts, ", ")) end
 end
 
--- A pal's work suitability comes from a cache built when the individual parameter is
--- constructed, so after a species swap it still describes the old form. Every write path
--- into that cache was ruled out, which is why the native companion fixes the READ instead.
---
--- Two reads matter and they are separate. The Team and Palbox screens go through the
--- reflected getters, so those are post-hooked. The base camp does not: it reaches the pal
--- through a direct C++ call that never passes ProcessEvent, and that one needs an inline
--- hook on the method itself. Without the companion nothing happens here and the values
--- update on the next reload, which is the behaviour this shipped with before.
 local workNativeAnnounced = false
 local function refreshWorkSuitability(param, playerCtx, actor, previousId)
     if type(PalvolveNative_SetWorkSuitability) ~= "function" then
@@ -2634,10 +2624,10 @@ function Evolution.rollbackLast(playerCtx)
         -- Give the price back: the evolution is undone, so keeping the stones
         -- would charge for something that no longer happened. Only after the
         -- restore actually succeeded, and only what this evolution recorded.
-        -- Three outcomes, and until 1.8.1 two of them shared a message: a
-        -- refund that could not be paid out read exactly like a rollback with
-        -- nothing to pay back. The stones were gone, the restore point was
-        -- gone, and the line said "Rollback: X -> Y" like any other.
+        -- Three outcomes, three messages. A refund that could not be paid out
+        -- must not read like a rollback that had nothing to pay back: there the
+        -- stones and the restore point are both gone, and one shared line would
+        -- report that as an ordinary rollback.
         local hadCost = last.cost and #last.cost > 0
         local refunded = false
         if hadCost then
@@ -2834,9 +2824,9 @@ function Evolution.init()
                 if okProbes and probes.worldProbe then probes.worldProbe() end
                 Role.ack(senderCtx, "condition probe done - see log")
             end,
-            -- work suitability experiment E0: writes an add-rank on the summoned
-            -- pal and reports whether the getters the Team and Palbox screens
-            -- read move with it. Run right after an evolution.
+            -- writes an add-rank on the summoned pal and reports whether the
+            -- getters the Team and Palbox screens read move with it. Run right
+            -- after an evolution.
             worksuit = function(senderCtx)
                 if not Config.devMode then return end
                 local okProbes, probes = pcall(require, "probes")
@@ -3150,10 +3140,9 @@ function Evolution.init()
                 end
             end,
             -- One line per command. The chat DROPS a line past roughly a
-            -- hundred characters instead of truncating it, and the single
-            -- combined line ran to 121 characters in English and 149 in German,
-            -- so `!palvolve help` answered with nothing at all in 13 of the 17
-            -- languages while the log showed it being sent.
+            -- hundred characters instead of truncating it, and one combined
+            -- line runs past that in most languages - the message is then
+            -- never seen although the log shows it being sent.
             help = function(senderCtx)
                 Role.ack(senderCtx, I18n.msg("helpRollback"))
                 Role.ack(senderCtx, I18n.msg("helpUninstall"))
