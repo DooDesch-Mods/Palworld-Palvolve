@@ -260,6 +260,10 @@ local function palDisplayName(id)
         cachedNameCtx, cachedNameMdt = nil, nil
         ask()
     end
+    -- Five species have no PAL_NAME_ row at all, so no amount of retrying
+    -- produces a name and the raw CharacterID was what the wheel showed. Their
+    -- names are baked per language from the same source the website uses.
+    if not name then name = I18n.palName(id) end
     if Config.devMode then
         Log(string.format("[radial] name lookup %s -> %s", id, name or "FAIL"))
     end
@@ -455,53 +459,23 @@ end
 -- promise; undoing your history is not.
 local snapshots = {}
 
+-- Rollback lives in memory for the session, so there is no state file. Older
+-- versions wrote one on the game thread after every evolution, never read it
+-- back, and left it behind on uninstall - so it is deleted here, once.
 local function loadSnapshots()
     snapshots = {}
-    -- Start the file over so old entries cannot be mistaken for this session's.
-    -- The file exists from the second launch onwards, so its mere presence says
-    -- nothing; only a file with entries in it means something was discarded.
-    local existed, hadEntries = false, false
+    local hadEntries = false
     pcall(function()
         local f = io.open(STATE_FILE, "r")
         if not f then return end
-        existed = true
         local body = f:read("*a") or ""
         f:close()
         hadEntries = body:find("{ key =", 1, true) ~= nil
+        os.remove(STATE_FILE)
     end)
-    if existed then
-        pcall(function()
-            local f = io.open(STATE_FILE, "w")
-            if f then f:write("return {\n}\n"); f:close() end
-        end)
-    end
     if hadEntries then
         Log("Rollback restore points from earlier sessions discarded - rollback covers this session")
     end
-end
-
-local function saveSnapshots()
-    local ok, err = pcall(function()
-        local f = assert(io.open(STATE_FILE, "w"))
-        f:write("return {\n")
-        for _, s in ipairs(snapshots) do
-            local cost = ""
-            for _, c in ipairs(s.cost or {}) do
-                -- floored: material counts come from the user config verbatim,
-                -- and "%d" on a non-integer number raises rather than rounding
-                cost = cost .. string.format("{ id = %q, count = %d }, ",
-                    c.id, math.floor(tonumber(c.count) or 0))
-            end
-            f:write(string.format(
-                "  { key = %q, from = %q, to = %q, level = %d, nickname = %q, ivHP = %d, ivMelee = %d, ivShot = %d, ivDefense = %d, uid = %q, cost = { %s} },\n",
-                s.key or "", s.from, s.to, s.level, s.nickname or "",
-                s.ivHP or -1, s.ivMelee or -1, s.ivShot or -1, s.ivDefense or -1,
-                s.uid or "", cost))
-        end
-        f:write("}\n")
-        f:close()
-    end)
-    if not ok then Log("Snapshot file not writable: " .. tostring(err)) end
 end
 
 -- ---------------------------------------------------------------- sound
@@ -620,15 +594,6 @@ local function applyIvBonus(param)
     if #parts > 0 then Log("Evolution bonus (IVs): " .. table.concat(parts, ", ")) end
 end
 
--- A pal's work suitability comes from a cache built when the individual parameter is
--- constructed, so after a species swap it still describes the old form. Every write path
--- into that cache was ruled out, which is why the native companion fixes the READ instead.
---
--- Two reads matter and they are separate. The Team and Palbox screens go through the
--- reflected getters, so those are post-hooked. The base camp does not: it reaches the pal
--- through a direct C++ call that never passes ProcessEvent, and that one needs an inline
--- hook on the method itself. Without the companion nothing happens here and the values
--- update on the next reload, which is the behaviour this shipped with before.
 local workNativeAnnounced = false
 local function refreshWorkSuitability(param, playerCtx, actor, previousId)
     if type(PalvolveNative_SetWorkSuitability) ~= "function" then
@@ -1298,7 +1263,6 @@ local function performEvolution(p)
                 return paid
             end)(),
         })
-        saveSnapshots()
         -- Always the unprefixed id: the capture record is keyed by EPalTribeID, which has one
         -- entry per species and none for the BOSS_ (alpha) rows, exactly like the Palpedia.
         unlockCatchTech(pair.to, playerCtx)
@@ -2660,18 +2624,27 @@ function Evolution.rollbackLast(playerCtx)
         -- Give the price back: the evolution is undone, so keeping the stones
         -- would charge for something that no longer happened. Only after the
         -- restore actually succeeded, and only what this evolution recorded.
+        -- Three outcomes, three messages. A refund that could not be paid out
+        -- must not read like a rollback that had nothing to pay back: there the
+        -- stones and the restore point are both gone, and one shared line would
+        -- report that as an ordinary rollback.
+        local hadCost = last.cost and #last.cost > 0
         local refunded = false
-        pcall(function()
-            if last.cost and #last.cost > 0 then
+        if hadCost then
+            pcall(function()
                 refunded = Costs.refund(playerCtx, last.cost)
                 Log(refunded and ("Rollback refunded: " .. Costs.describe(last.cost))
-                    or "Rollback refund PARTIALLY FAILED - please report")
-            end
-        end)
+                    or "Rollback refund FAILED (inventory full?) - "
+                       .. Costs.describe(last.cost) .. " not returned")
+            end)
+        end
+        -- The snapshot goes either way: the species is already reverted, so
+        -- keeping it would offer a second rollback of something that has
+        -- already been rolled back.
         table.remove(snapshots, snapIdx)
-        saveSnapshots()
-        say(I18n.msg(refunded and "rollbackDoneRefunded" or "rollbackDone",
-            palDisplayName(last.to), palDisplayName(last.from)))
+        local key = "rollbackDone"
+        if hadCost then key = refunded and "rollbackDoneRefunded" or "rollbackDoneRefundFailed" end
+        say(I18n.msg(key, palDisplayName(last.to), palDisplayName(last.from)))
     else
         say(I18n.msg("rollbackNoMatch", palDisplayName(last.to)))
     end
@@ -2851,9 +2824,9 @@ function Evolution.init()
                 if okProbes and probes.worldProbe then probes.worldProbe() end
                 Role.ack(senderCtx, "condition probe done - see log")
             end,
-            -- work suitability experiment E0: writes an add-rank on the summoned
-            -- pal and reports whether the getters the Team and Palbox screens
-            -- read move with it. Run right after an evolution.
+            -- writes an add-rank on the summoned pal and reports whether the
+            -- getters the Team and Palbox screens read move with it. Run right
+            -- after an evolution.
             worksuit = function(senderCtx)
                 if not Config.devMode then return end
                 local okProbes, probes = pcall(require, "probes")
@@ -3166,8 +3139,13 @@ function Evolution.init()
                         (#orphans > 0 and (" " .. I18n.msg("uninstOrphanHint")) or ""))
                 end
             end,
+            -- One line per command. The chat DROPS a line past roughly a
+            -- hundred characters instead of truncating it, and one combined
+            -- line runs past that in most languages - the message is then
+            -- never seen although the log shows it being sent.
             help = function(senderCtx)
-                Role.ack(senderCtx, I18n.msg("helpLine"))
+                Role.ack(senderCtx, I18n.msg("helpRollback"))
+                Role.ack(senderCtx, I18n.msg("helpUninstall"))
             end,
         })
         if okCmd then Log("Chat commands active: !palvolve rollback") end

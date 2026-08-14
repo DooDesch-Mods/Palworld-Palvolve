@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.8.2] - 2026-08-14
+
+### Fixed
+
+- **An evolved Pal was put to work and produced nothing.** It walked to the campfire, played the animation, and the fire cooked at its unaided speed. Every question the base camp asks was already answered for the new species, which is why the Pal was assigned at all. The work speed asks for the same rank through a different path, and that one still held the old form: a work type the old species never had counts as rank 0, and rank 0 in the game's own speed table is a flat zero. An evolved Fox Mage now contributes 140 at a campfire, the same as a caught one. You no longer have to drop the Pal and pick it back up. Reported by iknowimgodly on Discord.
+- **Chat commands did nothing on a dedicated server.** `!palvolve rollback` and every other command ran on the player's own client instead of the server, against an empty local list, and the host never saw them. The hook sat on `PalPlayerState:EnterChat`, which runs on the machine where the player types, not on the world authority as the code claimed. It now hooks `PalGameStateInGame:BroadcastChatMessage`, which is where the server sees a chat line and who sent it. Rollback is the documented way to undo an evolution, and on a dedicated server it did not exist.
+- **`!palvolve help` answered with nothing, and it was not alone.** The chat drops a line that runs too long instead of shortening it: the mod sends it, the log shows it, the screen stays empty. The last width that still arrives is 120 characters. The help line ran to 121 in English and 149 in German, so the command was silent in 13 of the 17 languages. Six more messages sat over the same edge, among them the warning to keep the PalSchema folder when removing the mod. Without that folder a world stops loading. All of them are short enough to arrive now, in every language, and the build refuses a message that grows past the limit again.
+- **A Pal with more than seven ways out lost the rest, and a full wheel had no way back.** The evolve wheel was capped at seven segments after a wheel of 23 took the game down. Measured properly this time: thirteen is smooth, twenty works but drags, twenty-three still kills it. The cap is twelve targets plus a cancel entry, which covers every Pal in the largest published community tree. The cancel entry was also appended before the cut, so a full wheel truncated the way out.
+- **A rollback that could not hand your items back said nothing about it.** With a full inventory the refund fails, and the reply was the same line as an ordinary rollback. It now says the items stayed behind.
+- **Five Pals showed their internal id instead of a name.** Gumoss Botan, Hangyu, Hangyu Cryst, Snock Ignis and Tanzee Cryst have no name in the game's own text table, so the wheel fell back to `WindChimes_Ice` and the like. They are named from the same source the website uses, in all 17 languages.
+- **The Evolutions tab was hard to read, the condition lines worst.** They carry what you need to know before evolving and were the smallest text on the page. The whole scale is up, the conditions most.
+- **A file nothing ever read was written after every evolution.** `palvolve_state.lua` was truncated at startup and rewritten on the game thread on every evolution and rollback, and it stayed behind after uninstalling. It is gone, and an old one is cleaned up on the next start.
+
+### Notes
+
+- A rollback still does not re-lock catch-gated technologies. Taking that unlock away would also take it from someone who caught the species themselves, which is the worse of the two mistakes. Noted in the README.
+- An evolved Pal keeps the old form's maximum hunger until it is stored and taken back out. Found while tracking the work speed down and left alone for now: it changes how often the Pal eats, not what it can do.
+
 ## [1.8.1] - 2026-08-13
 
 ### Fixed

@@ -458,9 +458,19 @@ local function setCenterText(menu, text)
     if label then pcall(function() centerWidget:SetText(label) end) end
 end
 
--- What the wheel can be grown to without taking the process with it. The game
--- draws seven; anything past that is our own experiment, and one at 23 crashed.
-local SUBMENU_MAX = 7
+-- What the wheel can be grown to without taking the process with it, measured
+-- on 2026-08-13 against a synthetic tree that gave one Pal 22 ways out:
+--
+--   7   works, but every segment is a target and the cancel entry is gone
+--   13  works, smooth, cancel present
+--   20  works, and the submenu visibly lags on opening
+--   23  takes the process down (the crash 1.7.1 was capped against)
+--
+-- 13 is the last width that stayed smooth. Twelve of those are targets and the
+-- thirteenth is the way out, which covers every Pal in the largest published
+-- community tree: its widest fan-out is twelve.
+local SUBMENU_MAX = 13
+local TARGET_MAX = SUBMENU_MAX - 1
 
 local function buildSubmenu(menu)
     local wheel = wheelOf(menu)
@@ -468,29 +478,36 @@ local function buildSubmenu(menu)
     local options = subOptions
     if not (options and #options > 0) then subMode = false; return end
 
-    -- The wheel is grown to the number of options, and the vanilla one has
-    -- seven segments. A tree with two dozen ways out of one Pal asked for a
-    -- wheel of 23 and took the game down with it - no Lua error, just gone.
-    -- Since 1.7.0 a client can be handed a tree that big by its server, so the
-    -- cap is not optional any more. Conservative on purpose: seven is the only
-    -- width the game itself ever draws.
+    -- The wheel is grown to the number of options, and one of two dozen took
+    -- the game down with it - no Lua error, just gone. Since 1.7.0 a client can
+    -- be handed a tree that big by its server, so the cap is not optional.
+    --
+    -- The cancel entry is added HERE, after the cut, not by whoever filled
+    -- subOptions. Appending it first and capping afterwards is what made it
+    -- disappear from exactly the wheels that needed it most: it sat last in the
+    -- list, so a full submenu truncated the way out and left the player with
+    -- nothing but targets.
     --
     -- Reachable options come first, so what is cut is what the player could not
     -- have used anyway, and the count of what was cut is said out loud rather
     -- than silently dropped.
-    if #options > SUBMENU_MAX then
-        local keep, rest = {}, {}
-        for _, o in ipairs(options) do
+    local keep, rest = {}, {}
+    for _, o in ipairs(options) do
+        -- drop a cancel entry from an earlier build so a reopen cannot stack them
+        if not o.cancel then
             if o.blocked then rest[#rest + 1] = o else keep[#keep + 1] = o end
         end
-        for _, o in ipairs(rest) do keep[#keep + 1] = o end
-        local hidden = #keep - SUBMENU_MAX
-        for i = #keep, SUBMENU_MAX + 1, -1 do keep[i] = nil end
-        options = keep
-        subOptions = keep
-        Log(string.format("submenu capped at %d options, %d not shown - "
-            .. "the Evolutions tab in the Palpedia lists them all", SUBMENU_MAX, hidden))
     end
+    for _, o in ipairs(rest) do keep[#keep + 1] = o end
+    if #keep > TARGET_MAX then
+        local hidden = #keep - TARGET_MAX
+        for i = #keep, TARGET_MAX + 1, -1 do keep[i] = nil end
+        Log(string.format("submenu capped at %d targets, %d not shown - "
+            .. "the Evolutions tab in the Palpedia lists them all", TARGET_MAX, hidden))
+    end
+    keep[#keep + 1] = { cancel = true, label = I18n.msg("cancel") }
+    options = keep
+    subOptions = keep
 
     -- a single option still needs two segments for a drawable wheel
     local count = math.max(#options, 2)
@@ -597,12 +614,8 @@ function RadialMenu.init(evolutionApi)
                     Log(reason or "No evolution available")
                     return
                 end
-                -- an explicit cancel entry: no dead segments, backing out
-                -- is always visible and clickable
-                table.insert(opts, {
-                    cancel = true,
-                    label = I18n.msg("cancel"),
-                })
+                -- the cancel entry is appended by buildSubmenu, after the cap,
+                -- so a full wheel cannot truncate the way out
                 subOptions = opts
                 subHoverIdx = nil
                 subMode = true

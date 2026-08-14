@@ -920,6 +920,11 @@ local function injectPaldexTab()
 
     paldexTab = tab
     paldexIndex = after - 1
+    -- Resolve the language here, where we are on the game thread anyway. The
+    -- page itself is built off it, and asking the engine from there is a native
+    -- crash; I18n caches the answer, so this is the last safe moment before the
+    -- tab can be clicked.
+    pcall(function() require("i18n").lang() end)
     Log(string.format("Evolutions tab added: children %d -> %d, our index %d",
         before, after, paldexIndex))
     return true
@@ -1266,12 +1271,28 @@ function M.start()
         if want == "open" then
             local id = paldexListPick or paldexCharacter()
             local okHtml, html = pcall(require, "treehtml")
-            if id and okHtml and html then
-                html.setDocked(true)
-                treeWebCurrent = id
-                treeWebPage = html.page(id)
-                treeWebPageFor = id
-                treeWebPageDocked = true
+            -- Both halves say why they failed. Silence here looks exactly like
+            -- a tab that does not react to a click, and the two causes need
+            -- different fixes: a module that will not load, or a page that
+            -- throws while it is being built.
+            if not id then
+                Log("Evolutions tab: no Pal selected, nothing to draw")
+            elseif not (okHtml and html) then
+                Log("Evolutions tab: treehtml did not load - " .. tostring(html))
+            else
+                local okPage, page = pcall(function()
+                    html.setDocked(true)
+                    return html.page(id)
+                end)
+                if okPage and page then
+                    treeWebCurrent = id
+                    treeWebPage = page
+                    treeWebPageFor = id
+                    treeWebPageDocked = true
+                else
+                    Log("Evolutions tab: building the page for " .. tostring(id)
+                        .. " failed - " .. tostring(page))
+                end
             end
         end
 
