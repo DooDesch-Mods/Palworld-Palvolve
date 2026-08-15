@@ -40,6 +40,16 @@ if Role.isDedicated() then
     Log("dedicated server detected: UI modules disabled")
 end
 
+-- No poller here on purpose. A one second LoopAsync that asked the engine for
+-- the role during world startup killed the dedicated server on the first try:
+-- the log ends on the line the probe itself wrote, with a minidump next to it.
+-- That is the hazard the comment above describes, and the mod is not allowed to
+-- add one for its own convenience.
+--
+-- The role resolves on first use instead. That is late enough to be safe and
+-- early enough to matter: everything that depends on it runs after a world
+-- exists anyway.
+
 -- Workbench unlock stage: PalSchema data, so this only writes the file and the
 -- new stage applies on the next start. Runs on every launch, which also repairs
 -- the value after a Workshop update replaced the PalSchema folder.

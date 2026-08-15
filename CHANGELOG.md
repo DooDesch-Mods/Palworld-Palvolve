@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.8.3] - 2026-08-15
+
+### Fixed
+
+- **On some hosts a dedicated server behaved as if it were a single player game.** Evolving worked, but no client ever saw the evolution animation, and the work suitability on screen kept showing the old form. The mod worked out whether it was a server from where its own files sat, and one host puts UE4SS under `Mods\NativeMods\UE4SS` instead of `Pal\Binaries\Win64\ue4ss`. Nothing in that path says server, so the half that drives the clients never ran. The role now comes from the name of the running executable, which is the server's own binary and cannot be arranged differently by a host. Reported by Reign on Discord.
+
+### Added
+
+- **The server console says which version is running and what it thinks it is.** `[Palvolve] v1.8.3 loaded (dedicated server)`, at startup, next to the lines the other server mods print. The same fact used to sit in a log file, and the case above would have been visible on the first line instead of after a week of guessing.
+
 ## [1.8.2] - 2026-08-14
 
 ### Fixed
