@@ -68,7 +68,7 @@ using namespace RC::Unreal;
 
 namespace
 {
-    constexpr const wchar_t* ModVersionString = STR("1.8.2");
+    constexpr const wchar_t* ModVersionString = STR("1.8.3");
 
     // A world context object is required by the *_ForServer setters. The game mode is the
     // first reliable one available and exists only on the authority, which doubles as the
@@ -411,6 +411,8 @@ namespace
     auto flatten_ranks(const std::vector<uint8>& Storage,
                        std::array<int32, WorkSuitabilityMax>& Out, int32 KeyOffset) -> bool;
     auto clear_work_override(UObject* Param) -> bool;
+    auto console_line(const std::wstring& Text) -> void;
+    auto is_dedicated_process() -> bool;
     auto rewrite_craft_speeds(UObject* Param,
                               const std::array<int32, WorkSuitabilityMax>& Ranks) -> std::wstring;
     auto probe_native_getter() -> std::wstring;
@@ -1822,6 +1824,71 @@ namespace
                                        CharacterId, Message);
     }
 
+    // Which build this process is, taken from the running executable's own name.
+    //
+    // The dedicated server ships PalServer-Win64-Shipping.exe (and the -Cmd
+    // console variant), the game client ships Palworld-Win64-Shipping.exe. The
+    // two never carry each other's binary, so the name of the file we are loaded
+    // into is the answer, available the moment the dll loads and needing no world.
+    //
+    // This replaces guessing from the mod's own folder path, which broke on a
+    // host that ships UE4SS under <root>/Mods/NativeMods/UE4SS: nothing in that
+    // path says "server", so a dedicated server ran down the single player code
+    // path and no client ever saw an evolve animation. Asking the engine is just
+    // as certain but only answers once a world exists, and probing for one during
+    // startup killed the server outright.
+    auto is_dedicated_process() -> bool
+    {
+        static const bool Result = []() -> bool {
+            wchar_t Path[MAX_PATH * 2]{};
+            const DWORD Len = GetModuleFileNameW(nullptr, Path, static_cast<DWORD>(std::size(Path)));
+            if (Len == 0 || Len >= std::size(Path)) return false;
+
+            std::wstring Exe(Path, Len);
+            const size_t Cut = Exe.find_last_of(STR("\\/"));
+            if (Cut != std::wstring::npos) Exe = Exe.substr(Cut + 1);
+            for (auto& C : Exe) C = static_cast<wchar_t>(towlower(C));
+
+            return Exe.find(STR("palserver")) != std::wstring::npos;
+        }();
+        return Result;
+    }
+
+    // Writes a line to the process's own stdout, which on a dedicated server is
+    // the console window the admin is looking at. UE4SS logs to a file instead,
+    // and an admin has to know it exists to go and read it. Other server mods
+    // announce themselves in the console, so anything worth a support case
+    // (version, role, how many pairs the tree has) belongs there too.
+    //
+    // Harmless on a client, where nothing is attached to stdout.
+    auto console_line(const std::wstring& Text) -> void
+    {
+        const int Size = WideCharToMultiByte(CP_UTF8, 0, Text.c_str(), -1, nullptr, 0, nullptr, nullptr);
+        if (Size <= 1) return;
+        std::string Narrow(static_cast<size_t>(Size - 1), '\0');
+        WideCharToMultiByte(CP_UTF8, 0, Text.c_str(), -1, Narrow.data(), Size, nullptr, nullptr);
+        Narrow += "\r\n";
+
+        // The console device itself, not this process's stdout handle. stdout is
+        // whatever the launcher left behind - a pipe, a file, or nothing at all -
+        // and a server started from a panel or a wrapper script routinely has it
+        // pointing somewhere the admin never sees. CONOUT$ is the window.
+        const HANDLE Console = CreateFileA("CONOUT$", GENERIC_WRITE, FILE_SHARE_WRITE, nullptr,
+                                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (Console != INVALID_HANDLE_VALUE)
+        {
+            DWORD Written = 0;
+            WriteFile(Console, Narrow.data(), static_cast<DWORD>(Narrow.size()), &Written, nullptr);
+            CloseHandle(Console);
+            return;
+        }
+
+        // No console attached (a client, or a service): keep the line rather than
+        // drop it, so a redirected log still carries it.
+        std::fputs(Narrow.c_str(), stdout);
+        std::fflush(stdout);
+    }
+
     auto clear_work_override(UObject* Param) -> bool
     {
         FWorkKey Key{};
@@ -2016,6 +2083,9 @@ class PalvolveNative : public CppUserModBase
         ModAuthors = STR("DooDesch");
 
         Output::send<LogLevel::Normal>(STR("[PalvolveNative] loaded v{}\n"), ModVersionString);
+        console_line(std::format(STR("[Palvolve] v{} loaded ({})"), ModVersionString,
+                                 is_dedicated_process() ? STR("dedicated server")
+                                                        : STR("client or listen host")));
     }
 
     ~PalvolveNative() override = default;
@@ -2130,6 +2200,22 @@ class PalvolveNative : public CppUserModBase
             L.set_bool(Ok);
             L.set_string(to_string(Message));
             return 2;
+        });
+
+        // Lets the Lua half put a line in front of a server admin. Used for the
+        // few facts a support case always starts with, so nobody has to be told
+        // where UE4SS keeps its log first.
+        // The role, from the running executable's own name. Answers at mod load,
+        // where the engine cannot: it needs a world, and probing for one during
+        // server startup killed the process.
+        lua.register_function("PalvolveNative_IsDedicatedServer", [](const LuaMadeSimple::Lua& L) -> int {
+            L.set_bool(is_dedicated_process());
+            return 1;
+        });
+
+        lua.register_function("PalvolveNative_Console", [](const LuaMadeSimple::Lua& L) -> int {
+            if (L.is_string()) console_line(to_wstring(L.get_string()));
+            return 0;
         });
 
         lua.register_function("PalvolveNative_ClearWorkSuitability", [](const LuaMadeSimple::Lua& L) -> int {

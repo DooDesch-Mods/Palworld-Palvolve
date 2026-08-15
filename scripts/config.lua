@@ -31,7 +31,7 @@ local Config = {
 
     -- Mod version, reported to connected clients by the host handshake. Keep in
     -- sync with Info.json (the release flow checks this).
-    modVersion = "1.8.2",
+    modVersion = "1.8.3",
 
     -- Unlock the catch-gated technologies (saddle, Pal gear) of the target species when a
     -- pal evolves, the same way capturing one would. Needs the native companion in
@@ -2031,8 +2031,8 @@ local function loadUserConfig()
     -- Pal\Saved there at all - it keeps everything, saves included, under
     -- %LocalAppData%, which is where players have always put this file.
     local dirs = {}
+    local installDir = installSavedDir()
     if Role.isDedicated() then
-        local installDir = installSavedDir()
         if installDir then
             table.insert(dirs, installDir)
             -- Made to exist before anything is read, not after a failed search.
@@ -2048,6 +2048,13 @@ local function loadUserConfig()
         end
     end
     if appDataDir then table.insert(dirs, appDataDir) end
+    -- Both places are searched whatever the role says. This runs at mod load,
+    -- before any world exists, which is the one moment the role cannot be asked
+    -- of the engine - so it is a guess here, and a guess must not be able to
+    -- hide a config that is sitting right there. Only the ORDER is role-based:
+    -- the first entry is what a dropped file migrates into, and a client has no
+    -- business writing into the install folder.
+    if not Role.isDedicated() and installDir then table.insert(dirs, installDir) end
 
     -- Before the search, not after it: the dropped file is meant to be the one
     -- that loads, and the search below returns on its first hit. Migrating
