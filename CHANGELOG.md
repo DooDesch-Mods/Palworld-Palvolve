@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.8.4] - 2026-08-16
+
+### Fixed
+
+- **1.8.3 could take a dedicated server down when a player connected.** Working out the role brought in the engine's own answer as a cross check, and that call returns the right answer and then kills the process: the log ends on the line the answer was written to, with a minidump beside it. It is gone. The role comes from the name of the running executable alone, which is settled before a world exists and needs nothing from the engine. Reported by 夜光閃亮亮復仇鬼 on Discord, whose log ended on exactly that line.
+
+### Added
+
+- **The server console carries what a support case starts with.** Version and role at startup, then which config was loaded and from where, and a warning when a config is moved out of the mod folder or when a second one is being ignored. Same shape and colour as the lines other server mods print, so it reads as one console rather than two.
+
 ## [1.8.3] - 2026-08-15
 
 ### Fixed
