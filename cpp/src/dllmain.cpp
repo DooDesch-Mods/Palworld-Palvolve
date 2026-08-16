@@ -68,7 +68,7 @@ using namespace RC::Unreal;
 
 namespace
 {
-    constexpr const wchar_t* ModVersionString = STR("1.8.3");
+    constexpr const wchar_t* ModVersionString = STR("1.8.4");
 
     // A world context object is required by the *_ForServer setters. The game mode is the
     // first reliable one available and exists only on the authority, which doubles as the
@@ -411,7 +411,8 @@ namespace
     auto flatten_ranks(const std::vector<uint8>& Storage,
                        std::array<int32, WorkSuitabilityMax>& Out, int32 KeyOffset) -> bool;
     auto clear_work_override(UObject* Param) -> bool;
-    auto console_line(const std::wstring& Text) -> void;
+    auto console_line(const std::wstring& Text, const wchar_t* Level = STR("info")) -> void;
+    auto console_write(const std::wstring& Text) -> void;
     auto is_dedicated_process() -> bool;
     auto rewrite_craft_speeds(UObject* Param,
                               const std::array<int32, WorkSuitabilityMax>& Ranks) -> std::wstring;
@@ -1861,7 +1862,71 @@ namespace
     // (version, role, how many pairs the tree has) belongs there too.
     //
     // Harmless on a client, where nothing is attached to stdout.
-    auto console_line(const std::wstring& Text) -> void
+    auto console_line(const std::wstring& Text, const wchar_t* Level) -> void
+    {
+        // Written to look like the lines already on this console. PalDefender logs
+        // through spdlog with the pattern "[%H:%M:%S][%l] %v", so a line reads
+        // [02:17:28][info] <text>, a subsystem names itself inside the message
+        // rather than as another bracket, and the level is COLOURED - on Windows
+        // spdlog's default console sink is wincolor_sink, which paints it with
+        // SetConsoleTextAttribute rather than ANSI escapes. Escapes would show up
+        // as raw characters on a console without virtual terminal processing, so
+        // the attribute is what gets matched here.
+        //
+        // spdlog's own colours: info green, warning yellow and bold, error red and
+        // bold. Only the level token is painted; the rest keeps whatever the
+        // console had, so the surrounding output is untouched.
+        SYSTEMTIME Now{};
+        GetLocalTime(&Now);
+
+        // Read access as well as write: GetConsoleScreenBufferInfo needs it, and
+        // without the current attributes there is nothing to restore the colour
+        // to, so the level would print in the console's default like any other
+        // text.
+        const HANDLE Console = CreateFileA("CONOUT$", GENERIC_READ | GENERIC_WRITE,
+                                           FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (Console == INVALID_HANDLE_VALUE)
+        {
+            // No console: keep the line whole for whatever stdout points at.
+            console_write(std::format(STR("[{:02}:{:02}:{:02}][{}] {}"),
+                                      Now.wHour, Now.wMinute, Now.wSecond, Level, Text));
+            return;
+        }
+
+        const std::wstring LevelName(Level);
+        WORD Colour = FOREGROUND_GREEN;
+        if (LevelName == STR("warning"))
+        {
+            Colour = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY;
+        }
+        else if (LevelName == STR("error") || LevelName == STR("critical"))
+        {
+            Colour = FOREGROUND_RED | FOREGROUND_INTENSITY;
+        }
+
+        CONSOLE_SCREEN_BUFFER_INFO Info{};
+        const bool HaveInfo = GetConsoleScreenBufferInfo(Console, &Info) != FALSE;
+
+        const auto Put = [&](const std::wstring& Part) {
+            const int Size = WideCharToMultiByte(CP_UTF8, 0, Part.c_str(), -1, nullptr, 0, nullptr, nullptr);
+            if (Size <= 1) return;
+            std::string Narrow(static_cast<size_t>(Size - 1), '\0');
+            WideCharToMultiByte(CP_UTF8, 0, Part.c_str(), -1, Narrow.data(), Size, nullptr, nullptr);
+            DWORD Written = 0;
+            WriteFile(Console, Narrow.data(), static_cast<DWORD>(Narrow.size()), &Written, nullptr);
+        };
+
+        Put(std::format(STR("[{:02}:{:02}:{:02}]["), Now.wHour, Now.wMinute, Now.wSecond));
+        if (HaveInfo) SetConsoleTextAttribute(Console, Colour);
+        Put(LevelName);
+        if (HaveInfo) SetConsoleTextAttribute(Console, Info.wAttributes);
+        Put(STR("] ") + Text + STR("\r\n"));
+
+        CloseHandle(Console);
+    }
+
+    auto console_write(const std::wstring& Text) -> void
     {
         const int Size = WideCharToMultiByte(CP_UTF8, 0, Text.c_str(), -1, nullptr, 0, nullptr, nullptr);
         if (Size <= 1) return;
@@ -2214,7 +2279,11 @@ class PalvolveNative : public CppUserModBase
         });
 
         lua.register_function("PalvolveNative_Console", [](const LuaMadeSimple::Lua& L) -> int {
-            if (L.is_string()) console_line(to_wstring(L.get_string()));
+            std::wstring Text;
+            if (L.is_string()) Text = to_wstring(L.get_string());
+            std::wstring Level = STR("info");
+            if (L.is_string()) Level = to_wstring(L.get_string());
+            if (!Text.empty()) console_line(Text, Level.c_str());
             return 0;
         });
 

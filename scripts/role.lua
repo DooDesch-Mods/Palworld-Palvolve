@@ -14,11 +14,18 @@ end
 -- Same line, but also in the server console. UE4SS logs to a file an admin has
 -- to know about; the console is what they are already looking at. Only facts a
 -- support case starts with go here, never per-evolution chatter.
-local function Announce(msg)
+-- Exported so config.lua can put its own findings in front of an admin without
+-- reaching for the native function itself. Level follows the spdlog names the
+-- other server mods print: info, warning, error.
+function Role.announce(msg, level)
     Log(msg)
     if type(PalvolveNative_Console) == "function" then
-        pcall(PalvolveNative_Console, "[Palvolve] " .. msg)
+        pcall(PalvolveNative_Console, "[Palvolve] " .. msg, level or "info")
     end
+end
+
+local function Announce(msg)
+    Role.announce(msg)
 end
 
 -- Set once the engine has answered. The path guess below never writes here.

@@ -31,7 +31,7 @@ local Config = {
 
     -- Mod version, reported to connected clients by the host handshake. Keep in
     -- sync with Info.json (the release flow checks this).
-    modVersion = "1.8.3",
+    modVersion = "1.8.4",
 
     -- Unlock the catch-gated technologies (saddle, Pal gear) of the target species when a
     -- pal evolves, the same way capturing one would. Needs the native companion in
@@ -2005,12 +2005,12 @@ local function migrateScriptsConfig(targetDir)
     end
 
     if removed then
-        print(string.format("[Palvolve] moved config_user.lua out of the mod folder to %s "
-            .. "(that one survives a mod update)\n", target))
+        Role.announce(string.format("config moved out of the mod folder to %s "
+            .. "(that one survives a mod update)", target))
     else
-        print(string.format("[Palvolve] copied config_user.lua to %s, but could not delete the "
-            .. "one at %s - delete it by hand, or it comes back on the next start\n",
-            target, source))
+        Role.announce(string.format("config copied to %s, but the one at %s could not be deleted "
+            .. "- remove it by hand or it comes back on the next start",
+            target, source), "warning")
     end
 end
 
@@ -2291,14 +2291,18 @@ if user then
     end
     applyUserKeys(user)
     Config.loadArrangement(user)
-    print(string.format("[Palvolve] user config loaded (%d pairs, %s)\n", #Config.map, tostring(userSource)))
+    -- Separators normalised for the line an admin reads: the install root comes
+    -- back from the game with forward slashes and everything appended to it uses
+    -- backslashes, so an untouched path reads as a mix of both.
+    Role.announce(string.format("config loaded: %d pairs from %s",
+        #Config.map, (tostring(userSource):gsub("/", "\\"))))
     -- Pushed rather than pulled: role.lua is what this file requires, so it
     -- cannot ask back without closing the circle.
     Role.chatMode = Config.chatMessages
     local shadowed = scriptsConfigPath()
     if shadowed and shadowed ~= userSource then
-        print(string.format("[Palvolve] a second config_user.lua sits at %s and is IGNORED while the one above loads\n",
-            shadowed))
+        Role.announce(string.format("a second config_user.lua sits at %s and is IGNORED "
+            .. "while the one above loads", shadowed), "warning")
     end
 else
     -- Without this line a config that never arrived is indistinguishable from one
