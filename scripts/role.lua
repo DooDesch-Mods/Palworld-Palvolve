@@ -13,10 +13,9 @@ end
 
 -- Same line, but also in the server console. UE4SS logs to a file an admin has
 -- to know about; the console is what they are already looking at. Only facts a
--- support case starts with go here, never per-evolution chatter.
--- Exported so config.lua can put its own findings in front of an admin without
--- reaching for the native function itself. Level follows the spdlog names the
--- other server mods print: info, warning, error.
+-- support case starts with go here, never per-evolution chatter. Exported so
+-- config.lua can reach it without touching the native function itself. The level
+-- follows the spdlog names the other server mods print: info, warning, error.
 function Role.announce(msg, level)
     Log(msg)
     if type(PalvolveNative_Console) == "function" then
@@ -28,10 +27,9 @@ local function Announce(msg)
     Role.announce(msg)
 end
 
--- Set once the engine has answered. The path guess below never writes here.
+-- Answered once and kept: the sources it reads cannot change while the process
+-- runs, so asking twice would only risk answering differently.
 local isDedicatedCached = nil
--- The last provisional answer, so the log only reports a correction once.
-local provisionalReported = nil
 
 -- Binaries that only ever ship with the dedicated server build (Steam app
 -- 2394010); the game client ships Palworld-Win64-Shipping.exe instead.
@@ -125,64 +123,31 @@ function Role.detectDedicated(src)
     return false
 end
 
--- The engine's own answer, which is the definition rather than a guess:
--- UKismetSystemLibrary::IsDedicatedServer is World->GetNetMode() == NM_DedicatedServer.
--- Returns nil while no world exists yet, which is the only reason the path guess
--- below still has a job.
+-- NOTHING here asks the engine for the role, and nothing may be added that does.
 --
--- Needed because the path guess is only as good as the install layout, and a host
--- is free to pick any. One of them ships UE4SS under <root>/Mods/NativeMods/UE4SS
--- instead of <root>/Pal/Binaries/Win64/ue4ss: no "PalServer" anywhere in the path
--- and no server binary next to the scripts, so the guess said "client" and the mod
--- ran a dedicated server down the single player path - no phase signals to anyone,
--- so no evolve animation and no refreshed work suitability on any client.
-function Role.netIsDedicated()
-    local answer = nil
-    pcall(function()
-        local lib = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
-        if not (lib and lib:IsValid()) then return end
-
-        -- Any live object that belongs to the world will do as a context. The game
-        -- mode exists only on the authority, so it is tried first: finding it is
-        -- already half the answer, and it exists before any character does.
-        local ctx = nil
-        for _, class in ipairs({ "PalGameMode", "PalGameStateInGame", "PalPlayerCharacter" }) do
-            local found = FindFirstOf(class)
-            if found and found:IsValid() then ctx = found break end
-        end
-        if not ctx then return end
-
-        answer = lib:IsDedicatedServer(ctx) and true or false
-    end)
-    return answer
-end
-
+-- UKismetSystemLibrary::IsDedicatedServer answers correctly and then takes the
+-- dedicated server down with it. Seen twice, on two machines, with the same
+-- signature both times: the log ends on the line the answer was written to, and
+-- a minidump sits next to it. Once during world startup from a poller, once on a
+-- player joining, which is when the answer was needed on its own. It was shipped
+-- in 1.8.3 and crashed a reporter's server the same day.
+--
+-- The role does not need the engine anyway. A dedicated server runs
+-- PalServer-Win64-Shipping(-Cmd).exe and a client runs Palworld-Win64-Shipping.exe;
+-- neither build ships the other's binary. The native companion reads that name,
+-- which is settled before any world exists and cannot be arranged away by a host.
+-- detectDedicated asks it first and only falls back to the install layout when the
+-- companion is missing.
 function Role.isDedicated()
     if isDedicatedCached ~= nil then return isDedicatedCached end
 
-    local fromEngine = Role.netIsDedicated()
-    if fromEngine ~= nil then
-        isDedicatedCached = fromEngine
-        -- Logged every time, not only on a mismatch. This one line is what a
-        -- support case needs first, and it has to be there whether or not the
-        -- guess happened to agree.
-        local role = fromEngine and "dedicated server" or "client or listen host"
-        if provisionalReported ~= nil and provisionalReported ~= fromEngine then
-            Announce(string.format("role: %s (asked the engine; the install layout said %s)",
-                role, provisionalReported and "dedicated server" or "client or listen host"))
-        else
-            Announce(string.format("role: %s (asked the engine)", role))
-        end
-        return isDedicatedCached
-    end
-
-    -- No world yet. Answer from the layout, but do NOT remember it: this same
-    -- call runs again later, and by then the engine can be asked.
     local src = ""
     pcall(function() src = debug.getinfo(1, "S").source or "" end)
-    local guess = Role.detectDedicated(src)
-    provisionalReported = guess
-    return guess
+    isDedicatedCached = Role.detectDedicated(src)
+
+    Announce(string.format("role: %s", isDedicatedCached and "dedicated server"
+                                                         or "client or listen host"))
+    return isDedicatedCached
 end
 
 -- The controller of the player sitting at THIS machine (nil on dedicated).
