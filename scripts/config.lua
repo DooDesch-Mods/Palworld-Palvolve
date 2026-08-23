@@ -44,6 +44,21 @@ local Config = {
     -- dlls/main.dll; without it this is skipped and evolution works as before.
     unlockCatchTech = true,
 
+    -- A skin is authored for one species. Keeping its old species guid beside
+    -- a new CharacterID leaves the save parameter internally inconsistent.
+    clearIncompatibleSkins = true,
+
+    -- The fourth move slot an evolved or prestiged Pal gains, filled with its
+    -- strongest known move. Off unless a server owner turns it on, because it
+    -- moves balance. Passive slots 5 and 6 are Palvolve's own two rewards; 7 and
+    -- 8 stay the player's, so there is no passive mode here.
+    evolutionBonusSlot = "off",
+    prestigeBonusSlot = "off",
+
+    -- Re-teach both saved move lists after a species swap. Unique-prefixed
+    -- moves are species-bound and are deliberately left behind.
+    inheritNonUniqueMoves = true,
+
     -- Player level at which the Pal Alchemy Workbench becomes buildable in the
     -- technology tree. The stage lives in PalSchema data, not in Lua, so this is
     -- applied by rewriting that file and takes effect on the next game start.
@@ -2243,6 +2258,10 @@ local USER_KEYS = {
     -- technology entry
     { path = "techLevelCap", kind = "int", min = 1, max = 100 },
     { path = "unlockCatchTech", kind = "bool" },
+    { path = "clearIncompatibleSkins", kind = "bool" },
+    { path = "evolutionBonusSlot", kind = "enum", values = { off = true, active = true } },
+    { path = "prestigeBonusSlot", kind = "enum", values = { off = true, active = true } },
+    { path = "inheritNonUniqueMoves", kind = "bool" },
     { path = "ivBonusPerStage", kind = "int", min = 0, max = 100 },
     { path = "ivCap", kind = "int", min = 0, max = 100 },
 

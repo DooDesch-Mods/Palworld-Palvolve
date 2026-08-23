@@ -4,6 +4,7 @@
 -- An attempted feed is never enough: both the source stack and fullness must
 -- move before the food becomes condition truth.
 
+local Role = require("role")
 local ConditionFeed = {}
 
 local PARTY_MEAL_FN =
@@ -330,6 +331,19 @@ end
 
 function ConditionFeed.init()
     if not registerNative() then Log("party feeding hook registration failed") end
+    -- The hand-feed hook sits on a PLAYER action, and a dedicated server has no
+    -- player to run it. Registering it there killed the process the moment
+    -- somebody joined: the poll waits for a PalPlayerCharacter, the joining
+    -- client produced one, the hook went on a Blueprint that only exists for a
+    -- local player, and the server died reading 0xffffffffffffffff.
+    --
+    -- What a server loses by skipping it: hand-feeding does not register as
+    -- fedFood. A Pal eating on its own still does, through the native hook
+    -- above, which is the Pal's own parameter and belongs to the host.
+    if Role.isDedicated() then
+        Log("hand-feed hook skipped: dedicated server has no local player")
+        return
+    end
     if not blueprintHookRegistered and not blueprintPollStarted then
         local ok = pcall(LoopAsync, 5000, blueprintRegistrationPoll)
         blueprintPollStarted = ok

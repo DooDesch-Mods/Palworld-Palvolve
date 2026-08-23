@@ -16,6 +16,8 @@ local Authority = require("authority")
 local NetChannel = require("netchannel")
 local ServerCheck = require("servercheck")
 local PalPassives = require("palpassives")
+local WazaInherit = require("wazainherit")
+local PalSlots = require("palslots")
 local Prestige = require("prestige")
 
 local Evolution = {}
@@ -884,6 +886,116 @@ local function writeSpeciesUnsafe(param, characterId)
     param.SaveParameterMirror.CharacterID = FName(characterId)
 end
 
+local function copyGuidUnsafe(guid)
+    return { A = guid.A, B = guid.B, C = guid.C, D = guid.D }
+end
+
+local function skinNameUnsafe(value)
+    return value:ToString()
+end
+
+local function readSkinName(value)
+    if type(value) == "string" then return value end
+    local okName, name = pcall(skinNameUnsafe, value)
+    if okName and name ~= nil then return tostring(name) end
+    return nil
+end
+
+local function captureSkinStateUnsafe(param)
+    local save = param.SaveParameter
+    local mirror = param.SaveParameterMirror
+    return {
+        saveApplied = copyGuidUnsafe(save.SkinAppliedCharacterId),
+        saveName = readSkinName(save.SkinName),
+        mirrorApplied = copyGuidUnsafe(mirror.SkinAppliedCharacterId),
+        mirrorName = readSkinName(mirror.SkinName),
+    }
+end
+
+local function validGuid(guid)
+    return type(guid) == "table" and type(guid.A) == "number"
+        and type(guid.B) == "number" and type(guid.C) == "number"
+        and type(guid.D) == "number"
+end
+
+local function validSkinState(state)
+    return type(state) == "table" and validGuid(state.saveApplied)
+        and validGuid(state.mirrorApplied) and type(state.saveName) == "string"
+        and type(state.mirrorName) == "string"
+end
+
+local function captureSkinState(param)
+    local okState, state = pcall(captureSkinStateUnsafe, param)
+    if not okState or not validSkinState(state) then
+        return nil, okState and "skin fields are unavailable" or tostring(state)
+    end
+    return state
+end
+
+local function writeSkinStateUnsafe(param, state)
+    param.SaveParameter.SkinAppliedCharacterId = copyGuidUnsafe(state.saveApplied)
+    param.SaveParameter.SkinName = FName(state.saveName)
+    param.SaveParameterMirror.SkinAppliedCharacterId = copyGuidUnsafe(state.mirrorApplied)
+    param.SaveParameterMirror.SkinName = FName(state.mirrorName)
+end
+
+local function sameGuid(left, right)
+    return left.A == right.A and left.B == right.B
+        and left.C == right.C and left.D == right.D
+end
+
+local function skinStateMatchesUnsafe(param, expected)
+    local actual = captureSkinStateUnsafe(param)
+    return validSkinState(actual) and sameGuid(actual.saveApplied, expected.saveApplied)
+        and actual.saveName == expected.saveName
+        and sameGuid(actual.mirrorApplied, expected.mirrorApplied)
+        and actual.mirrorName == expected.mirrorName
+end
+
+local function writeSkinState(param, state)
+    if not validSkinState(state) then return false, "skin snapshot is invalid" end
+    local okWrite, writeErr = pcall(writeSkinStateUnsafe, param, state)
+    if not okWrite then return false, tostring(writeErr) end
+    local okVerify, matches = pcall(skinStateMatchesUnsafe, param, state)
+    if not okVerify or not matches then return false, "skin field read-back differs" end
+    return true
+end
+
+local EMPTY_SKIN = {
+    saveApplied = { A = 0, B = 0, C = 0, D = 0 }, saveName = "None",
+    mirrorApplied = { A = 0, B = 0, C = 0, D = 0 }, mirrorName = "None",
+}
+
+local function applySwapSurvivors(param, skinState, wazaState)
+    if skinState then
+        local skinOk, skinErr = writeSkinState(param, EMPTY_SKIN)
+        if not skinOk then return false, "skin clear failed: " .. tostring(skinErr) end
+    end
+    if wazaState then
+        local wazaOk, wazaResult = WazaInherit.apply(param, wazaState)
+        if not wazaOk then return false, "move inheritance failed: " .. tostring(wazaResult) end
+        if (wazaResult.removedEquip or 0) > 0 or (wazaResult.removedMastered or 0) > 0 then
+            Log(string.format("Move inheritance dropped %d equipped and %d mastered Unique moves",
+                wazaResult.removedEquip or 0, wazaResult.removedMastered or 0))
+        end
+    end
+    return true
+end
+
+local function restoreSwapSurvivors(param, skinState, wazaState)
+    local errors = {}
+    if skinState then
+        local skinOk, skinErr = writeSkinState(param, skinState)
+        if not skinOk then errors[#errors + 1] = "skin=" .. tostring(skinErr) end
+    end
+    if wazaState then
+        local wazaOk, wazaErr = WazaInherit.restore(param, wazaState)
+        if not wazaOk then errors[#errors + 1] = "moves=" .. tostring(wazaErr) end
+    end
+    if #errors > 0 then return false, table.concat(errors, "; ") end
+    return true
+end
+
 local function readPrestigeFieldsUnsafe(param)
     return {
         characterId = param:GetCharacterID():ToString(),
@@ -952,6 +1064,15 @@ local function applyPrestigeMutation(param, targetId)
 
     local passiveOk, passiveResult = PalPassives.grantPrestige(param)
     if not passiveOk then return false, "Prestige passive write failed: " .. tostring(passiveResult) end
+    -- Optional and off by default. A failure here does not fail the prestige:
+    -- the rank is already written, and refusing it over a bonus nobody asked
+    -- for would cost the player the thing they did ask for.
+    local slotOk, slotResult = PalSlots.grantPrestige(param, playerCtx)
+    if slotOk and slotResult and slotResult.changed then
+        Log(string.format("Prestige bonus (slot): %s", tostring(slotResult.id)))
+    elseif not slotOk then
+        Log("BONUS SLOT GRANT FAILED: " .. tostring(slotResult))
+    end
     return true, passiveResult
 end
 
@@ -1222,6 +1343,40 @@ local function performEvolution(p)
         end
     end
 
+    -- These fields are about to be rewritten beside CharacterID. Capture both
+    -- save halves before cost or presentation work so every started swap has a
+    -- complete rollback point.
+    local skinBefore = nil
+    if Config.clearIncompatibleSkins then
+        local skinErr
+        skinBefore, skinErr = captureSkinState(param)
+        if not skinBefore then
+            Log("Evolution aborted before mutation: skin snapshot failed: " .. tostring(skinErr))
+            finishAbort()
+            return false, I18n.msg("swapStateSnapshotFailed")
+        end
+    end
+    local wazaBefore = nil
+    if Config.inheritNonUniqueMoves then
+        local wazaErr
+        wazaBefore, wazaErr = WazaInherit.capture(param)
+        if not wazaBefore then
+            Log("Evolution aborted before mutation: move snapshot failed: " .. tostring(wazaErr))
+            finishAbort()
+            return false, I18n.msg("swapStateSnapshotFailed")
+        end
+    end
+    local passivesBefore = isPrestige and prestigeState.passives or nil
+    if not passivesBefore then
+        local passiveErr
+        passivesBefore, passiveErr = PalPassives.capture(param)
+        if not passivesBefore then
+            Log("Evolution aborted before mutation: passive snapshot failed: " .. tostring(passiveErr))
+            finishAbort()
+            return false, I18n.msg("swapStateSnapshotFailed")
+        end
+    end
+
     -- Take the full cost BEFORE the sequence (no TOCTOU: anything that fails
     -- before the swap refunds everything; after the swap it is earned)
     local costList = Costs.resolve(pair, level, holder)
@@ -1370,20 +1525,39 @@ local function performEvolution(p)
             finishAbort()
             return
         end
-        local passivesBefore = nil
+        local originalId = isAlpha and (BOSS_PREFIX .. pair.from) or pair.from
+        local function restoreFailedMutation(reason)
+            local stateOk, stateErr
+            if isPrestige then
+                stateOk, stateErr = restorePrestigeState(param, prestigeState)
+            else
+                local okSpecies, speciesErr = pcall(writeSpeciesUnsafe, param, originalId)
+                local okId, restoredId = pcall(characterIdUnsafe, param)
+                stateOk = okSpecies and okId
+                    and Config.canonicalId(restoredId) == Config.canonicalId(originalId)
+                stateErr = speciesErr
+            end
+            local survivorOk, survivorErr = restoreSwapSurvivors(param, skinBefore, wazaBefore)
+            if stateOk and survivorOk then
+                Log("Swap mutation failed and was rolled back: " .. tostring(reason))
+            else
+                Log("SWAP ROLLBACK FAILED after mutation error: " .. tostring(reason)
+                    .. "; state=" .. tostring(stateErr) .. "; survivors=" .. tostring(survivorErr))
+            end
+            Role.chat(playerCtx, I18n.msg("swapStateMutationFailed"), "reply")
+            refundCost("swap mutation failed")
+            finishAbort()
+        end
+
         if isPrestige then
-            passivesBefore = prestigeState.passives
             local mutationOk, passiveResult = applyPrestigeMutation(param, targetId)
             if not mutationOk then
-                local restored, restoreErr = restorePrestigeState(param, prestigeState)
-                if restored then
-                    Log("Prestige mutation failed and was rolled back: " .. tostring(passiveResult))
-                else
-                    Log("PRESTIGE ROLLBACK FAILED after mutation error: "
-                        .. tostring(passiveResult) .. "; " .. tostring(restoreErr))
-                end
-                refundCost("prestige mutation failed")
-                finishAbort()
+                restoreFailedMutation(passiveResult)
+                return
+            end
+            local survivorOk, survivorErr = applySwapSurvivors(param, skinBefore, wazaBefore)
+            if not survivorOk then
+                restoreFailedMutation(survivorErr)
                 return
             end
             swapDone = true
@@ -1401,21 +1575,29 @@ local function performEvolution(p)
             if not okSwap or Config.canonicalId(idNow) ~= Config.canonicalId(targetId) then
                 Log(string.format("SWAP FAILED (err=%s, id=%s) - no respawn attempt",
                     tostring(errSwap), idNow))
-                refundCost("swap failed")
-                finishAbort()
+                restoreFailedMutation(errSwap or "species read-back differs")
+                return
+            end
+            local survivorOk, survivorErr = applySwapSurvivors(param, skinBefore, wazaBefore)
+            if not survivorOk then
+                restoreFailedMutation(survivorErr)
                 return
             end
             swapDone = true
             if txn then txn.commit() end
-            local passiveCaptureErr
-            passivesBefore, passiveCaptureErr = PalPassives.capture(param)
-            if not passivesBefore then
-                Log("Evolution passive snapshot FAILED: " .. tostring(passiveCaptureErr))
-            end
             applyIvBonus(param)
             local passiveOk, passiveResult = PalPassives.grantEvolved(param)
             if passiveOk then
                 Log(string.format("Evolution bonus (passive): %s", passiveResult.id))
+                -- Optional and off by default: an extra slot on top of the ladder
+                -- reward, which a server owner turns on. It fails loudly and
+                -- changes nothing else, because the swap is already committed.
+                local slotOk, slotResult = PalSlots.grantEvolution(param, playerCtx)
+                if slotOk and slotResult and slotResult.changed then
+                    Log(string.format("Evolution bonus (slot): %s", tostring(slotResult.id)))
+                elseif not slotOk then
+                    Log("BONUS SLOT GRANT FAILED: " .. tostring(slotResult))
+                end
             else
                 -- The cost is already committed. Continuing keeps the successful
                 -- species swap at the tradeoff that this reward is not refunded alone.
@@ -1439,6 +1621,8 @@ local function performEvolution(p)
             ivHP = talentsBefore.Talent_HP, ivMelee = talentsBefore.Talent_Melee,
             ivShot = talentsBefore.Talent_Shot, ivDefense = talentsBefore.Talent_Defense,
             passives = passivesBefore,
+            skin = skinBefore,
+            waza = wazaBefore,
             -- owning player (additive; multiplayer rollback needs to know
             -- whose pal the snapshot belongs to)
             uid = playerCtx and playerCtx.playerUId
@@ -2017,7 +2201,7 @@ local function performEvolution(p)
 
     -- Headless (dedicated server): skip the whole teardown/reveal machinery.
     -- The pal stays summoned as its old actor; proceedAfterDespawn only writes
-    -- the new species onto the param (safe while summoned) and the headless
+    -- the new save state onto the param (safe while summoned) and the headless
     -- branch there finishes. The client recalls + re-summons to render it.
     if headless then
         proceedAfterDespawn()
@@ -2960,6 +3144,7 @@ function Evolution.rollbackLast(playerCtx)
         return
     end
     local reverted = false
+    local restoreFailed = false
     local all = FindAllOf("PalIndividualCharacterParameter") or {}
     local hasKey = last.key and last.key ~= ""
     -- owner isolation: a snapshot with a stored owner uid may only ever
@@ -2992,10 +3177,33 @@ function Evolution.rollbackLast(playerCtx)
                 local passivesAfter, passiveAfterErr = PalPassives.capture(p)
                 if not passivesAfter then
                     Log("ROLLBACK CURRENT PASSIVE CAPTURE FAILED: " .. tostring(passiveAfterErr))
+                    restoreFailed = true
+                    break
+                end
+                local skinAfter = nil
+                if last.skin then
+                    local skinAfterErr
+                    skinAfter, skinAfterErr = captureSkinState(p)
+                    if not skinAfter then
+                        Log("ROLLBACK CURRENT SKIN CAPTURE FAILED: " .. tostring(skinAfterErr))
+                        restoreFailed = true
+                        break
+                    end
+                end
+                local wazaAfter = nil
+                if last.waza then
+                    local wazaAfterErr
+                    wazaAfter, wazaAfterErr = WazaInherit.capture(p)
+                    if not wazaAfter then
+                        Log("ROLLBACK CURRENT MOVE CAPTURE FAILED: " .. tostring(wazaAfterErr))
+                        restoreFailed = true
+                        break
+                    end
                 end
                 local passivesRestored, passiveRestoreErr = PalPassives.restore(p, last.passives)
                 if not passivesRestored then
                     Log("ROLLBACK PASSIVE RESTORE FAILED: " .. tostring(passiveRestoreErr))
+                    restoreFailed = true
                     break
                 end
                 pcall(function()
@@ -3005,6 +3213,28 @@ function Evolution.rollbackLast(playerCtx)
                 local idNow = ""
                 pcall(function() idNow = p:GetCharacterID():ToString() end)
                 if Config.canonicalId(idNow) == Config.canonicalId(last.from) then
+                    local survivorsRestored, survivorRestoreErr =
+                        restoreSwapSurvivors(p, last.skin, last.waza)
+                    if not survivorsRestored then
+                        Log("ROLLBACK SKIN/MOVE RESTORE FAILED: " .. tostring(survivorRestoreErr))
+                        local undoOk, undoErr
+                        if prestigeAfter then
+                            undoOk, undoErr = restorePrestigeState(p, prestigeAfter)
+                        else
+                            local speciesOk, speciesErr = pcall(writeSpeciesUnsafe, p, last.to)
+                            local passiveOk, passiveErr = PalPassives.restore(p, passivesAfter)
+                            undoOk = speciesOk and passiveOk
+                            undoErr = tostring(speciesErr) .. "; " .. tostring(passiveErr)
+                        end
+                        local survivorUndoOk, survivorUndoErr =
+                            restoreSwapSurvivors(p, skinAfter, wazaAfter)
+                        if not undoOk or not survivorUndoOk then
+                            Log("ROLLBACK REAPPLY FAILED after skin/move restore failed: "
+                                .. tostring(undoErr) .. "; " .. tostring(survivorUndoErr))
+                        end
+                        restoreFailed = true
+                        break
+                    end
                     local restore = {
                         Talent_HP = last.ivHP, Talent_Melee = last.ivMelee,
                         Talent_Shot = last.ivShot, Talent_Defense = last.ivDefense,
@@ -3045,10 +3275,17 @@ function Evolution.rollbackLast(playerCtx)
                         pcall(function() resummonAfterRollback(playerCtx, p) end)
                     elseif prestigeAfter then
                         local undoOk, undoErr = restorePrestigeState(p, prestigeAfter)
+                        local survivorUndoOk, survivorUndoErr =
+                            restoreSwapSurvivors(p, skinAfter, wazaAfter)
                         if not undoOk then
                             Log("ROLLBACK PRESTIGE REAPPLY FAILED after level restore failed: "
                                 .. tostring(undoErr))
                         end
+                        if not survivorUndoOk then
+                            Log("ROLLBACK SKIN/MOVE REAPPLY FAILED after level restore failed: "
+                                .. tostring(survivorUndoErr))
+                        end
+                        restoreFailed = true
                     end
                 elseif prestigeAfter then
                     local undoOk, undoErr = restorePrestigeState(p, prestigeAfter)
@@ -3092,6 +3329,8 @@ function Evolution.rollbackLast(playerCtx)
         local key = "rollbackDone"
         if hadCost then key = refunded and "rollbackDoneRefunded" or "rollbackDoneRefundFailed" end
         say(I18n.msg(key, palDisplayName(last.to), palDisplayName(last.from)))
+    elseif restoreFailed then
+        say(I18n.msg("rollbackStateRestoreFailed"))
     else
         say(I18n.msg("rollbackNoMatch", palDisplayName(last.to)))
     end
