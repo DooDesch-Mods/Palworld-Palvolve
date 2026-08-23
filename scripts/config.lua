@@ -8,7 +8,8 @@
 -- two pairs with the same from/to and different conditions - the gates try all
 -- same-target candidates. Vocabulary and colon syntax ("knowsMove:<Element>",
 -- "inParty:<CharacterID>") live in conditions.lua; unknown ids are dropped at
--- load with a log line.
+-- load with a log line, and the affected pair stays blocked because silently
+-- weakening a newer author's rule would evolve the wrong Pal.
 --
 -- Map basis: DT_PalMonsterParameter row names (buildid 24088745). findPair
 -- returns the FIRST enabled match: evolutions are therefore listed BEFORE
@@ -19,6 +20,10 @@ local Conditions = require("conditions")
 -- role.lua requires nothing itself, so pulling it in this early cannot loop
 -- back into config
 local Role = require("role")
+-- i18n only requires its generated catalog, so it cannot loop back here either.
+-- The load notice needs it: a hardcoded English string reaches every player in
+-- every language.
+local I18n = require("i18n")
 
 local Config = {
     -- Dev mode: enables the diagnostic key bindings (probes.lua) and the
@@ -31,7 +36,7 @@ local Config = {
 
     -- Mod version, reported to connected clients by the host handshake. Keep in
     -- sync with Info.json (the release flow checks this).
-    modVersion = "1.8.4",
+    modVersion = "1.9.0",
 
     -- Unlock the catch-gated technologies (saddle, Pal gear) of the target species when a
     -- pal evolves, the same way capturing one would. Needs the native companion in
@@ -99,6 +104,19 @@ local Config = {
     -- Answers to a chat command are never silenced: a command that produces
     -- silence reads as a broken mod.
     chatMessages = "all",
+
+    -- Automatic evolution needs permission at both levels. This master switch
+    -- only enables the watcher; every pair still opts in with autoEvolve=true.
+    autoEvolve = false,
+
+    -- Selected keeps the explicit target wheel. Conditioned resolves the
+    -- strongest passing rule deterministically and puts only that target on it.
+    evolutionMode = "selected",
+
+    -- One server-authored disclosure level feeds every in-game surface. The
+    -- condition engine owns the wording and guarantees that hint/hidden never
+    -- fall back to an exact label.
+    conditionDisclosure = "exact",
 
     -- Two-stage confirm: first press checks and announces, second press confirms.
     -- Off by default since 1.6.4, because a mod that claims a function key on
@@ -169,9 +187,10 @@ local Config = {
         enabled = false,
     },
 
-    -- Map schema version; 5 = negatable conditions ("!" prefix), 4 = per-pair
+    -- Map schema version; 6 = per-pair materials override and automatic-evolution
+    -- opt-in, 5 = negatable conditions ("!" prefix), 4 = per-pair
     -- conditions
-    schemaVersion = 5,
+    schemaVersion = 6,
 
     -- How the author arranged their tree, when their config carries it. Purely
     -- presentational: nothing here decides whether an evolution happens, and a
@@ -1399,6 +1418,83 @@ local Config = {
         stone = "adaptation",
         enabled = true
     }, -- Wumpo -> Wumpo Botan
+
+    -- ==================== Community curation (1.9.0) ====================
+    -- These links extend the published tree without replacing any shipped
+    -- connection. Their gates deliberately cover every 1.9 condition family,
+    -- so a server author can encounter each syntax in a working example.
+    {
+        from = "SheepBall",
+        to = "WoolFox",
+        category = "evolution",
+        minLevel = 18,
+        stone = "evolution",
+        conditions = { "knowsWaza:AirCanon" },
+        enabled = true
+    }, -- Lamball -> Cremis
+    {
+        from = "WoolFox",
+        to = "FluffyBird",
+        category = "evolution",
+        minLevel = 28,
+        stone = "evolution",
+        conditions = { "hasPassive:Rare" },
+        enabled = true
+    }, -- Cremis -> Muffly
+    {
+        from = "FluffyBird",
+        to = "SnowPeafowl",
+        category = "evolution",
+        minLevel = 36,
+        stone = "evolution",
+        conditions = { "hasItem:Money:5000" },
+        enabled = true
+    }, -- Muffly -> Frostplume
+    {
+        from = "CuteFox",
+        to = "NightFox",
+        category = "evolution",
+        minLevel = 30,
+        stone = "evolution",
+        conditions = {
+            "condenserRank:4", "soulHP:10", "soulAttack:10",
+            "soulDefense:10", "soulCraftSpeed:10"
+        },
+        enabled = true
+    }, -- Vixy -> Nox
+    {
+        from = "NightFox",
+        to = "FoxExorcist",
+        category = "evolution",
+        minLevel = 42,
+        stone = "evolution",
+        conditions = { "fedFood:Baked_Berries" },
+        enabled = true
+    }, -- Nox -> Flaracle
+    {
+        from = "GhostRabbit",
+        to = "GhostBlackCat",
+        category = "funchain",
+        minLevel = 28,
+        stone = "evolution",
+        enabled = true
+    }, -- Nitemary -> Wispaw
+    {
+        from = "TentacleTurtle",
+        to = "CubeTurtle",
+        category = "funchain",
+        minLevel = 42,
+        stone = "evolution",
+        enabled = true
+    }, -- Turtacle -> Tetroise
+    {
+        from = "ElecSnail_Fire",
+        to = "Monkey_Ice",
+        category = "funchain",
+        minLevel = 10,
+        stone = "evolution",
+        enabled = true
+    }, -- Snock Ignis -> Tanzee Cryst
     },
 }
 
@@ -1566,9 +1662,23 @@ function Config.treeHash(map)
                 table.sort(sorted)
                 conds = table.concat(sorted, ",")
             end
-            table.insert(lines, string.format("%s>%s|%s|%d|%s|%s",
+            local materials = "-"
+            if type(p.materials) == "table" then
+                materials = "0"
+                if #p.materials > 0 then
+                    local encoded = {}
+                    for _, item in ipairs(p.materials) do
+                        encoded[#encoded + 1] = string.format("%s:%d",
+                            tostring(item.id or ""), tonumber(item.count) or 0)
+                    end
+                    table.sort(encoded)
+                    materials = table.concat(encoded, ",")
+                end
+            end
+            table.insert(lines, string.format("%s>%s|%s|%d|%s|%s|%s|%s",
                 tostring(p.from), tostring(p.to), tostring(p.category or ""),
-                tonumber(p.minLevel) or 0, tostring(p.stone or ""), conds))
+                tonumber(p.minLevel) or 0, tostring(p.stone or ""), conds,
+                p.autoEvolve == true and "1" or "0", materials))
         end
     end
     table.sort(lines)
@@ -1601,7 +1711,7 @@ function Config.findPairs(characterId)
     characterId = Config.canonicalId(characterId)
     local result = {}
     for _, pair in ipairs(Config.map) do
-        if pair.enabled and pair.from == characterId then
+        if pair.enabled and pair.category ~= "prestige" and pair.from == characterId then
             table.insert(result, pair)
         end
     end
@@ -2111,6 +2221,9 @@ end
 --   enum  one of `values`, case-insensitively, or the shipped value stands
 local USER_KEYS = {
     -- gameplay
+    { path = "autoEvolve", kind = "bool" },
+    { path = "evolutionMode", kind = "enum", values = { "selected", "conditioned" } },
+    { path = "conditionDisclosure", kind = "enum", values = { "exact", "partial", "hidden" } },
     { path = "eggFilter.enabled", kind = "bool" },
     { path = "requireStone", kind = "bool" },
     -- written into the PalSchema building file, where a junk level breaks the
@@ -2256,6 +2369,7 @@ local user, userSource, userChecked = loadUserConfig()
 if user then
     if type(user.map) == "table" then
         local cleaned = {}
+        local unknownPairCount = 0
         for _, p in ipairs(user.map) do
             if type(p) == "table" and type(p.from) == "string" and type(p.to) == "string" then
                 p.category = p.category or "evolution"
@@ -2263,12 +2377,15 @@ if user then
                 p.stone = p.stone or (p.category == "adaptation" and "adaptation" or "evolution")
                 if p.enabled == nil then p.enabled = true end
                 if p.conditions ~= nil then
-                    -- unknown ids are dropped (fail open: a config written for
-                    -- a newer vocabulary must not brick this pair entirely);
-                    -- runtime failures of KNOWN ids fail closed in conditions.lua
-                    local clean, dropped = Conditions.sanitize(p.conditions)
+                    -- Keep the clean subset for ordinary evaluation, but retain
+                    -- the sanitizer metadata on this runtime-only table. Unknown
+                    -- ids block the whole pair, including negated ids, so an old
+                    -- binary cannot silently weaken a newer author's rule.
+                    local clean, dropped, metadata = Conditions.sanitize(p.conditions)
                     p.conditions = (#clean > 0) and clean or nil
+                    p.conditionMetadata = metadata
                     if #dropped > 0 then
+                        unknownPairCount = unknownPairCount + 1
                         print(string.format("[Palvolve] %s -> %s: dropped unknown conditions: %s\n",
                             p.from, p.to, table.concat(dropped, ", ")))
                     end
@@ -2287,6 +2404,9 @@ if user then
             evoParentsCache = nil
             -- a user map may name species the shipped list does not
             Config.resetCanonical()
+        end
+        if unknownPairCount > 0 then
+            Role.announce(I18n.msg("unknownConditionsLoad", unknownPairCount), "warning")
         end
     end
     applyUserKeys(user)

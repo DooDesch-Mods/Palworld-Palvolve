@@ -1,0 +1,34 @@
+{
+    "DT_SkillNameText": {
+        "PASSIVE_Palvolve_Prestige_1": "Prestige I",
+        "PASSIVE_Palvolve_Prestige_2": "Prestige II",
+        "PASSIVE_Palvolve_Prestige_3": "Prestige III",
+        "PASSIVE_Palvolve_Prestige_4": "Prestige IV",
+        "PASSIVE_Palvolve_Prestige_5": "Prestige V: Erhaben",
+        "PASSIVE_Palvolve_Prestige_6": "Prestige VI",
+        "PASSIVE_Palvolve_Prestige_7": "Prestige VII",
+        "PASSIVE_Palvolve_Prestige_8": "Prestige VIII: Blutgezeichnet",
+        "PASSIVE_Palvolve_Prestige_9": "Prestige IX",
+        "PASSIVE_Palvolve_Prestige_10": "Prestige X: Blutgebunden",
+        "PASSIVE_Palvolve_Evolved_1": "Entwickelt I",
+        "PASSIVE_Palvolve_Evolved_2": "Entwickelt II",
+        "PASSIVE_Palvolve_Evolved_3": "Entwickelt III",
+        "PASSIVE_Palvolve_Evolved_4": "Entwickelt IV"
+    },
+    "DT_SkillDescText": {
+        "PASSIVE_Palvolve_Prestige_1": "Der Aufstieg beginnt.\r\nAngriff +{EffectValue1}%\r\nVerteidigung +{EffectValue2}%\r\nArbeitstempo +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_2": "Neue Kraft festigt sich.\r\nAngriff +{EffectValue1}%\r\nVerteidigung +{EffectValue2}%\r\nArbeitstempo +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_3": "Kampf und Handwerk werden gemeinsam geschärft.\r\nAngriff +{EffectValue1}%\r\nVerteidigung +{EffectValue2}%\r\nArbeitstempo +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_4": "Der goldene Aufstieg ist vollendet.\r\nAngriff +{EffectValue1}%\r\nVerteidigung +{EffectValue2}%\r\nArbeitstempo +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_5": "Erhabene Kraft sprengt die alte Grenze.\r\nAngriff +{EffectValue1}%\r\nVerteidigung +{EffectValue2}%\r\nArbeitstempo +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_6": "Erhabene Kraft festigt sich weiter.\r\nAngriff +{EffectValue1}%\r\nVerteidigung +{EffectValue2}%\r\nArbeitstempo +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_7": "Kampf und Handwerk nähern sich dem Gipfel.\r\nAngriff +{EffectValue1}%\r\nVerteidigung +{EffectValue2}%\r\nArbeitstempo +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_8": "Das Blutzeichen erwacht.\r\nAngriff +{EffectValue1}%\r\nVerteidigung +{EffectValue2}%\r\nArbeitstempo +{EffectValue3}%\r\nLebensraub +{EffectValue4}% heilt diesen Pal.",
+        "PASSIVE_Palvolve_Prestige_9": "Das Blutzeichen wird stärker.\r\nAngriff +{EffectValue1}%\r\nVerteidigung +{EffectValue2}%\r\nArbeitstempo +{EffectValue3}%\r\nLebensraub +{EffectValue4}% heilt diesen Pal.",
+        "PASSIVE_Palvolve_Prestige_10": "Blutgebundene Kraft erreicht ihren Gipfel.\r\nAngriff +{EffectValue1}%\r\nVerteidigung +{EffectValue2}%\r\nArbeitstempo +{EffectValue3}%\r\nLebensraub +{EffectValue4}% heilt Pal und Trainer.",
+        "PASSIVE_Palvolve_Evolved_1": "Die Entwicklung beginnt.\r\nMax. LP +{EffectValue1}%\r\nAngriff +{EffectValue2}%\r\nVerteidigung +{EffectValue3}%\r\nArbeitstempo +{EffectValue4}%",
+        "PASSIVE_Palvolve_Evolved_2": "Die entwickelte Form wird stärker.\r\nMax. LP +{EffectValue1}%\r\nAngriff +{EffectValue2}%\r\nVerteidigung +{EffectValue3}%\r\nArbeitstempo +{EffectValue4}%",
+        "PASSIVE_Palvolve_Evolved_3": "Körper und Angriff werden gemeinsam gestählt.\r\nMax. LP +{EffectValue1}%\r\nAngriff +{EffectValue2}%\r\nVerteidigung +{EffectValue3}%\r\nArbeitstempo +{EffectValue4}%",
+        "PASSIVE_Palvolve_Evolved_4": "Die Entwicklung erreicht ihre Endform.\r\nMax. LP +{EffectValue1}%\r\nAngriff +{EffectValue2}%\r\nVerteidigung +{EffectValue3}%\r\nArbeitstempo +{EffectValue4}%"
+    }
+}

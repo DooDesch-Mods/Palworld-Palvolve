@@ -84,7 +84,7 @@ local function targetLine(displayName, pair, worldCtx)
         table.insert(parts, I18n.msg("guideLevelShort", level))
     end
 
-    local cond = Conditions.describe(pair)
+    local cond = Conditions.describe(pair, Config.conditionDisclosure)
     if cond and cond ~= "" then table.insert(parts, cond) end
 
     -- Prices are level-banded, so the pair's own minimum is the honest level to

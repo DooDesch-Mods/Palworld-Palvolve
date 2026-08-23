@@ -1,0 +1,34 @@
+{
+    "DT_SkillNameText": {
+        "PASSIVE_Palvolve_Prestige_1": "Prestige I",
+        "PASSIVE_Palvolve_Prestige_2": "Prestige II",
+        "PASSIVE_Palvolve_Prestige_3": "Prestige III",
+        "PASSIVE_Palvolve_Prestige_4": "Prestige IV",
+        "PASSIVE_Palvolve_Prestige_5": "Prestige V: Ascendant",
+        "PASSIVE_Palvolve_Prestige_6": "Prestige VI",
+        "PASSIVE_Palvolve_Prestige_7": "Prestige VII",
+        "PASSIVE_Palvolve_Prestige_8": "Prestige VIII: Bloodmarked",
+        "PASSIVE_Palvolve_Prestige_9": "Prestige IX",
+        "PASSIVE_Palvolve_Prestige_10": "Prestige X: Bloodbound",
+        "PASSIVE_Palvolve_Evolved_1": "Evolved I",
+        "PASSIVE_Palvolve_Evolved_2": "Evolved II",
+        "PASSIVE_Palvolve_Evolved_3": "Evolved III",
+        "PASSIVE_Palvolve_Evolved_4": "Evolved IV"
+    },
+    "DT_SkillDescText": {
+        "PASSIVE_Palvolve_Prestige_1": "The ascent begins.\r\nAttack +{EffectValue1}%\r\nDefense +{EffectValue2}%\r\nWork speed +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_2": "New strength takes hold.\r\nAttack +{EffectValue1}%\r\nDefense +{EffectValue2}%\r\nWork speed +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_3": "Combat and craft sharpen together.\r\nAttack +{EffectValue1}%\r\nDefense +{EffectValue2}%\r\nWork speed +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_4": "The golden ascent is complete.\r\nAttack +{EffectValue1}%\r\nDefense +{EffectValue2}%\r\nWork speed +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_5": "Ascendant power breaks the old limit.\r\nAttack +{EffectValue1}%\r\nDefense +{EffectValue2}%\r\nWork speed +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_6": "Ascendant power takes firmer hold.\r\nAttack +{EffectValue1}%\r\nDefense +{EffectValue2}%\r\nWork speed +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_7": "Combat and craft approach their peak.\r\nAttack +{EffectValue1}%\r\nDefense +{EffectValue2}%\r\nWork speed +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_8": "The Bloodmark awakens.\r\nAttack +{EffectValue1}%\r\nDefense +{EffectValue2}%\r\nWork speed +{EffectValue3}%\r\nLife steal +{EffectValue4}% heals this Pal.",
+        "PASSIVE_Palvolve_Prestige_9": "The Bloodmark grows stronger.\r\nAttack +{EffectValue1}%\r\nDefense +{EffectValue2}%\r\nWork speed +{EffectValue3}%\r\nLife steal +{EffectValue4}% heals this Pal.",
+        "PASSIVE_Palvolve_Prestige_10": "Bloodbound power reaches its peak.\r\nAttack +{EffectValue1}%\r\nDefense +{EffectValue2}%\r\nWork speed +{EffectValue3}%\r\nLife steal +{EffectValue4}% heals Pal and trainer.",
+        "PASSIVE_Palvolve_Evolved_1": "Evolution begins.\r\nMax HP +{EffectValue1}%\r\nAttack +{EffectValue2}%\r\nDefense +{EffectValue3}%\r\nWork speed +{EffectValue4}%",
+        "PASSIVE_Palvolve_Evolved_2": "The evolved form grows stronger.\r\nMax HP +{EffectValue1}%\r\nAttack +{EffectValue2}%\r\nDefense +{EffectValue3}%\r\nWork speed +{EffectValue4}%",
+        "PASSIVE_Palvolve_Evolved_3": "Body and offense harden together.\r\nMax HP +{EffectValue1}%\r\nAttack +{EffectValue2}%\r\nDefense +{EffectValue3}%\r\nWork speed +{EffectValue4}%",
+        "PASSIVE_Palvolve_Evolved_4": "Evolution reaches its final form.\r\nMax HP +{EffectValue1}%\r\nAttack +{EffectValue2}%\r\nDefense +{EffectValue3}%\r\nWork speed +{EffectValue4}%"
+    }
+}

@@ -23,14 +23,18 @@ local function Log(msg)
     print(string.format("[Palvolve] %s\n", msg))
 end
 
--- The prefix the client watches for. PVLV1 stays what it was, so an older
--- client ignores this and keeps working with its own file.
-TreeSync.PREFIX = "PVLV2|tree|"
+-- The v2 frame remains byte-compatible for older clients. The v3 frame is the
+-- authoritative 1.9 tree and carries the fields that affect pair selection and
+-- pricing but could not be represented by v2.
+TreeSync.PREFIX_V2 = "PVLV2|tree|"
+TreeSync.PREFIX_V3 = "PVLV3|tree|"
+TreeSync.PREFIX = TreeSync.PREFIX_V3
 
 -- Refuses to send anything near the size that kills the process. 32 KB is half
 -- of what was proven to arrive whole, and about three times what the largest
 -- published tree needs.
 local MAX_PAYLOAD = 32 * 1024
+TreeSync.MAX_PAYLOAD = MAX_PAYLOAD
 
 -- Field and record separators that cannot appear in an id, a category, a stone
 -- name or a condition: those are all [A-Za-z0-9_:.-].
@@ -59,10 +63,10 @@ end
 -- The words that repeat on every line get one character each; anything else
 -- travels verbatim, so a config with a category we have never seen still
 -- arrives intact rather than being silently rewritten.
-local CAT_CODE = { evolution = "e", adaptation = "a", funchain = "f" }
-local CAT_WORD = { e = "evolution", a = "adaptation", f = "funchain" }
-local STONE_CODE = { evolution = "e", adaptation = "a" }
-local STONE_WORD = { e = "evolution", a = "adaptation" }
+local CAT_CODE = { evolution = "e", adaptation = "a", funchain = "f", prestige = "p" }
+local CAT_WORD = { e = "evolution", a = "adaptation", f = "funchain", p = "prestige" }
+local STONE_CODE = { evolution = "e", adaptation = "a", prestige = "p" }
+local STONE_WORD = { e = "evolution", a = "adaptation", p = "prestige" }
 
 local B36 = "0123456789abcdefghijklmnopqrstuvwxyz"
 local function b36(n)
@@ -106,6 +110,7 @@ local GLOBALS = {
     { key = "stoneCount", kind = "number" },
     { key = "eggFilter.enabled", kind = "bool" },
     { key = "chatMessages", kind = "enum", values = { all = true, replies = true, off = true } },
+    { key = "autoEvolve", kind = "bool", since = 3 },
 
     -- How the transformation looks, so a server decides what its players see
     -- rather than each of them running their own cut. These are read per
@@ -146,10 +151,10 @@ local function writePath(root, path, value)
     cur[parts[#parts]] = value
 end
 
-local function encodeGlobals()
+local function encodeGlobals(version)
     local out = {}
     for _, g in ipairs(GLOBALS) do
-        local v = readPath(Config, g.key)
+        local v = (not g.since or version >= g.since) and readPath(Config, g.key) or nil
         if v ~= nil then
             if g.kind == "bool" then
                 out[#out + 1] = g.key .. "=" .. (v and "1" or "0")
@@ -180,7 +185,34 @@ end
 --- referenced by number, the largest published tree drops from 31 KB to about
 --- 12 KB, which puts it back at a comfortable distance from the size that is
 --- known to kill a server.
-function TreeSync.encode(map)
+-- V3 pair tail: |<auto:0/1>|<materials>. Material item ids share the species
+-- dictionary and travel as <base36-index>:<decimal-count> joined by semicolons.
+-- "-" preserves an absent override; "0" preserves an explicitly empty one.
+local function materialsWire(pair, idOf)
+    if pair.materials == nil then return "-" end
+    if type(pair.materials) ~= "table" then
+        return nil, "materials is not a table"
+    end
+    if #pair.materials == 0 then return "0" end
+
+    local out = {}
+    for _, material in ipairs(pair.materials) do
+        local count = type(material) == "table" and tonumber(material.count) or nil
+        local itemId = type(material) == "table" and material.id or nil
+        if not idSafe(itemId) or not count or count < 1 or count % 1 ~= 0 then
+            return nil, "materials contains an invalid item or count"
+        end
+        out[#out + 1] = b36(idOf(itemId)) .. ":" .. tostring(count)
+    end
+    return table.concat(out, CS)
+end
+
+--- Encodes one protocol version. V2 is a projection: prestige pairs and the v3
+--- pair fields are deliberately absent so an older client cannot mistake a
+--- prestige path for an ordinary evolution.
+function TreeSync.encode(map, version)
+    version = tonumber(version) or 3
+    if version ~= 2 and version ~= 3 then return nil, nil, nil, "unknown tree version" end
     local dict, dictIndex = {}, {}
     local function idOf(name)
         local at = dictIndex[name]
@@ -192,28 +224,41 @@ function TreeSync.encode(map)
 
     local out = {}
     for _, p in ipairs(map or {}) do
-        if p.enabled and idSafe(p.from) and idSafe(p.to) then
+        local legacySafe = version ~= 2 or p.category ~= "prestige"
+        if p.enabled and legacySafe and idSafe(p.from) and idSafe(p.to) then
             local conds = ""
             if type(p.conditions) == "table" and #p.conditions > 0 then
                 conds = table.concat(p.conditions, CS)
             end
-            out[#out + 1] = table.concat({
+            local fields = {
                 b36(idOf(p.from)), b36(idOf(p.to)),
                 CAT_CODE[p.category or "evolution"] or (p.category or "evolution"),
                 tostring(tonumber(p.minLevel) or 1),
                 STONE_CODE[p.stone or "evolution"] or (p.stone or "evolution"),
                 conds,
-            }, FS)
+            }
+            if version == 3 then
+                local materials, materialErr = materialsWire(p, idOf)
+                if not materials then
+                    return nil, nil, nil, string.format("%s>%s: %s",
+                        tostring(p.from), tostring(p.to), materialErr)
+                end
+                fields[#fields + 1] = p.autoEvolve == true and "1" or "0"
+                fields[#fields + 1] = materials
+            end
+            out[#out + 1] = table.concat(fields, FS)
         end
     end
-    local body = encodeGlobals() .. RS .. table.concat(dict, ",") .. RS .. table.concat(out, RS)
+    local body = encodeGlobals(version) .. RS .. table.concat(dict, ",") .. RS .. table.concat(out, RS)
     return body, hashOf(body), #out
 end
 
 --- Turns a received body back into pairs. Everything that does not look like a
 --- pair is dropped rather than guessed at: this data comes off the wire, and a
 --- half-understood record would be a wrong tree presented as the server's.
-function TreeSync.decode(body)
+function TreeSync.decode(body, version)
+    version = tonumber(version) or 3
+    if version ~= 2 and version ~= 3 then return {}, {} end
     body = tostring(body or "")
     -- line 1: globals, line 2: the id dictionary, the rest: one pair per line
     local firstBreak = body:find(RS, 1, true)
@@ -243,12 +288,20 @@ function TreeSync.decode(body)
 
     local pairsOut = {}
     for line in body:sub(secondBreak + 1):gmatch("[^" .. RS .. "]+") do
-        local from, to, cat, lvl, stone, conds =
-            line:match("^([^|]+)|([^|]+)|([^|]*)|([^|]*)|([^|]*)|(.*)$")
+        local from, to, cat, lvl, stone, conds, auto, materials
+        if version == 3 then
+            from, to, cat, lvl, stone, conds, auto, materials =
+                line:match("^([^|]+)|([^|]+)|([^|]*)|([^|]*)|([^|]*)|([^|]*)|([^|]*)|(.*)$")
+        else
+            from, to, cat, lvl, stone, conds =
+                line:match("^([^|]+)|([^|]+)|([^|]*)|([^|]*)|([^|]*)|(.*)$")
+        end
         local fi, ti = from and unb36(from), to and unb36(to)
         local fromId = fi and dict[fi + 1]
         local toId = ti and dict[ti + 1]
-        if fromId and toId then
+        local valid = fromId ~= nil and toId ~= nil
+        if version == 3 and auto ~= "0" and auto ~= "1" then valid = false end
+        if valid then
             local p = {
                 from = fromId,
                 to = toId,
@@ -262,7 +315,31 @@ function TreeSync.decode(body)
                 for c in conds:gmatch("[^;]+") do list[#list + 1] = c end
                 if #list > 0 then p.conditions = list end
             end
-            pairsOut[#pairsOut + 1] = p
+            if version == 3 then
+                p.autoEvolve = auto == "1"
+                if materials == "0" then
+                    p.materials = {}
+                elseif materials ~= "-" then
+                    local list = {}
+                    if not materials or materials == "" then
+                        valid = false
+                    else
+                        for entry in materials:gmatch("[^;]+") do
+                            local itemAt, countText = entry:match("^([0-9a-z]+):(%d+)$")
+                            local itemIndex = itemAt and unb36(itemAt) or nil
+                            local itemId = itemIndex and dict[itemIndex + 1] or nil
+                            local count = tonumber(countText)
+                            if not itemId or not count or count < 1 or count % 1 ~= 0 then
+                                valid = false
+                                break
+                            end
+                            list[#list + 1] = { id = itemId, count = count }
+                        end
+                    end
+                    if valid then p.materials = list end
+                end
+            end
+            if valid then pairsOut[#pairsOut + 1] = p end
         end
     end
     return pairsOut, globals
@@ -270,16 +347,16 @@ end
 
 -- ------------------------------------------------------------------- host
 
---- Sends the tree to one joined client. One message, size checked first: a
---- payload over the cap is a bug worth a line in the log, never a send.
-function TreeSync.sendTo(playerCtx)
-    if not playerCtx or playerCtx.isLocal then return false end
-    if not (playerCtx.pc and playerCtx.pc:IsValid()) then return false end
-    local body, hash, count = TreeSync.encode(Config.map)
-    local frame = TreeSync.PREFIX .. hash .. "|" .. count .. "|" .. body
+local function sendVersion(playerCtx, version, prefix)
+    local body, hash, count, encodeErr = TreeSync.encode(Config.map, version)
+    if not body then
+        Log(string.format("v%d tree sync NOT sent: %s", version, tostring(encodeErr)))
+        return false
+    end
+    local frame = prefix .. hash .. "|" .. count .. "|" .. body
     if #frame > MAX_PAYLOAD then
-        Log(string.format("tree sync NOT sent: %d pairs are %d bytes, over the %d byte cap",
-            count, #frame, MAX_PAYLOAD))
+        Log(string.format("v%d tree sync NOT sent: %d pairs are %d bytes, over the %d byte cap",
+            version, count, #frame, MAX_PAYLOAD))
         return false
     end
     local ok = pcall(function()
@@ -287,11 +364,27 @@ function TreeSync.sendTo(playerCtx)
             { R = 0.2, G = 1.0, B = 0.4, A = 1.0 }, 0.1, FName("PalvolveTree"))
     end)
     if ok then
-        Log(string.format("tree sync sent: %d pairs, %d bytes, %s", count, #frame, hash))
+        Log(string.format("v%d tree sync sent: %d pairs, %d bytes, %s",
+            version, count, #frame, hash))
     else
-        Log("tree sync failed to send")
+        Log(string.format("v%d tree sync failed to send", version))
     end
     return ok
+end
+
+--- Sends both complete frames to one joined client. Each frame is checked on
+--- its own because either one crossing the safety cap is enough to refuse that
+--- send; the frames are never chunked or joined near the measured fatal size.
+function TreeSync.sendTo(playerCtx)
+    if not playerCtx or playerCtx.isLocal then return false end
+    local pcValid = false
+    pcall(function()
+        pcValid = playerCtx.pc ~= nil and playerCtx.pc:IsValid()
+    end)
+    if not pcValid then return false end
+    local legacyOk = sendVersion(playerCtx, 2, TreeSync.PREFIX_V2)
+    local v3Ok = sendVersion(playerCtx, 3, TreeSync.PREFIX_V3)
+    return legacyOk and v3Ok
 end
 
 -- ----------------------------------------------------------------- client
@@ -301,14 +394,46 @@ end
 local localMap = nil
 local localGlobals = nil
 local activeHash = nil
+local activeVersion = nil
+local activeGeneration = nil
+local connectionGeneration = 0
+local lastFrameAt = nil
 
 --- True while this client is drawing a tree that came from a server.
 function TreeSync.isActive()
-    return activeHash ~= nil
+    return localMap ~= nil
 end
 
 function TreeSync.activeHash()
     return activeHash
+end
+
+function TreeSync.activeProtocol()
+    return activeVersion
+end
+
+function TreeSync.hasV3ForGeneration(gen)
+    return activeVersion == 3 and activeGeneration == (tonumber(gen) or -1)
+end
+
+--- Starts a new connection generation. A greet can beat the local world-entry
+--- hook, so a frame received immediately before this call is carried forward;
+--- an older borrowed tree loses its protocol preference and cannot suppress a
+--- v2 frame from the next server.
+function TreeSync.beginGeneration(gen)
+    gen = math.floor(tonumber(gen) or 0)
+    if gen == connectionGeneration then return end
+    local carryEarly = lastFrameAt ~= nil
+        and activeGeneration == connectionGeneration
+        and (os.clock() - lastFrameAt) <= 2
+    connectionGeneration = gen
+    if carryEarly then
+        activeGeneration = gen
+    else
+        activeHash = nil
+        activeVersion = nil
+        activeGeneration = nil
+    end
 end
 
 --- Drops what the tree feeds: both modules cache derived lists, and a swapped
@@ -349,11 +474,34 @@ end
 --- in which case the client keeps its own file rather than showing an empty
 --- tree that claims to be the server's.
 function TreeSync.applyFrame(frame)
-    local hash, count, body = frame:match("^" .. TreeSync.PREFIX:gsub("|", "%%|")
+    frame = tostring(frame or "")
+    if #frame > MAX_PAYLOAD then
+        Log(string.format("server tree rejected: %d bytes exceeds the %d byte cap",
+            #frame, MAX_PAYLOAD))
+        return false
+    end
+    local version, prefix = nil, nil
+    if frame:sub(1, #TreeSync.PREFIX_V3) == TreeSync.PREFIX_V3 then
+        version, prefix = 3, TreeSync.PREFIX_V3
+    elseif frame:sub(1, #TreeSync.PREFIX_V2) == TreeSync.PREFIX_V2 then
+        version, prefix = 2, TreeSync.PREFIX_V2
+    else
+        return false
+    end
+    local hash, count, body = frame:match("^" .. prefix:gsub("|", "%%|")
         .. "(%x+)|(%d+)|(.*)$")
     if not (hash and body) then return false end
-    if activeHash == hash then return true end
-    local received, globals = TreeSync.decode(body)
+    if hashOf(body) ~= hash:lower() then
+        Log(string.format("server v%d tree checksum mismatch, keeping the current tree", version))
+        return false
+    end
+    if version == 2 and activeVersion == 3 and activeGeneration == connectionGeneration then
+        lastFrameAt = os.clock()
+        return true
+    end
+    if activeHash == hash and activeVersion == version
+        and activeGeneration == connectionGeneration then return true end
+    local received, globals = TreeSync.decode(body, version)
     -- An empty tree is a decision a host is allowed to make ("nothing evolves
     -- here"), and it only counts as damage when the frame says otherwise. The
     -- count travels with it precisely so the two can be told apart.
@@ -389,9 +537,12 @@ function TreeSync.applyFrame(frame)
         if okRole and Role then Role.chatMode = Config.chatMessages end
     end)
     activeHash = hash
+    activeVersion = version
+    activeGeneration = connectionGeneration
+    lastFrameAt = os.clock()
     invalidateViews()
-    Log(string.format("server tree active: %d pairs, %d settings, %s",
-        #received, applied, hash))
+    Log(string.format("server v%d tree active: %d pairs, %d settings, %s",
+        version, #received, applied, hash))
     return true
 end
 
@@ -403,6 +554,7 @@ function TreeSync.restoreLocal()
         if value ~= nil then writePath(Config, key, value) end
     end
     localMap, localGlobals, activeHash = nil, nil, nil
+    activeVersion, activeGeneration, lastFrameAt = nil, nil, nil
     pcall(function()
         local okRole, Role = pcall(require, "role")
         if okRole and Role then Role.chatMode = Config.chatMessages end

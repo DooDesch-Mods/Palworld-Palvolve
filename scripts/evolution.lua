@@ -15,6 +15,7 @@ local Role = require("role")
 local Authority = require("authority")
 local NetChannel = require("netchannel")
 local ServerCheck = require("servercheck")
+local PalPassives = require("palpassives")
 
 local Evolution = {}
 
@@ -832,6 +833,34 @@ local function swapTargetId(pair, isAlpha)
     return alphaTargetId(pair.to)
 end
 
+-- Sanitization keeps known ids usable for diagnostics, but a dropped id means
+-- this binary cannot prove the author's complete rule. The metadata never goes
+-- on the wire; it only turns every local gate for that pair into fail-closed.
+local function unknownConditionReason(pair)
+    local metadata = pair and pair.conditionMetadata
+    if metadata and metadata.hasUnknown then
+        return I18n.msg("unknownConditionsBlocked")
+    end
+    return nil
+end
+
+local function conditionCount(pair)
+    return type(pair and pair.conditions) == "table" and #pair.conditions or 0
+end
+
+local function controllerHasAuthority(pc)
+    return pc:HasAuthority() == true
+end
+
+local function characterIdUnsafe(param)
+    return param:GetCharacterID():ToString()
+end
+
+local function disclosedConditions(pair, exactText)
+    if Config.conditionDisclosure == "exact" then return exactText end
+    return Conditions.describe(pair, Config.conditionDisclosure) or exactText
+end
+
 -- Only one own pal can be summoned at a time, so the otomo holder is the
 -- authoritative source (a FindAllOf scan would also hit ghost actors).
 local function findEligibleFor(playerCtx)
@@ -864,11 +893,15 @@ local function findEligibleFor(playerCtx)
     end
     local condCtx = { actor = actor, param = param, playerCtx = playerCtx, holder = holder }
     local pair, pairIndex, firstReason, alphaBlockedTo = nil, nil, nil, nil
+    local pairConditionCount = -1
     -- First target that only lacks materials, kept as the fallback: if nothing
     -- is affordable, its missing list is the useful thing to report.
     local unpaid, unpaidIndex = nil, nil
     for i, cand in ipairs(pairList) do
-        if isAlpha and not swapTargetId(cand, true) then
+        local unknownReason = unknownConditionReason(cand)
+        if unknownReason then
+            firstReason = firstReason or unknownReason
+        elseif isAlpha and not swapTargetId(cand, true) then
             alphaBlockedTo = alphaBlockedTo or cand.to
         elseif level < cand.minLevel then
             firstReason = firstReason or I18n.msg("needsLevel", palDisplayName(id), cand.minLevel, level)
@@ -883,13 +916,21 @@ local function findEligibleFor(playerCtx)
                     affordable = (Costs.check(playerCtx, Costs.resolve(cand, level, holder)))
                 end)
                 if affordable then
-                    pair = cand
-                    pairIndex = i
-                    break
+                    local count = conditionCount(cand)
+                    if Config.evolutionMode ~= "conditioned" or count > pairConditionCount then
+                        pair = cand
+                        pairIndex = i
+                        pairConditionCount = count
+                    end
+                    if Config.evolutionMode ~= "conditioned" then break end
                 end
-                if not unpaid then unpaid, unpaidIndex = cand, i end
+                if not unpaid or (Config.evolutionMode == "conditioned"
+                    and conditionCount(cand) > conditionCount(unpaid)) then
+                    unpaid, unpaidIndex = cand, i
+                end
             else
-                firstReason = firstReason or I18n.msg("needsConditions", palDisplayName(cand.to), unmet)
+                firstReason = firstReason or I18n.msg("needsConditions",
+                    palDisplayName(cand.to), disclosedConditions(cand, unmet))
             end
         end
     end
@@ -1235,7 +1276,20 @@ local function performEvolution(p)
         end
         swapDone = true
         if txn then txn.commit() end
+        local passivesBefore, passiveCaptureErr = PalPassives.capture(param)
+        if not passivesBefore then
+            Log("Evolution passive snapshot FAILED: " .. tostring(passiveCaptureErr))
+        end
         applyIvBonus(param)
+        local passiveOk, passiveResult = PalPassives.grantEvolved(param)
+        if passiveOk then
+            Log(string.format("Evolution bonus (passive): %s", passiveResult.id))
+        else
+            -- The cost is already committed. Continuing keeps the successful
+            -- species swap at the tradeoff that this reward is not refunded alone.
+            Log("EVOLVED PASSIVE WRITE FAILED after cost commit: "
+                .. tostring(passiveResult) .. " - evolution remains committed")
+        end
         pcall(function() param:FullRecoveryHP() end)
         refreshWorkSuitability(param, playerCtx, actor, pair.from)
 
@@ -1246,6 +1300,7 @@ local function performEvolution(p)
             to = targetId, level = level, nickname = nickname,
             ivHP = talentsBefore.Talent_HP, ivMelee = talentsBefore.Talent_Melee,
             ivShot = talentsBefore.Talent_Shot, ivDefense = talentsBefore.Talent_Defense,
+            passives = passivesBefore,
             -- owning player (additive; multiplayer rollback needs to know
             -- whose pal the snapshot belongs to)
             uid = playerCtx and playerCtx.playerUId
@@ -1288,9 +1343,14 @@ local function performEvolution(p)
             local savedSlot = -1
             pcall(function() savedSlot = holder:GetSlotIndexByIndividualHandle(handle) end)
             setRevealFrozen(actor, true)
-            NetChannel.sendSignal(pcSender, "start")
+            local phaseSequence = nil
+            pcall(function()
+                local presentationMode = pair.category == "adaptation"
+                    and "adaptation" or "evolution"
+                phaseSequence = NetChannel.sendPhaseStart(pcSender,
+                    presentationMode, pair.from, pair.to, pair.stone or "evolution")
+            end)
             Log(string.format("EVOLVED (server): %s -> %s (level %d) - MP sequence", pair.from, pair.to, level))
-            finishOk()
 
             -- Server-authoritative reload. The client recalls (dissolve done),
             -- then the SERVER does what only the authority can and what the
@@ -1310,16 +1370,18 @@ local function performEvolution(p)
                 if watcherDone then return true end
                 ExecuteInGameThread(function()
                     if watcherDone then return end
+                    if seq.done then watcherDone = true; return end
                     -- Disconnect guard: on a dedicated server the requesting
                     -- player's controller (and its otomo holder) are destroyed
                     -- when they leave. Calling a UFunction on a torn-down UObject
                     -- raises a native "Pure virtual not implemented" assert that
                     -- pcall does NOT catch, so gate every deferred touch on
-                    -- :IsValid() and abort the sequence (the data mutation already
-                    -- committed and the lock was released at finishOk).
+                    -- :IsValid() and end the presentation (the data mutation is
+                    -- already committed, but the sequence lock is still ours).
                     if not (holder and holder:IsValid() and pcSender and pcSender:IsValid()) then
                         Log("[mpseq] requester left mid-sequence - aborting server presentation")
                         watcherDone = true
+                        finishOk()
                         return
                     end
                     if phase == "await_recall" then
@@ -1345,11 +1407,17 @@ local function performEvolution(p)
                         elseif (os.clock() - (spawnedAt or 0)) > 5 then
                             Log("[mpseq] reload produced no new actor (timeout)")
                             watcherDone = true
+                            if oldActor and oldActor:IsValid() then setRevealFrozen(oldActor, false) end
+                            finishOk()
                         end
                     elseif phase == "activate" then
                         local cand = nil
                         pcall(function() cand = handle:TryGetIndividualActor() end)
-                        if not (cand and cand:IsValid()) then watcherDone = true return end
+                        if not (cand and cand:IsValid()) then
+                            watcherDone = true
+                            finishOk()
+                            return
+                        end
                         -- Read the new pal's SCALED COLLISION capsule - the
                         -- engine's grounding measure (~30 for most
                         -- species). The mesh-space
@@ -1429,7 +1497,7 @@ local function performEvolution(p)
                                 -- the old actor and could not re-derive the base)
                                 refreshWorkSuitability(param, playerCtx, newActor, pair.from)
                                 Log("[mpseq] activated fresh " .. targetId .. " -> reveal")
-                                NetChannel.sendSignal(pcSender, "reveal")
+                                pcall(NetChannel.sendPhaseReveal, pcSender, phaseSequence)
                                 -- The evolution flash VFX (VisualEffectComponent:
                                 -- AddVisualEffect) is a LOCAL call - on a client
                                 -- proxy it does not render (the component is
@@ -1465,25 +1533,35 @@ local function performEvolution(p)
                                 -- re-teleporting jittered the pal and reset the
                                 -- client spin. Release at the end.
                                 local holdStart = os.clock()
+                                local digimon = Config.digimon or {}
+                                local holdSeconds = ((tonumber(digimon.growMs) or 0)
+                                    + (tonumber(digimon.finaleHoldMs) or 0)) / 1000
                                 local held = false
                                 LoopAsync(300, function()
                                     if held then return true end
+                                    if seq.done then held = true; return true end
                                     -- disconnect guard: never touch a dead holder,
                                     -- and do not attempt an unfreeze on it
                                     if not (holder and holder:IsValid()) then
                                         Log("[mpseq] requester left during reveal hold - releasing")
                                         held = true
+                                        finishOk()
                                         return true
                                     end
                                     local na = nil
                                     pcall(function() na = holder:TryGetSpawnedOtomo() end)
-                                    if not (na and na:IsValid()) then held = true; return true end
-                                    if (os.clock() - holdStart) < 6.2 then
+                                    if not (na and na:IsValid()) then
+                                        held = true
+                                        finishOk()
+                                        return true
+                                    end
+                                    if (os.clock() - holdStart) < holdSeconds then
                                         if isAiActive(na) then setRevealFrozen(na, true) end
                                         return false
                                     end
                                     held = true
                                     setRevealFrozen(na, false)
+                                    finishOk()
                                     return true
                                 end)
                             end
@@ -1496,6 +1574,7 @@ local function performEvolution(p)
                             local na = holder:TryGetSpawnedOtomo()
                             if na and na:IsValid() then setRevealFrozen(na, false) end
                         end)
+                        finishOk()
                     end
                 end)
                 return watcherDone
@@ -1865,6 +1944,10 @@ end
 
 -- ---------------------------------------------------------------- public API
 
+-- F2 is defined before the indexed authority handler below, but it must enter
+-- that same pipeline rather than capture a pair table from the arm step.
+local handleEvolveByIndex
+
 function Evolution.check()
     if ServerCheck.blocked() then
         Role.chat(Role.localPlayerCtx(), I18n.msg("serverNoPalvolve"), "reply")
@@ -1934,9 +2017,14 @@ function Evolution.check()
     if pending and (now - pending.armedAt) <= Config.confirmWindowSeconds then
         if pending.key == key then
             if Role.hasWorldAuthority() then
-                -- use FRESH handles (the pal may have been resummoned since arming)
-                performEvolution({ actor = actor, param = param, pair = pair, holder = holder,
-                    key = key, isAlpha = isAlpha, playerCtx = playerCtx })
+                -- Run the same indexed revalidation as the wheel, network and
+                -- watcher. The pal or a same-target variant may have changed
+                -- since this confirmation was armed.
+                local ok, msg = handleEvolveByIndex(playerCtx, pairIndex)
+                if not ok and msg then
+                    Log(msg)
+                    Role.chat(playerCtx, msg, "reply")
+                end
             else
                 -- connected client: the confirm travels to the host, which
                 -- re-derives and consumes authoritatively
@@ -2090,7 +2178,7 @@ local function requirementLine(pair, level, worldCtx)
     local minLevel = tonumber(pair.minLevel) or 0
     if minLevel > 0 then wrapText(I18n.msg("guideLevelShort", minLevel), CENTER_WIDTH, lines) end
 
-    local cond = Conditions.describe(pair)
+    local cond = Conditions.describe(pair, Config.conditionDisclosure)
     if cond and cond ~= "" then wrapText(cond, CENTER_WIDTH, lines) end
 
     local okCost, costList = pcall(Costs.resolve, pair, minLevel, worldCtx)
@@ -2133,6 +2221,8 @@ function Evolution.listOptions()
     local condCtx = { actor = actor, param = param, playerCtx = playerCtx, holder = holder }
     local options = {}
     local byTarget = {}
+    local conditioned = Config.evolutionMode == "conditioned"
+    local conditionedBest, conditionedBestCount, conditionedReason = nil, -1, nil
     for i, pair in ipairs(pairList) do
         -- index is the pair's position in Config.findPairs(id) - the compact
         -- token a connected client sends over the net channel (the host
@@ -2143,15 +2233,21 @@ function Evolution.listOptions()
         -- wheel names targets and nothing else, so the only way to learn what
         -- an evolution costs was to try it and read the refusal.
         opt.requirement = requirementLine(pair, level, holder)
-        if isAlpha and not swapTargetId(pair, true) then
+        local rulePasses = false
+        local unknownReason = unknownConditionReason(pair)
+        if unknownReason then
+            opt.blocked = unknownReason
+        elseif isAlpha and not swapTargetId(pair, true) then
             opt.blocked = I18n.msg("noAlphaFormShort", opt.label)
         elseif level < pair.minLevel then
 opt.blocked = I18n.msg("needsLevelShort", opt.label, pair.minLevel, level)
         else
             local condOk, unmet = Conditions.evaluate(pair, condCtx)
             if not condOk then
-                opt.blocked = I18n.msg("needsConditions", opt.label, unmet)
+                opt.blocked = I18n.msg("needsConditions", opt.label,
+                    disclosedConditions(pair, unmet))
             else
+                rulePasses = true
                 local costList = Costs.resolve(pair, level, holder)
                 local costOk, missing = Costs.check(playerCtx, costList)
                 if not costOk then
@@ -2164,17 +2260,31 @@ opt.blocked = I18n.msg("needsLevelShort", opt.label, pair.minLevel, level)
         -- entry: the first unblocked variant wins its index; while every
         -- variant is blocked the reasons are joined so the player sees all
         -- ways to unlock the target.
-        local existing = byTarget[pair.to]
-        if not existing then
-            byTarget[pair.to] = opt
-            table.insert(options, opt)
-        elseif existing.blocked and not opt.blocked then
-            existing.pair = opt.pair
-            existing.index = opt.index
-            existing.blocked = nil
-        elseif existing.blocked and opt.blocked then
-            existing.blocked = existing.blocked .. I18n.msg("orJoiner") .. opt.blocked
+        if conditioned then
+            if rulePasses and conditionCount(pair) > conditionedBestCount then
+                conditionedBest = opt
+                conditionedBestCount = conditionCount(pair)
+            elseif not rulePasses and not conditionedReason then
+                conditionedReason = opt.blocked
+            end
+        else
+            local existing = byTarget[pair.to]
+            if not existing then
+                byTarget[pair.to] = opt
+                table.insert(options, opt)
+            elseif existing.blocked and not opt.blocked then
+                existing.pair = opt.pair
+                existing.index = opt.index
+                existing.blocked = nil
+                existing.requirement = opt.requirement
+            elseif existing.blocked and opt.blocked then
+                existing.blocked = existing.blocked .. I18n.msg("orJoiner") .. opt.blocked
+            end
         end
+    end
+    if conditioned then
+        if conditionedBest then return { conditionedBest } end
+        return nil, conditionedReason or I18n.msg("hasNoEvolution", palDisplayName(id))
     end
     return options
 end
@@ -2183,12 +2293,16 @@ end
 -- the requesting player's context; caller-supplied data is only the pair
 -- NAMES, never handles. Serves the in-process path (standalone/listen host)
 -- and decoded network requests. Returns ok, message.
-local function handleEvolveRequest(playerCtx, fromId, toId)
+local function handleEvolveRequest(playerCtx, fromId, toId, exactPairIndex)
     if lockBusy() then
         return false, I18n.msg("evolutionRunning")
     end
     if not (playerCtx and playerCtx.pc and playerCtx.pc:IsValid()) then
         return false, "Requesting player unavailable"
+    end
+    local okAuthority, hasAuthority = pcall(controllerHasAuthority, playerCtx.pc)
+    if not okAuthority or not hasAuthority then
+        return false, "Evolution requires host authority"
     end
     local holder = findHolderFor(playerCtx, nil)
     local actor = nil
@@ -2206,9 +2320,15 @@ return false, I18n.msg("selectionOutdated", palDisplayName(id), palDisplayName(f
     -- request. Several same-target variants may exist (either/or conditions):
     -- the first candidate that passes every gate wins, so a stale client pick
     -- still lands on whichever variant currently holds.
+    local pairList = Config.findPairs(id)
     local candidates = {}
-    for _, cand in ipairs(Config.findPairs(id)) do
-        if cand.to == toId then table.insert(candidates, cand) end
+    if exactPairIndex ~= nil then
+        local indexed = pairList[tonumber(exactPairIndex)]
+        if indexed and indexed.to == toId then candidates[1] = indexed end
+    else
+        for _, cand in ipairs(pairList) do
+            if cand.to == toId then table.insert(candidates, cand) end
+        end
     end
     if #candidates == 0 then
         return false, I18n.msg("noConfiguredEvolution",
@@ -2218,18 +2338,28 @@ return false, I18n.msg("selectionOutdated", palDisplayName(id), palDisplayName(f
     pcall(function() level = param:GetLevel() end)
     local condCtx = { actor = actor, param = param, playerCtx = playerCtx, holder = holder }
     local pair, failReason = nil, nil
+    local bestConditionCount = -1
     for _, cand in ipairs(candidates) do
-        if isAlpha and not swapTargetId(cand, true) then
+        local unknownReason = unknownConditionReason(cand)
+        if unknownReason then
+            failReason = failReason or unknownReason
+        elseif isAlpha and not swapTargetId(cand, true) then
             failReason = failReason or I18n.msg("noAlphaForm", palDisplayName(cand.to))
         elseif level < cand.minLevel then
             failReason = failReason or I18n.msg("needsLevel", palDisplayName(id), cand.minLevel, level)
         else
             local condOk, unmet = Conditions.evaluate(cand, condCtx)
             if condOk then
-                pair = cand
-                break
+                local count = conditionCount(cand)
+                if exactPairIndex ~= nil or Config.evolutionMode ~= "conditioned"
+                    or count > bestConditionCount then
+                    pair = cand
+                    bestConditionCount = count
+                end
+                if exactPairIndex ~= nil or Config.evolutionMode ~= "conditioned" then break end
             end
-            failReason = failReason or I18n.msg("needsConditions", palDisplayName(cand.to), unmet)
+            failReason = failReason or I18n.msg("needsConditions",
+                palDisplayName(cand.to), disclosedConditions(cand, unmet))
         end
     end
     if not pair then
@@ -2260,7 +2390,7 @@ end
 -- host re-derives the pair from ITS OWN config at that index and hands off
 -- to the fully-revalidating handleEvolveRequest. Returns ok, message (the
 -- message is chatted back to the requester).
-local function handleEvolveByIndex(playerCtx, pairIndex)
+handleEvolveByIndex = function(playerCtx, pairIndex)
     local holder = findHolderFor(playerCtx, nil)
     local actor = nil
     if holder then pcall(function() actor = holder:TryGetSpawnedOtomo() end) end
@@ -2269,13 +2399,19 @@ local function handleEvolveByIndex(playerCtx, pairIndex)
     if not (param and isOwnedBy(param, playerCtx and playerCtx.playerUId)) then
         return false, I18n.msg("noPalSummoned")
     end
-    local baseId = baseCharacterId(param:GetCharacterID():ToString())
+    local numericIndex = tonumber(pairIndex)
+    if not numericIndex or numericIndex % 1 ~= 0 then
+        return false, I18n.msg("optionUnavailable")
+    end
+    local okId, rawId = pcall(characterIdUnsafe, param)
+    if not okId then return false, I18n.msg("optionUnavailable") end
+    local baseId = baseCharacterId(rawId)
     local pairList = Config.findPairs(baseId)
-    local pair = pairList and pairList[pairIndex]
+    local pair = pairList and pairList[numericIndex]
     if not pair then
         return false, I18n.msg("optionUnavailable")
     end
-    local ok, msg = handleEvolveRequest(playerCtx, baseId, pair.to)
+    local ok, msg = handleEvolveRequest(playerCtx, baseId, pair.to, numericIndex)
     if ok then
         return true, I18n.msg("evolvingInto", palDisplayName(pair.to))
     end
@@ -2317,7 +2453,7 @@ function Evolution.executeOption(opt)
     if Role.hasWorldAuthority() then
         -- re-validation can still fail (state changed since the wheel was
         -- built); surface that reason in chat too
-        local ok, msg = handleEvolveRequest(playerCtx, opt.pair.from, opt.pair.to)
+        local ok, msg = handleEvolveByIndex(playerCtx, opt.index)
         if not ok and msg then
             Log(msg)
             Role.chat(playerCtx, msg, "reply")
@@ -2428,7 +2564,7 @@ end
 --   start  = host froze + swapped the pal -> dissolve, then recall
 --   ready  = host destroyed the old pooled body -> re-summon the new form
 --   reveal = host teleported + froze the fresh pal at the old spot -> grow/finale
-function Evolution.onNetSignal(kind)
+function Evolution.onNetSignal(kind, phaseInfo)
     local playerCtx = Role.localPlayerCtx()
     if not playerCtx then return end
     local holder = findHolderFor(playerCtx, nil)
@@ -2437,6 +2573,18 @@ function Evolution.onNetSignal(kind)
     Log("[mpseq-c] signal: " .. tostring(kind))
     if kind == "start" then
         if remoteRevealBusy and (os.clock() - remoteRevealStart) < 20 then return end
+        if phaseInfo and phaseInfo.from and phaseInfo.to then
+            -- A host-started automatic evolution has no preceding wheel click,
+            -- so the v3 start frame is the only presentation identity the
+            -- client owns. Legacy clients still use lastRemotePair from their
+            -- manual request.
+            lastRemotePair = {
+                from = phaseInfo.from,
+                to = phaseInfo.to,
+                stone = phaseInfo.stone,
+                category = phaseInfo.mode,
+            }
+        end
         local actor = nil
         pcall(function() actor = holder:TryGetSpawnedOtomo() end)
         if not (actor and actor:IsValid()) then return end
@@ -2589,6 +2737,15 @@ function Evolution.rollbackLast(playerCtx)
             -- hit the wrong individual, e.g. SmallYeti->Yeti vs MopKing->Yeti)
             local match = hasKey and (individualKey(p) == last.key) or (not hasKey)
             if match then
+                local passivesAfter, passiveAfterErr = PalPassives.capture(p)
+                if not passivesAfter then
+                    Log("ROLLBACK CURRENT PASSIVE CAPTURE FAILED: " .. tostring(passiveAfterErr))
+                end
+                local passivesRestored, passiveRestoreErr = PalPassives.restore(p, last.passives)
+                if not passivesRestored then
+                    Log("ROLLBACK PASSIVE RESTORE FAILED: " .. tostring(passiveRestoreErr))
+                    break
+                end
                 pcall(function()
                     p.SaveParameter.CharacterID = FName(last.from)
                     p.SaveParameterMirror.CharacterID = FName(last.from)
@@ -2615,6 +2772,12 @@ function Evolution.rollbackLast(playerCtx)
                     refreshWorkSuitability(p, nil)
                     reverted = true
                     pcall(function() resummonAfterRollback(playerCtx, p) end)
+                elseif passivesAfter then
+                    local passiveUndoOk, passiveUndoErr = PalPassives.restore(p, passivesAfter)
+                    if not passiveUndoOk then
+                        Log("ROLLBACK PASSIVE REAPPLY FAILED after species restore failed: "
+                            .. tostring(passiveUndoErr))
+                    end
                 end
                 break
             end
@@ -2650,8 +2813,151 @@ function Evolution.rollbackLast(playerCtx)
     end
 end
 
+-- ---------------------------------------------------------------- auto evolve
+
+-- The scheduler wakes cheaply, but only enters the game thread when the
+-- adaptive deadline arrives. This keeps idle ticks free of transient callback
+-- registrations while still allowing a half-second condition window near a
+-- completed rule set.
+local AUTO_SLOW_S = 5.0
+local AUTO_FAST_S = 0.5
+local AUTO_SCHEDULER_MS = 250
+local autoWatchNextAt = 0
+local autoWatchQueued = false
+local autoOwnershipSkipped = {}
+
+local function autoDelayFor(met, total)
+    if not total or total <= 0 then return AUTO_SLOW_S end
+    local ratio = math.max(0, math.min(1, (tonumber(met) or 0) / total))
+    return AUTO_SLOW_S - ((AUTO_SLOW_S - AUTO_FAST_S) * ratio)
+end
+
+local function autoCostPasses(playerCtx, pair, level, holder)
+    local costList = Costs.resolve(pair, level, holder)
+    return Costs.check(playerCtx, costList) == true
+end
+
+-- Runs under pcall from scanAutoController. Every direct UObject call in this
+-- hot path is therefore inside one named protected callback, with no closure
+-- allocated for each controller or condition poll.
+local function scanAutoControllerUnsafe(pc)
+    if not (pc and pc:IsValid() and pc:HasAuthority()) then return AUTO_SLOW_S, false end
+    if pc:IsRiding() == true then return AUTO_SLOW_S, false end
+
+    local playerCtx = Role.playerCtxFor(pc)
+    if not playerCtx then return AUTO_SLOW_S, false end
+    if not (otomoHolderClass and otomoHolderClass:IsValid()) then
+        otomoHolderClass = StaticFindObject("/Script/Pal.PalOtomoHolderComponentBase")
+    end
+    if not otomoHolderClass then return AUTO_SLOW_S, false end
+    local holder = pc:GetComponentByClass(otomoHolderClass)
+    if not (holder and holder:IsValid()) then return AUTO_SLOW_S, false end
+    local actor = holder:TryGetSpawnedOtomo()
+    if not (actor and actor:IsValid()) then return AUTO_SLOW_S, false end
+    local param = actor.CharacterParameterComponent:GetIndividualParameter()
+    if not (param and param:IsValid()) then return AUTO_SLOW_S, false end
+
+    local owner = param.SaveParameter.OwnerPlayerUId
+    local uid = playerCtx.playerUId
+    if not uid or (owner.A == 0 and owner.B == 0 and owner.C == 0 and owner.D == 0)
+        or not (owner.A == uid.A and owner.B == uid.B
+            and owner.C == uid.C and owner.D == uid.D) then
+        local palKey = guidString(param.IndividualId.InstanceId)
+        if not autoOwnershipSkipped[palKey] then
+            autoOwnershipSkipped[palKey] = true
+            Log("auto-evolve skipped: the summoned Pal's recorded owner does not match its holder")
+        end
+        return AUTO_SLOW_S, false
+    end
+
+    local id, isAlpha = baseCharacterId(param:GetCharacterID():ToString())
+    local level = tonumber(param:GetLevel()) or 0
+    local pairList = Config.findPairs(id)
+    local bestIndex, bestCount = nil, -1
+    local nextDelay = AUTO_SLOW_S
+    local condCtx = { actor = actor, param = param, playerCtx = playerCtx, holder = holder }
+
+    for i, pair in ipairs(pairList) do
+        if pair.autoEvolve == true and not unknownConditionReason(pair)
+            and level >= (tonumber(pair.minLevel) or 0)
+            and not (isAlpha and not swapTargetId(pair, true)) then
+            local met, total = Conditions.progress(pair, condCtx)
+            nextDelay = math.min(nextDelay, autoDelayFor(met, total))
+            if met == total then
+                local okCost, affordable = pcall(autoCostPasses,
+                    playerCtx, pair, level, holder)
+                if okCost and affordable then
+                    local count = conditionCount(pair)
+                    if Config.evolutionMode ~= "conditioned" or count > bestCount then
+                        bestIndex, bestCount = i, count
+                    end
+                    if Config.evolutionMode ~= "conditioned" then break end
+                end
+            end
+        end
+    end
+
+    if bestIndex then
+        local started = handleEvolveByIndex(playerCtx, bestIndex)
+        return nextDelay, started == true
+    end
+    return nextDelay, false
+end
+
+local function scanAutoController(pc)
+    local ok, delay, started = pcall(scanAutoControllerUnsafe, pc)
+    if not ok then return AUTO_SLOW_S, false end
+    return delay or AUTO_SLOW_S, started == true
+end
+
+local function runAutoWatcherUnsafe()
+    autoWatchQueued = false
+    local nextDelay = AUTO_SLOW_S
+    if not Config.autoEvolve or sequenceRunning then
+        autoWatchNextAt = os.clock() + nextDelay
+        return
+    end
+    local controllers = FindAllOf("PalPlayerController") or {}
+    for _, pc in ipairs(controllers) do
+        local delay, started = scanAutoController(pc)
+        nextDelay = math.min(nextDelay, delay)
+        if started then break end
+    end
+    autoWatchNextAt = os.clock() + nextDelay
+end
+
+local function runAutoWatcher()
+    local ok, err = pcall(runAutoWatcherUnsafe)
+    autoWatchQueued = false
+    if not ok then
+        autoWatchNextAt = os.clock() + AUTO_SLOW_S
+        if Config.devMode then Log("auto-evolve watcher failed: " .. tostring(err)) end
+    end
+end
+
+local function autoWatcherLoop()
+    if autoWatchQueued or os.clock() < autoWatchNextAt then return false end
+    autoWatchQueued = true
+    local ok = pcall(ExecuteInGameThread, runAutoWatcher)
+    if not ok then
+        autoWatchQueued = false
+        autoWatchNextAt = os.clock() + AUTO_SLOW_S
+    end
+    return false
+end
+
+local function startAutoWatcher()
+    if not Config.autoEvolve then return end
+    autoWatchNextAt = 0
+    local ok, err = pcall(LoopAsync, AUTO_SCHEDULER_MS, autoWatcherLoop)
+    if not ok then Log("auto-evolve watcher failed to start: " .. tostring(err)) end
+end
+
 function Evolution.init()
     loadSnapshots()
+    local conditionsOk, conditionsErr = pcall(Conditions.init)
+    if not conditionsOk then Log("condition hooks failed to initialize: " .. tostring(conditionsErr)) end
+    startAutoWatcher()
 
     -- authority entry for in-process and network requests
     Authority.bind({ evolve = handleEvolveRequest })
@@ -2660,15 +2966,20 @@ function Evolution.init()
     -- and run them through the fully-revalidating index handler. The hook
     -- fires only where the game routes _ToServer RPCs (the authority); on a
     -- pure client it registers but never fires.
-    NetChannel.initHost(function(senderCtx, pairIndex)
+    NetChannel.initHost(function(senderCtx, request)
+        local pairIndex = type(request) == "table" and request.index or request
+        local opcode = type(request) == "table" and request.opcode or NetChannel.OP_EVOLVE_LEGACY
+        if opcode == NetChannel.OP_PRESTIGE then
+            return false, I18n.msg("optionUnavailable")
+        end
         return handleEvolveByIndex(senderCtx, pairIndex)
     end)
 
     -- client side of the net channel: the host drives the presentation with
     -- phase signals (start/ready/reveal) which we play locally (no local
     -- player = no-op, so this is harmless on a dedicated server)
-    NetChannel.initClient(function(kind)
-        Evolution.onNetSignal(kind)
+    NetChannel.initClient(function(kind, phaseInfo)
+        Evolution.onNetSignal(kind, phaseInfo)
     end, ServerCheck.onPong)
 
     -- keybinds are player input - meaningless on a dedicated server
@@ -2734,7 +3045,8 @@ function Evolution.init()
                     local id, isAlpha = baseCharacterId(param:GetCharacterID():ToString())
                     local pair = nil
                     for _, cand in ipairs(Config.findPairs(id)) do
-                        if not (isAlpha and not swapTargetId(cand, true)) then
+                        if not unknownConditionReason(cand)
+                            and not (isAlpha and not swapTargetId(cand, true)) then
                             pair = cand
                             break
                         end
@@ -2752,7 +3064,7 @@ function Evolution.init()
                         -- conditions are transient, so the reached-level hint
                         -- still fires and lists the remaining conditions
                         local condHint = ""
-                        local conds = Conditions.describe(pair)
+                        local conds = Conditions.describe(pair, Config.conditionDisclosure)
                         if conds then condHint = I18n.msg("whenSuffix", conds) end
                         Log(I18n.msg("reachedLevel",
                             palDisplayName(id), newLevel, palDisplayName(pair.to), condHint,
@@ -2833,6 +3145,159 @@ function Evolution.init()
                 if not (okProbes and probes.probeWorkSuitability) then return end
                 probes.probeWorkSuitability()
                 Role.ack(senderCtx, "work suitability probe done - see log")
+            end,
+            -- 1.9.0 planning probes. Each answers one question the plan
+            -- cannot settle from static data; the abort criteria are in
+            -- Workspace/docs/Palvolve/RELEASE-1.9.0.md. xaddpassive and
+            -- xaddwaza CHANGE the summoned pal and do not undo it.
+            xlevel = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeLevelWrite) then return end
+                probes.probeLevelWrite()
+                Role.ack(senderCtx, "P4 level write probe done - see log")
+            end,
+            xrank = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeSoulRanks) then return end
+                probes.probeSoulRanks()
+                Role.ack(senderCtx, "P5 soul rank probe done - see log")
+            end,
+            xpassive = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probePassiveRead) then return end
+                probes.probePassiveRead()
+                Role.ack(senderCtx, "P6 passive read probe done - see log")
+            end,
+            xaddpassive = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeAddPassive) then return end
+                probes.probeAddPassive()
+                Role.ack(senderCtx, "P2 add-passive probe done - check the pal status screen")
+            end,
+            xaddwaza = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeAddWaza) then return end
+                probes.probeAddWaza()
+                Role.ack(senderCtx, "P3 add-waza probe done - check the pal status screen")
+            end,
+            xarraygrow = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeArrayGrow) then return end
+                probes.probeArrayGrow()
+                Role.ack(senderCtx, "P8 direct array append probe done - see log")
+            end,
+            xschema = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeSchemaPassive) then return end
+                probes.probeSchemaPassive()
+                Role.ack(senderCtx, "P7 part 1 done - recall and re-summon, then !palvolve xschemacheck")
+            end,
+            xschemacheck = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeSchemaPassiveCheck) then return end
+                probes.probeSchemaPassiveCheck()
+                Role.ack(senderCtx, "P7 part 2 done - see log")
+            end,
+            xschemaclear = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeSchemaPassiveClear) then return end
+                probes.probeSchemaPassiveClear()
+                Role.ack(senderCtx, "test passive removed")
+            end,
+            xcontrol = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeVanillaControl) then return end
+                probes.probeVanillaControl()
+                Role.ack(senderCtx, "control part 1 - recall, re-summon, then !palvolve xcontrolcheck")
+            end,
+            xcontrolcheck = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeVanillaControlCheck) then return end
+                probes.probeVanillaControlCheck()
+                Role.ack(senderCtx, "control part 2 done - see log")
+            end,
+            xall = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeRunAll) then return end
+                probes.probeRunAll()
+                Role.ack(senderCtx, "batch done - recall, re-summon, then !palvolve xallcheck")
+            end,
+            xallcheck = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeRunAllCheck) then return end
+                probes.probeRunAllCheck()
+                Role.ack(senderCtx, "batch check done - see log")
+            end,
+            xladders = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeLadders) then return end
+                probes.probeLadders()
+                Role.ack(senderCtx, "ladders staged - recall, re-summon, then !palvolve xladderscheck")
+            end,
+            xladderscheck = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeLaddersCheck) then return end
+                probes.probeLaddersCheck()
+                Role.ack(senderCtx, "ladder check done - see log")
+            end,
+            -- one command per set: the chat dispatcher hands the handler a
+            -- sender and nothing else, so the choice cannot ride in an argument
+            bands = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeBands) then return end
+                probes.probeBands("prestige")
+                Role.ack(senderCtx, "prestige bands - recall, re-summon, open the status screen")
+            end,
+            bandsev = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeBands) then return end
+                probes.probeBands("evolved")
+                Role.ack(senderCtx, "evolved bands - recall, re-summon, open the status screen")
+            end,
+            bandsmix = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeBands) then return end
+                probes.probeBands("mixed")
+                Role.ack(senderCtx, "mixed bands - recall, re-summon, open the status screen")
+            end,
+            looks = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeBands) then return end
+                probes.probeBands("looks")
+                Role.ack(senderCtx, "look probe - recall, re-summon, open the status screen")
+            end,
+            bandsoff = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeBandsOff) then return end
+                probes.probeBandsOff()
+                Role.ack(senderCtx, "pal restored")
+            end,
+            xeat = function(senderCtx)
+                if not Config.devMode then return end
+                local okProbes, probes = pcall(require, "probes")
+                if not (okProbes and probes.probeEatHook) then return end
+                probes.probeEatHook()
+                Role.ack(senderCtx, "P1 eat hooks armed - feed a summoned pal, then a worker")
             end,
             -- 1.6.0 abort test: can a mod put a window on the game's own UI
             -- stack. Run it twice - the first call opens, the second closes.

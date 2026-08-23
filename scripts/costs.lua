@@ -179,7 +179,10 @@ end
 
 -- ---------------------------------------------------------------- resolution
 
-local resolveCache = {}
+-- The first key is the pair table itself. Two authored variants may share the
+-- same from/to ids while carrying different material overrides, so a textual
+-- species key would let whichever variant resolves first price both of them.
+local resolveCache = setmetatable({}, { __mode = "k" })
 
 local function materialsFor(charId, level, worldCtx)
     local c = Config.costs
@@ -205,7 +208,7 @@ end
 -- Drops all cached price lists - needed when the cost configuration is
 -- toggled at runtime (devMode free-evolution switch).
 function Costs.clearCache()
-    resolveCache = {}
+    resolveCache = setmetatable({}, { __mode = "k" })
 end
 
 -- Full price of a pair at a level. Returns costList, err.
@@ -213,8 +216,9 @@ end
 function Costs.resolve(pair, level, worldCtx)
     -- the level is part of the key: drop tables have level bands, so the
     -- same pair can price differently at different levels
-    local cacheKey = pair.from .. ">" .. pair.to .. ":" .. tostring(level or 0)
-    if resolveCache[cacheKey] then return resolveCache[cacheKey] end
+    local levelKey = tonumber(level) or 0
+    local pairCache = resolveCache[pair]
+    if pairCache and pairCache[levelKey] then return pairCache[levelKey] end
 
     local list = {}
     if Config.requireStone then
@@ -259,7 +263,11 @@ function Costs.resolve(pair, level, worldCtx)
             table.insert(merged, entry)
         end
     end
-    resolveCache[cacheKey] = merged
+    if not pairCache then
+        pairCache = {}
+        resolveCache[pair] = pairCache
+    end
+    pairCache[levelKey] = merged
     return merged
 end
 
