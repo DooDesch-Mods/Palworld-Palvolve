@@ -112,6 +112,12 @@ local GLOBALS = {
     { key = "chatMessages", kind = "enum", values = { all = true, replies = true, off = true } },
     { key = "autoEvolve", kind = "bool", since = 3 },
 
+    -- Both decide WHICH prestige connections exist at all, and host and client
+    -- derive that list separately from the same rule. A client left on its own
+    -- values would draw targets the host refuses, so these travel with the tree.
+    { key = "prestigeMinEvolutions", kind = "number", since = 3 },
+    { key = "prestigeMinLevel", kind = "number", since = 3 },
+
     -- How the transformation looks, so a server decides what its players see
     -- rather than each of them running their own cut. These are read per
     -- evolution (finale.lua finaleCfg/timings, fx.lua digimonCfg,

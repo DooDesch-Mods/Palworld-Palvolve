@@ -1,7 +1,8 @@
 -- Palvolve configuration: evolution map and settings.
 -- Categories: "evolution" (small -> big form), "funchain" (across family lines),
--- "adaptation" (element variant). stone: "evolution" | "adaptation" - item costs
--- only apply while requireStone is true.
+-- "adaptation" (element variant), "prestige" (authored override of a derived
+-- chain-end reset). stone: "evolution" | "adaptation" - item costs only apply
+-- while requireStone is true.
 --
 -- Optional per-pair field `conditions = { "night", "knowsMove:Dragon", ... }`:
 -- every listed condition must hold at evolve time (AND). An either/or split is
@@ -108,6 +109,11 @@ local Config = {
     -- Automatic evolution needs permission at both levels. This master switch
     -- only enables the watcher; every pair still opts in with autoEvolve=true.
     autoEvolve = false,
+
+    -- Prestige is offered only at the end of a configured chain. The global
+    -- depth and level gates apply to every derived or authored connection.
+    prestigeMinEvolutions = 1,
+    prestigeMinLevel = 80,
 
     -- Selected keeps the explicit target wheel. Conditioned resolves the
     -- strongest passing rule deterministically and puts only that target on it.
@@ -1498,6 +1504,11 @@ local Config = {
     },
 }
 
+-- The prestige roster includes paldex-hidden species referenced by the shipped
+-- tree. Keep that immutable source even when a user config or a server sync
+-- replaces Config.map later in the session.
+Config.builtinMap = Config.map
+
 -- An FName compares without regard to case but remembers the spelling it was
 -- first registered with, and that is what ToString hands back. Palworld's own
 -- data contains 42 species under two spellings - "SheepBall" 260 times and
@@ -2222,6 +2233,8 @@ end
 local USER_KEYS = {
     -- gameplay
     { path = "autoEvolve", kind = "bool" },
+    { path = "prestigeMinEvolutions", kind = "int", min = 0, max = 5 },
+    { path = "prestigeMinLevel", kind = "int", min = 1, max = 80 },
     { path = "evolutionMode", kind = "enum", values = { "selected", "conditioned" } },
     { path = "conditionDisclosure", kind = "enum", values = { "exact", "partial", "hidden" } },
     { path = "eggFilter.enabled", kind = "bool" },

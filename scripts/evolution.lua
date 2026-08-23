@@ -16,6 +16,7 @@ local Authority = require("authority")
 local NetChannel = require("netchannel")
 local ServerCheck = require("servercheck")
 local PalPassives = require("palpassives")
+local Prestige = require("prestige")
 
 local Evolution = {}
 
@@ -861,6 +862,99 @@ local function disclosedConditions(pair, exactText)
     return Conditions.describe(pair, Config.conditionDisclosure) or exactText
 end
 
+-- Normal connections always win. A Pal with anything still ahead of it is not
+-- allowed to use prestige as a shortcut around that connection, even while its
+-- level or conditions are not met yet.
+local function optionPairsFor(characterId)
+    local ordinary = Config.findPairs(characterId)
+    if ordinary and #ordinary > 0 then return ordinary, false end
+    local prestige, err = Prestige.forSpecies(Config, characterId)
+    return prestige, true, err
+end
+
+local function requiredLevelFor(pair)
+    if pair and pair.category == "prestige" then
+        return tonumber(Config.prestigeMinLevel) or 1
+    end
+    return tonumber(pair and pair.minLevel) or 0
+end
+
+local function writeSpeciesUnsafe(param, characterId)
+    param.SaveParameter.CharacterID = FName(characterId)
+    param.SaveParameterMirror.CharacterID = FName(characterId)
+end
+
+local function readPrestigeFieldsUnsafe(param)
+    return {
+        characterId = param:GetCharacterID():ToString(),
+        level = param.SaveParameter.Level,
+        exp = param.SaveParameter.Exp,
+        mirrorLevel = param.SaveParameterMirror.Level,
+        mirrorExp = param.SaveParameterMirror.Exp,
+    }
+end
+
+local function writePrestigeLevelUnsafe(param, level, exp, mirrorLevel, mirrorExp)
+    param.SaveParameter.Level = level
+    param.SaveParameter.Exp = exp
+    param.SaveParameterMirror.Level = mirrorLevel
+    param.SaveParameterMirror.Exp = mirrorExp
+end
+
+local function prestigeFieldsMatchUnsafe(param, state)
+    return Config.canonicalId(param:GetCharacterID():ToString())
+            == Config.canonicalId(state.characterId)
+        and tonumber(param.SaveParameter.Level) == tonumber(state.level)
+        and tostring(param.SaveParameter.Exp) == tostring(state.exp)
+        and tonumber(param.SaveParameterMirror.Level) == tonumber(state.mirrorLevel)
+        and tostring(param.SaveParameterMirror.Exp) == tostring(state.mirrorExp)
+end
+
+local function capturePrestigeState(param)
+    local okFields, state = pcall(readPrestigeFieldsUnsafe, param)
+    if not okFields or type(state) ~= "table" then
+        return nil, "level and experience fields are unavailable"
+    end
+    local passives, passiveErr = PalPassives.capture(param)
+    if not passives then return nil, passiveErr end
+    state.passives = passives
+    return state
+end
+
+local function restorePrestigeState(param, state)
+    local okSpecies, speciesErr = pcall(writeSpeciesUnsafe, param, state.characterId)
+    local okLevel, levelErr = pcall(writePrestigeLevelUnsafe, param,
+        state.level, state.exp, state.mirrorLevel, state.mirrorExp)
+    local okPassives, passiveErr = PalPassives.restore(param, state.passives)
+    local okVerify, matches = pcall(prestigeFieldsMatchUnsafe, param, state)
+    if okSpecies and okLevel and okPassives and okVerify and matches then return true end
+    return false, string.format("species=%s levelExp=%s passives=%s verify=%s (%s; %s; %s)",
+        tostring(okSpecies), tostring(okLevel), tostring(okPassives), tostring(okVerify and matches),
+        tostring(speciesErr), tostring(levelErr), tostring(passiveErr))
+end
+
+local function applyPrestigeMutation(param, targetId)
+    local okSpecies, speciesErr = pcall(writeSpeciesUnsafe, param, targetId)
+    local idNow = nil
+    local okId, readId = pcall(characterIdUnsafe, param)
+    if okId then idNow = readId end
+    if not okSpecies or Config.canonicalId(idNow) ~= Config.canonicalId(targetId) then
+        return false, "species write failed: " .. tostring(speciesErr)
+    end
+
+    local okLevel, levelErr = pcall(writePrestigeLevelUnsafe, param, 1, 0, 1, 0)
+    if not okLevel then return false, "level/experience write failed: " .. tostring(levelErr) end
+    local expected = {
+        characterId = targetId, level = 1, exp = 0, mirrorLevel = 1, mirrorExp = 0,
+    }
+    local okVerify, fieldsMatch = pcall(prestigeFieldsMatchUnsafe, param, expected)
+    if not okVerify or not fieldsMatch then return false, "level/experience read-back differs" end
+
+    local passiveOk, passiveResult = PalPassives.grantPrestige(param)
+    if not passiveOk then return false, "Prestige passive write failed: " .. tostring(passiveResult) end
+    return true, passiveResult
+end
+
 -- Only one own pal can be summoned at a time, so the otomo holder is the
 -- authoritative source (a FindAllOf scan would also hit ghost actors).
 local function findEligibleFor(playerCtx)
@@ -875,8 +969,10 @@ local function findEligibleFor(playerCtx)
     -- pick the first pair that passes EVERY gate (alpha form, level,
     -- conditions), so a branched species whose first target is blocked
     -- still reaches its other options
-    local pairList = Config.findPairs(id)
+    local pairList, isPrestige, prestigeErr = optionPairsFor(id)
     if not pairList or #pairList == 0 then
+        if prestigeErr then Log("Prestige targets unavailable: " .. tostring(prestigeErr)) end
+        if isPrestige then return nil, I18n.msg("hasNoPrestige", palDisplayName(id)) end
         return nil, I18n.msg("hasNoEvolution", palDisplayName(id))
     end
     local level = 0
@@ -903,8 +999,9 @@ local function findEligibleFor(playerCtx)
             firstReason = firstReason or unknownReason
         elseif isAlpha and not swapTargetId(cand, true) then
             alphaBlockedTo = alphaBlockedTo or cand.to
-        elseif level < cand.minLevel then
-            firstReason = firstReason or I18n.msg("needsLevel", palDisplayName(id), cand.minLevel, level)
+        elseif level < requiredLevelFor(cand) then
+            firstReason = firstReason or I18n.msg("needsLevel", palDisplayName(id),
+                requiredLevelFor(cand), level)
         else
             local condOk, unmet = Conditions.evaluate(cand, condCtx)
             if condOk then
@@ -919,7 +1016,7 @@ local function findEligibleFor(playerCtx)
                     local count = conditionCount(cand)
                     if Config.evolutionMode ~= "conditioned" or count > pairConditionCount then
                         pair = cand
-                        pairIndex = i
+                    pairIndex = isPrestige and cand.prestigeIndex or i
                         pairConditionCount = count
                     end
                     if Config.evolutionMode ~= "conditioned" then break end
@@ -935,7 +1032,8 @@ local function findEligibleFor(playerCtx)
         end
     end
     if not pair and unpaid then
-        pair, pairIndex = unpaid, unpaidIndex
+        pair = unpaid
+        pairIndex = isPrestige and unpaid.prestigeIndex or unpaidIndex
     end
     if not pair then
         return nil, firstReason
@@ -943,12 +1041,13 @@ local function findEligibleFor(playerCtx)
     end
     -- pairIndex is the position in Config.findPairs(id) - the token a
     -- connected client sends over the net channel
-    return actor, param, pair, level, holder, isAlpha, pairIndex
+    return actor, param, pair, level, holder, isAlpha, pairIndex, isPrestige
 end
 
 local function performEvolution(p)
     local actor, param, pair, holder = p.actor, p.param, p.pair, p.holder
     local isAlpha = p.isAlpha == true
+    local isPrestige = pair.category == "prestige"
     -- the requesting player's context: every controller/pawn access below
     -- must stay scoped to this player (multiplayer hosts serve many)
     local playerCtx = p.playerCtx
@@ -1109,6 +1208,20 @@ local function performEvolution(p)
         return false, "Evolution aborted: individual handle unavailable"
     end
 
+    -- Prestige changes three independent save surfaces. Refuse before taking a
+    -- cost or hiding the actor unless every one can be captured for an exact
+    -- rollback; a partial reset is worse than no prestige at all.
+    local prestigeState = nil
+    if isPrestige then
+        local captureErr
+        prestigeState, captureErr = capturePrestigeState(param)
+        if not prestigeState then
+            Log("Prestige aborted before mutation: " .. tostring(captureErr))
+            finishAbort()
+            return false, I18n.msg("prestigeSnapshotFailed")
+        end
+    end
+
     -- Take the full cost BEFORE the sequence (no TOCTOU: anything that fails
     -- before the swap refunds everything; after the swap it is earned)
     local costList = Costs.resolve(pair, level, holder)
@@ -1257,38 +1370,58 @@ local function performEvolution(p)
             finishAbort()
             return
         end
-        local okSwap, errSwap = pcall(function()
-            param.SaveParameter.CharacterID = FName(targetId)
-            param.SaveParameterMirror.CharacterID = FName(targetId)
-        end)
-        local idNow = ""
-        pcall(function() idNow = param:GetCharacterID():ToString() end)
-        -- Compare the read-back through the canonicalizer: the name just
-        -- written can come back under a spelling the engine registered
-        -- earlier, and a raw comparison would treat a swap that worked as a
-        -- failure and refund it.
-        if not okSwap or Config.canonicalId(idNow) ~= Config.canonicalId(targetId) then
-            Log(string.format("SWAP FAILED (err=%s, id=%s) - no respawn attempt",
-                tostring(errSwap), idNow))
-            refundCost("swap failed")
-            finishAbort()
-            return
-        end
-        swapDone = true
-        if txn then txn.commit() end
-        local passivesBefore, passiveCaptureErr = PalPassives.capture(param)
-        if not passivesBefore then
-            Log("Evolution passive snapshot FAILED: " .. tostring(passiveCaptureErr))
-        end
-        applyIvBonus(param)
-        local passiveOk, passiveResult = PalPassives.grantEvolved(param)
-        if passiveOk then
-            Log(string.format("Evolution bonus (passive): %s", passiveResult.id))
+        local passivesBefore = nil
+        if isPrestige then
+            passivesBefore = prestigeState.passives
+            local mutationOk, passiveResult = applyPrestigeMutation(param, targetId)
+            if not mutationOk then
+                local restored, restoreErr = restorePrestigeState(param, prestigeState)
+                if restored then
+                    Log("Prestige mutation failed and was rolled back: " .. tostring(passiveResult))
+                else
+                    Log("PRESTIGE ROLLBACK FAILED after mutation error: "
+                        .. tostring(passiveResult) .. "; " .. tostring(restoreErr))
+                end
+                refundCost("prestige mutation failed")
+                finishAbort()
+                return
+            end
+            swapDone = true
+            if txn then txn.commit() end
+            Log(string.format("Prestige bonus (passive): %s", passiveResult.id))
         else
-            -- The cost is already committed. Continuing keeps the successful
-            -- species swap at the tradeoff that this reward is not refunded alone.
-            Log("EVOLVED PASSIVE WRITE FAILED after cost commit: "
-                .. tostring(passiveResult) .. " - evolution remains committed")
+            local okSwap, errSwap = pcall(writeSpeciesUnsafe, param, targetId)
+            local idNow = ""
+            local okId, readId = pcall(characterIdUnsafe, param)
+            if okId then idNow = readId end
+            -- Compare the read-back through the canonicalizer: the name just
+            -- written can come back under a spelling the engine registered
+            -- earlier, and a raw comparison would treat a swap that worked as a
+            -- failure and refund it.
+            if not okSwap or Config.canonicalId(idNow) ~= Config.canonicalId(targetId) then
+                Log(string.format("SWAP FAILED (err=%s, id=%s) - no respawn attempt",
+                    tostring(errSwap), idNow))
+                refundCost("swap failed")
+                finishAbort()
+                return
+            end
+            swapDone = true
+            if txn then txn.commit() end
+            local passiveCaptureErr
+            passivesBefore, passiveCaptureErr = PalPassives.capture(param)
+            if not passivesBefore then
+                Log("Evolution passive snapshot FAILED: " .. tostring(passiveCaptureErr))
+            end
+            applyIvBonus(param)
+            local passiveOk, passiveResult = PalPassives.grantEvolved(param)
+            if passiveOk then
+                Log(string.format("Evolution bonus (passive): %s", passiveResult.id))
+            else
+                -- The cost is already committed. Continuing keeps the successful
+                -- species swap at the tradeoff that this reward is not refunded alone.
+                Log("EVOLVED PASSIVE WRITE FAILED after cost commit: "
+                    .. tostring(passiveResult) .. " - evolution remains committed")
+            end
         end
         pcall(function() param:FullRecoveryHP() end)
         refreshWorkSuitability(param, playerCtx, actor, pair.from)
@@ -1296,8 +1429,13 @@ local function performEvolution(p)
         -- Snapshot only AFTER a successful swap (no phantom rollback entries);
         -- stores the RAW ids (BOSS_ included) so a rollback restores the alpha
         table.insert(snapshots, {
+            kind = isPrestige and "prestige" or "evolution",
             key = key, from = isAlpha and (BOSS_PREFIX .. pair.from) or pair.from,
-            to = targetId, level = level, nickname = nickname,
+            to = targetId, level = level,
+            exp = isPrestige and prestigeState.exp or nil,
+            mirrorLevel = isPrestige and prestigeState.mirrorLevel or nil,
+            mirrorExp = isPrestige and prestigeState.mirrorExp or nil,
+            nickname = nickname,
             ivHP = talentsBefore.Talent_HP, ivMelee = talentsBefore.Talent_Melee,
             ivShot = talentsBefore.Talent_Shot, ivDefense = talentsBefore.Talent_Defense,
             passives = passivesBefore,
@@ -1947,6 +2085,7 @@ end
 -- F2 is defined before the indexed authority handler below, but it must enter
 -- that same pipeline rather than capture a pair table from the arm step.
 local handleEvolveByIndex
+local handlePrestigeByIndex
 
 function Evolution.check()
     if ServerCheck.blocked() then
@@ -1979,7 +2118,7 @@ function Evolution.check()
     if pending and (os.clock() - pending.armedAt) > Config.confirmWindowSeconds then
         pending = nil
     end
-    local actor, param, pair, level, holder, isAlpha, pairIndex = findEligibleFor(playerCtx)
+    local actor, param, pair, level, holder, isAlpha, pairIndex, isPrestige = findEligibleFor(playerCtx)
     if not actor then
         if not pending then
             -- second return value carries the reason message when present
@@ -1996,8 +2135,14 @@ function Evolution.check()
     local costList = Costs.resolve(pair, level, holder)
     local costOk, missing = Costs.check(playerCtx, costList)
     if not costOk then
-        local reason = I18n.msg("couldEvolveMissing",
-            palDisplayName(pair.from), level, palDisplayName(pair.to), Costs.describeMissing(missing))
+        local reason
+        if isPrestige then
+            reason = I18n.msg("couldPrestigeMissing",
+                palDisplayName(pair.from), level, palDisplayName(pair.to), Costs.describeMissing(missing))
+        else
+            reason = I18n.msg("couldEvolveMissing",
+                palDisplayName(pair.from), level, palDisplayName(pair.to), Costs.describeMissing(missing))
+        end
         Log(reason)
         if Role.hasWorldAuthority() then
             -- authority (single player / host): this check is final, show it here
@@ -2007,7 +2152,11 @@ function Evolution.check()
             -- player ("[Name]: ..."). Send the request instead so the host rejects
             -- it and delivers the reason as a private [SYSTEM] line; the host
             -- re-checks and consumes nothing on a rejected evolve.
-            NetChannel.sendEvolve(playerCtx, pairIndex or 0)
+            if isPrestige then
+                NetChannel.sendPrestige(playerCtx, pairIndex or 0)
+            else
+                NetChannel.sendEvolve(playerCtx, pairIndex or 0)
+            end
         end
         return
     end
@@ -2020,7 +2169,12 @@ function Evolution.check()
                 -- Run the same indexed revalidation as the wheel, network and
                 -- watcher. The pal or a same-target variant may have changed
                 -- since this confirmation was armed.
-                local ok, msg = handleEvolveByIndex(playerCtx, pairIndex)
+                local ok, msg
+                if isPrestige then
+                    ok, msg = handlePrestigeByIndex(playerCtx, pairIndex)
+                else
+                    ok, msg = handleEvolveByIndex(playerCtx, pairIndex)
+                end
                 if not ok and msg then
                     Log(msg)
                     Role.chat(playerCtx, msg, "reply")
@@ -2030,7 +2184,11 @@ function Evolution.check()
                 -- re-derives and consumes authoritatively
                 if not remoteTransmitReady(playerCtx) then return end
                 pending = nil
-                NetChannel.sendEvolve(playerCtx, pairIndex or 0)
+                if isPrestige then
+                    NetChannel.sendPrestige(playerCtx, pairIndex or 0)
+                else
+                    NetChannel.sendEvolve(playerCtx, pairIndex or 0)
+                end
             end
             return
         else
@@ -2044,9 +2202,15 @@ function Evolution.check()
     if #costList > 0 then
         costHint = I18n.msg("costHint", Costs.describe(costList))
     end
-    Log(I18n.msg("canEvolveConfirm",
-        palDisplayName(pair.from), level, palDisplayName(pair.to), costHint,
-        Config.confirmKey, Config.confirmWindowSeconds))
+    if isPrestige then
+        Log(I18n.msg("canPrestigeConfirm",
+            palDisplayName(pair.from), level, palDisplayName(pair.to), costHint,
+            Config.confirmKey, Config.confirmWindowSeconds))
+    else
+        Log(I18n.msg("canEvolveConfirm",
+            palDisplayName(pair.from), level, palDisplayName(pair.to), costHint,
+            Config.confirmKey, Config.confirmWindowSeconds))
+    end
 end
 
 -- true while a confirm is armed; the radial menu label switches to
@@ -2061,6 +2225,7 @@ end
 -- is worse: "not your pal", "nothing configured for this species" and "host not
 -- confirmed" produce the same grey entry and are otherwise indistinguishable.
 local lastOfferReason = nil
+local lastOfferPrestige = false
 
 -- Player-facing half of the verdict. The log line names the cause for support;
 -- this names it for the person looking at a grey entry, who otherwise gets
@@ -2088,6 +2253,7 @@ end
 -- summoned and has at least one configured option. Level and costs are
 -- only checked in the submenu - this runs on every wheel rebuild.
 function Evolution.canOffer()
+    lastOfferPrestige = false
     -- grey the radial entry while the host is unconfirmed as a Palvolve host; the
     -- reason is surfaced when the player opens it (listOptions) or presses F2, not
     -- as a preemptive banner
@@ -2121,11 +2287,16 @@ function Evolution.canOffer()
             return string.format("pal '%s' is not owned by this player", id),
                 I18n.msg("greyNotYours")
         end
-        local n = #Config.findPairs(id)
+        local pairList, isPrestige, prestigeErr = optionPairsFor(id)
+        local n = #pairList
         if n == 0 then
+            if prestigeErr then Log("Prestige targets unavailable: " .. tostring(prestigeErr)) end
+            local playerMessage = I18n.msg("hasNoEvolution", palDisplayName(id))
+            if isPrestige then playerMessage = I18n.msg("hasNoPrestige", palDisplayName(id)) end
             return string.format("no enabled pair configured for '%s'", id),
-                I18n.msg("hasNoEvolution", palDisplayName(id))
+                playerMessage
         end
+        lastOfferPrestige = isPrestige
         prewarmNames(id)
         return nil
     end)
@@ -2135,6 +2306,10 @@ function Evolution.canOffer()
     end
     offerVerdict(reason, playerMsg)
     return reason == nil
+end
+
+function Evolution.offerIsPrestige()
+    return lastOfferPrestige == true
 end
 
 -- All evolution/adaptation options for the currently summoned pal with
@@ -2175,7 +2350,7 @@ end
 -- earliest point the price applies, which is the level the guide quotes too.
 local function requirementLine(pair, level, worldCtx)
     local lines = {}
-    local minLevel = tonumber(pair.minLevel) or 0
+    local minLevel = requiredLevelFor(pair)
     if minLevel > 0 then wrapText(I18n.msg("guideLevelShort", minLevel), CENTER_WIDTH, lines) end
 
     local cond = Conditions.describe(pair, Config.conditionDisclosure)
@@ -2212,8 +2387,10 @@ function Evolution.listOptions()
     local param = paramOf(actor)
     if not (param and isOwnedBy(param, playerCtx and playerCtx.playerUId)) then return nil, I18n.msg("noPalSummoned") end
     local id, isAlpha = baseCharacterId(param:GetCharacterID():ToString())
-    local pairList = Config.findPairs(id)
+    local pairList, isPrestige, prestigeErr = optionPairsFor(id)
     if not pairList or #pairList == 0 then
+        if prestigeErr then Log("Prestige targets unavailable: " .. tostring(prestigeErr)) end
+        if isPrestige then return nil, I18n.msg("hasNoPrestige", palDisplayName(id)) end
         return nil, I18n.msg("hasNoEvolution", palDisplayName(id))
     end
     local level = 0
@@ -2227,7 +2404,12 @@ function Evolution.listOptions()
         -- index is the pair's position in Config.findPairs(id) - the compact
         -- token a connected client sends over the net channel (the host
         -- re-derives the pair from its own config at this index)
-        local opt = { pair = pair, index = i, label = palDisplayName(pair.to) }
+        local opt = {
+            pair = pair,
+            index = isPrestige and pair.prestigeIndex or i,
+            label = palDisplayName(pair.to),
+            prestige = isPrestige,
+        }
         -- What this target asks for, short enough for a wheel segment and
         -- phrased the same way the guide pages phrase it. Without this the
         -- wheel names targets and nothing else, so the only way to learn what
@@ -2239,8 +2421,8 @@ function Evolution.listOptions()
             opt.blocked = unknownReason
         elseif isAlpha and not swapTargetId(pair, true) then
             opt.blocked = I18n.msg("noAlphaFormShort", opt.label)
-        elseif level < pair.minLevel then
-opt.blocked = I18n.msg("needsLevelShort", opt.label, pair.minLevel, level)
+        elseif level < requiredLevelFor(pair) then
+            opt.blocked = I18n.msg("needsLevelShort", opt.label, requiredLevelFor(pair), level)
         else
             local condOk, unmet = Conditions.evaluate(pair, condCtx)
             if not condOk then
@@ -2284,7 +2466,9 @@ opt.blocked = I18n.msg("needsLevelShort", opt.label, pair.minLevel, level)
     end
     if conditioned then
         if conditionedBest then return { conditionedBest } end
-        return nil, conditionedReason or I18n.msg("hasNoEvolution", palDisplayName(id))
+        if conditionedReason then return nil, conditionedReason end
+        if isPrestige then return nil, I18n.msg("hasNoPrestige", palDisplayName(id)) end
+        return nil, I18n.msg("hasNoEvolution", palDisplayName(id))
     end
     return options
 end
@@ -2293,7 +2477,7 @@ end
 -- the requesting player's context; caller-supplied data is only the pair
 -- NAMES, never handles. Serves the in-process path (standalone/listen host)
 -- and decoded network requests. Returns ok, message.
-local function handleEvolveRequest(playerCtx, fromId, toId, exactPairIndex)
+local function handleEvolveRequest(playerCtx, fromId, toId, exactPairIndex, prestigeRequest)
     if lockBusy() then
         return false, I18n.msg("evolutionRunning")
     end
@@ -2320,10 +2504,28 @@ return false, I18n.msg("selectionOutdated", palDisplayName(id), palDisplayName(f
     -- request. Several same-target variants may exist (either/or conditions):
     -- the first candidate that passes every gate wins, so a stale client pick
     -- still lands on whichever variant currently holds.
-    local pairList = Config.findPairs(id)
+    local pairList = nil
+    if prestigeRequest then
+        -- An enabled ordinary connection is an absolute precedence gate. Its
+        -- level or conditions may be unmet, but prestige cannot bypass it.
+        if #Config.findPairs(id) > 0 then return false, I18n.msg("optionUnavailable") end
+        pairList = Prestige.forSpecies(Config, id)
+    else
+        pairList = Config.findPairs(id)
+    end
     local candidates = {}
     if exactPairIndex ~= nil then
-        local indexed = pairList[tonumber(exactPairIndex)]
+        local indexed = nil
+        if prestigeRequest then
+            for _, candidate in ipairs(pairList) do
+                if candidate.prestigeIndex == tonumber(exactPairIndex) then
+                    indexed = candidate
+                    break
+                end
+            end
+        else
+            indexed = pairList[tonumber(exactPairIndex)]
+        end
         if indexed and indexed.to == toId then candidates[1] = indexed end
     else
         for _, cand in ipairs(pairList) do
@@ -2345,8 +2547,9 @@ return false, I18n.msg("selectionOutdated", palDisplayName(id), palDisplayName(f
             failReason = failReason or unknownReason
         elseif isAlpha and not swapTargetId(cand, true) then
             failReason = failReason or I18n.msg("noAlphaForm", palDisplayName(cand.to))
-        elseif level < cand.minLevel then
-            failReason = failReason or I18n.msg("needsLevel", palDisplayName(id), cand.minLevel, level)
+        elseif level < requiredLevelFor(cand) then
+            failReason = failReason or I18n.msg("needsLevel", palDisplayName(id),
+                requiredLevelFor(cand), level)
         else
             local condOk, unmet = Conditions.evaluate(cand, condCtx)
             if condOk then
@@ -2363,13 +2566,17 @@ return false, I18n.msg("selectionOutdated", palDisplayName(id), palDisplayName(f
         end
     end
     if not pair then
-        return false, failReason or "Conditions not met"
+        return false, failReason or I18n.msg("optionUnavailable")
     end
     -- fresh cost pre-check for a readable message; the transaction inside
     -- performEvolution is the authoritative consume
     local costList = Costs.resolve(pair, level, holder)
     local costOk, missing = Costs.check(playerCtx, costList)
     if not costOk then
+        if prestigeRequest then
+            return false, I18n.msg("couldPrestigeMissing",
+                palDisplayName(id), level, palDisplayName(pair.to), Costs.describeMissing(missing))
+        end
         return false, I18n.msg("couldEvolveMissing",
             palDisplayName(id), level, palDisplayName(pair.to), Costs.describeMissing(missing))
     end
@@ -2380,7 +2587,7 @@ return false, I18n.msg("selectionOutdated", palDisplayName(id), palDisplayName(f
         holder = holder, key = individualKey(param), isAlpha = isAlpha,
         playerCtx = playerCtx })
     if not started then
-        return false, reason or "Evolution could not start"
+        return false, reason or I18n.msg("optionUnavailable")
     end
     return true
 end
@@ -2390,7 +2597,7 @@ end
 -- host re-derives the pair from ITS OWN config at that index and hands off
 -- to the fully-revalidating handleEvolveRequest. Returns ok, message (the
 -- message is chatted back to the requester).
-handleEvolveByIndex = function(playerCtx, pairIndex)
+local function handleByIndex(playerCtx, pairIndex, prestigeRequest)
     local holder = findHolderFor(playerCtx, nil)
     local actor = nil
     if holder then pcall(function() actor = holder:TryGetSpawnedOtomo() end) end
@@ -2400,22 +2607,43 @@ handleEvolveByIndex = function(playerCtx, pairIndex)
         return false, I18n.msg("noPalSummoned")
     end
     local numericIndex = tonumber(pairIndex)
-    if not numericIndex or numericIndex % 1 ~= 0 then
+    if not numericIndex or numericIndex % 1 ~= 0 or numericIndex < 1 or numericIndex > 255 then
         return false, I18n.msg("optionUnavailable")
     end
     local okId, rawId = pcall(characterIdUnsafe, param)
     if not okId then return false, I18n.msg("optionUnavailable") end
     local baseId = baseCharacterId(rawId)
-    local pairList = Config.findPairs(baseId)
-    local pair = pairList and pairList[numericIndex]
+    local pair = nil
+    if prestigeRequest then
+        -- Global prestige indices address the host's complete target list.
+        -- The source check below prevents an index for another Pal from being
+        -- replayed against the one the requester currently has summoned.
+        if #Config.findPairs(baseId) > 0 then return false, I18n.msg("optionUnavailable") end
+        local targets = Prestige.targets(Config)
+        pair = targets and targets[numericIndex]
+        if pair and pair.from ~= baseId then pair = nil end
+    else
+        local pairList = Config.findPairs(baseId)
+        pair = pairList and pairList[numericIndex]
+    end
     if not pair then
         return false, I18n.msg("optionUnavailable")
     end
-    local ok, msg = handleEvolveRequest(playerCtx, baseId, pair.to, numericIndex)
+    local ok, msg = handleEvolveRequest(playerCtx, baseId, pair.to, numericIndex, prestigeRequest)
     if ok then
+        if prestigeRequest then return true, I18n.msg("prestigingInto", palDisplayName(pair.to)) end
         return true, I18n.msg("evolvingInto", palDisplayName(pair.to))
     end
     return false, msg
+end
+
+
+handleEvolveByIndex = function(playerCtx, pairIndex)
+    return handleByIndex(playerCtx, pairIndex, false)
+end
+
+handlePrestigeByIndex = function(playerCtx, targetIndex)
+    return handleByIndex(playerCtx, targetIndex, true)
 end
 
 -- Executes one option from listOptions - the submenu selection IS the
@@ -2442,7 +2670,11 @@ function Evolution.executeOption(opt)
             -- pure client: don't attribute the reason locally ("[Name]: ..."). Send
             -- the picked option so the host re-validates and rejects it with a
             -- private [SYSTEM] line; the host consumes nothing on a rejected evolve.
-            NetChannel.sendEvolve(playerCtx, opt.index or 0)
+            if opt.prestige then
+                NetChannel.sendPrestige(playerCtx, opt.index or 0)
+            else
+                NetChannel.sendEvolve(playerCtx, opt.index or 0)
+            end
         end
         return
     end
@@ -2453,7 +2685,12 @@ function Evolution.executeOption(opt)
     if Role.hasWorldAuthority() then
         -- re-validation can still fail (state changed since the wheel was
         -- built); surface that reason in chat too
-        local ok, msg = handleEvolveByIndex(playerCtx, opt.index)
+        local ok, msg
+        if opt.prestige then
+            ok, msg = handlePrestigeByIndex(playerCtx, opt.index)
+        else
+            ok, msg = handleEvolveByIndex(playerCtx, opt.index)
+        end
         if not ok and msg then
             Log(msg)
             Role.chat(playerCtx, msg, "reply")
@@ -2465,7 +2702,12 @@ function Evolution.executeOption(opt)
         -- (Evolution.playRemoteReveal, via the net channel client hook).
         if not remoteTransmitReady(playerCtx) then return end
         lastRemotePair = opt.pair
-        local sent = NetChannel.sendEvolve(playerCtx, opt.index or 0)
+        local sent
+        if opt.prestige then
+            sent = NetChannel.sendPrestige(playerCtx, opt.index or 0)
+        else
+            sent = NetChannel.sendEvolve(playerCtx, opt.index or 0)
+        end
         if not sent then
             local msg = I18n.msg("serverUnreachable")
             Log(msg)
@@ -2737,6 +2979,16 @@ function Evolution.rollbackLast(playerCtx)
             -- hit the wrong individual, e.g. SmallYeti->Yeti vs MopKing->Yeti)
             local match = hasKey and (individualKey(p) == last.key) or (not hasKey)
             if match then
+                local prestigeAfter = nil
+                if last.kind == "prestige" then
+                    local prestigeAfterErr
+                    prestigeAfter, prestigeAfterErr = capturePrestigeState(p)
+                    if not prestigeAfter then
+                        Log("ROLLBACK CURRENT PRESTIGE SNAPSHOT FAILED: "
+                            .. tostring(prestigeAfterErr))
+                        break
+                    end
+                end
                 local passivesAfter, passiveAfterErr = PalPassives.capture(p)
                 if not passivesAfter then
                     Log("ROLLBACK CURRENT PASSIVE CAPTURE FAILED: " .. tostring(passiveAfterErr))
@@ -2765,13 +3017,45 @@ function Evolution.rollbackLast(playerCtx)
                             end)
                         end
                     end
-                    -- mirror the forward path: normalize HP after the
-                    -- species/IV change (current HP may exceed the smaller
-                    -- form's maximum otherwise)
-                    pcall(function() p:FullRecoveryHP() end)
-                    refreshWorkSuitability(p, nil)
-                    reverted = true
-                    pcall(function() resummonAfterRollback(playerCtx, p) end)
+                    local levelRestored = true
+                    if last.kind == "prestige" then
+                        local mirrorLevel = last.mirrorLevel
+                        if mirrorLevel == nil then mirrorLevel = last.level end
+                        local mirrorExp = last.mirrorExp
+                        if mirrorExp == nil then mirrorExp = last.exp end
+                        local okLevel = pcall(writePrestigeLevelUnsafe, p,
+                            last.level, last.exp, mirrorLevel, mirrorExp)
+                        local expected = {
+                            characterId = last.from,
+                            level = last.level,
+                            exp = last.exp,
+                            mirrorLevel = mirrorLevel,
+                            mirrorExp = mirrorExp,
+                        }
+                        local okFields, fieldsMatch = pcall(prestigeFieldsMatchUnsafe, p, expected)
+                        levelRestored = okLevel and okFields and fieldsMatch
+                    end
+                    if levelRestored then
+                        -- mirror the forward path: normalize HP after the
+                        -- species/IV/level change (current HP may exceed the
+                        -- restored form's maximum otherwise)
+                        pcall(function() p:FullRecoveryHP() end)
+                        refreshWorkSuitability(p, nil)
+                        reverted = true
+                        pcall(function() resummonAfterRollback(playerCtx, p) end)
+                    elseif prestigeAfter then
+                        local undoOk, undoErr = restorePrestigeState(p, prestigeAfter)
+                        if not undoOk then
+                            Log("ROLLBACK PRESTIGE REAPPLY FAILED after level restore failed: "
+                                .. tostring(undoErr))
+                        end
+                    end
+                elseif prestigeAfter then
+                    local undoOk, undoErr = restorePrestigeState(p, prestigeAfter)
+                    if not undoOk then
+                        Log("ROLLBACK PRESTIGE REAPPLY FAILED after species restore failed: "
+                            .. tostring(undoErr))
+                    end
                 elseif passivesAfter then
                     local passiveUndoOk, passiveUndoErr = PalPassives.restore(p, passivesAfter)
                     if not passiveUndoOk then
@@ -2872,14 +3156,14 @@ local function scanAutoControllerUnsafe(pc)
 
     local id, isAlpha = baseCharacterId(param:GetCharacterID():ToString())
     local level = tonumber(param:GetLevel()) or 0
-    local pairList = Config.findPairs(id)
+    local pairList, isPrestige = optionPairsFor(id)
     local bestIndex, bestCount = nil, -1
     local nextDelay = AUTO_SLOW_S
     local condCtx = { actor = actor, param = param, playerCtx = playerCtx, holder = holder }
 
     for i, pair in ipairs(pairList) do
         if pair.autoEvolve == true and not unknownConditionReason(pair)
-            and level >= (tonumber(pair.minLevel) or 0)
+            and level >= requiredLevelFor(pair)
             and not (isAlpha and not swapTargetId(pair, true)) then
             local met, total = Conditions.progress(pair, condCtx)
             nextDelay = math.min(nextDelay, autoDelayFor(met, total))
@@ -2889,7 +3173,8 @@ local function scanAutoControllerUnsafe(pc)
                 if okCost and affordable then
                     local count = conditionCount(pair)
                     if Config.evolutionMode ~= "conditioned" or count > bestCount then
-                        bestIndex, bestCount = i, count
+                        bestIndex = isPrestige and pair.prestigeIndex or i
+                        bestCount = count
                     end
                     if Config.evolutionMode ~= "conditioned" then break end
                 end
@@ -2898,7 +3183,12 @@ local function scanAutoControllerUnsafe(pc)
     end
 
     if bestIndex then
-        local started = handleEvolveByIndex(playerCtx, bestIndex)
+        local started
+        if isPrestige then
+            started = handlePrestigeByIndex(playerCtx, bestIndex)
+        else
+            started = handleEvolveByIndex(playerCtx, bestIndex)
+        end
         return nextDelay, started == true
     end
     return nextDelay, false
@@ -2970,7 +3260,7 @@ function Evolution.init()
         local pairIndex = type(request) == "table" and request.index or request
         local opcode = type(request) == "table" and request.opcode or NetChannel.OP_EVOLVE_LEGACY
         if opcode == NetChannel.OP_PRESTIGE then
-            return false, I18n.msg("optionUnavailable")
+            return handlePrestigeByIndex(senderCtx, pairIndex)
         end
         return handleEvolveByIndex(senderCtx, pairIndex)
     end)
