@@ -330,6 +330,21 @@ local function blueprintRegistrationPoll()
 end
 
 function ConditionFeed.init()
+    -- The whole tracker stays off on a dedicated server, not just its Blueprint
+    -- half. Both hooks end up in foodContainerUnsafe, which reads
+    -- SaveParameter.OwnerPlayerUId and hands it to GetInventoryDataByPlayerUID.
+    -- A second after a join that UID is not resolvable yet on the host, and the
+    -- native call dies reading 0xffffffffffffffff. The pcall around it is no
+    -- help: it catches Lua errors, not an access violation, which is why gating
+    -- only the Blueprint hook left the server crashing exactly as before.
+    --
+    -- The cost: fedFood never becomes true on a dedicated server. That is a
+    -- condition that quietly never fires, against a host process that reliably
+    -- dies on every join.
+    if Role.isDedicated() then
+        Log("feeding hooks skipped: dedicated server cannot resolve a joining player's inventory")
+        return
+    end
     if not registerNative() then Log("party feeding hook registration failed") end
     -- The hand-feed hook sits on a PLAYER action, and a dedicated server has no
     -- player to run it. Registering it there killed the process the moment
@@ -340,10 +355,6 @@ function ConditionFeed.init()
     -- What a server loses by skipping it: hand-feeding does not register as
     -- fedFood. A Pal eating on its own still does, through the native hook
     -- above, which is the Pal's own parameter and belongs to the host.
-    if Role.isDedicated() then
-        Log("hand-feed hook skipped: dedicated server has no local player")
-        return
-    end
     if not blueprintHookRegistered and not blueprintPollStarted then
         local ok = pcall(LoopAsync, 5000, blueprintRegistrationPoll)
         blueprintPollStarted = ok

@@ -245,34 +245,83 @@ end
 local TAG = "[Palvolve] "
 
 function Role.chat(playerCtx, msg, kind)
-    if not chatAllowed(kind or "info") then return true end
+    kind = kind or "info"
+    if not chatAllowed(kind) then
+        Log(string.format("[INFO] chat line deliberately suppressed by chat mode %s for kind %s",
+            tostring(Role.chatMode), tostring(kind)))
+        return true
+    end
     msg = tostring(msg)
     if msg:sub(1, #TAG) ~= TAG then msg = TAG .. msg end
     return Role.chatRaw(playerCtx, msg)
 end
 
+local function chatRecipient(playerCtx)
+    if not playerCtx then return "unknown player" end
+    if playerCtx.isLocal then return "local player" end
+    if playerCtx.playerUId then return "remote player with a receiver id" end
+    return "remote player without a receiver id"
+end
+
+--- Returns true when a render or send call was issued without throwing. The
+--- engine exposes no delivery acknowledgement for either path, so the log says
+--- issued rather than sent and names the kind of receiver without exposing ids.
 function Role.chatRaw(playerCtx, msg)
-    if not (playerCtx and playerCtx.pc and playerCtx.pc:IsValid()) then return false end
+    local recipient = chatRecipient(playerCtx)
+    if not playerCtx then
+        Log("[ERROR] chat not issued to " .. recipient .. ": player context is missing")
+        return false
+    end
+    if type(msg) ~= "string" or msg == "" then
+        Log(string.format("[ERROR] chat not issued to %s: message must be a non-empty string, got %s",
+            recipient, type(msg)))
+        return false
+    end
+    local okPc, pcValid = pcall(function()
+        return playerCtx.pc ~= nil and playerCtx.pc:IsValid()
+    end)
+    if not okPc then
+        Log(string.format("[ERROR] chat context validation failed for %s: %s",
+            recipient, tostring(pcValid)))
+        return false
+    end
+    if not pcValid then
+        Log("[ERROR] chat not issued to " .. recipient .. ": player controller is invalid")
+        return false
+    end
     -- The targeted system chat is proven only for REMOTE receivers (authority
     -- sending to a connected client) - exactly the case where the legacy RPC
     -- leaked into the global chat. For the LOCAL player it renders nothing in
     -- standalone (the call succeeds but no line appears), so the local player
     -- keeps the legacy receive RPC: it runs on this machine alone, which makes
     -- it private by construction in single player and on a pure client.
-    local sent = false
+    local issued = false
     if playerCtx.playerUId and Role.hasWorldAuthority() and not playerCtx.isLocal then
-        pcall(function()
+        local okTargeted, targetedErr = pcall(function()
             local util = StaticFindObject("/Script/Pal.Default__PalUtility")
             local world = FindFirstOf("World")
-            if util and util:IsValid() and world and world:IsValid() then
-                local g = playerCtx.playerUId
-                util:SendSystemToPlayerChat(world, tostring(msg),
-                    { { A = g.A, B = g.B, C = g.C, D = g.D } })
-                sent = true
+            if not (util and util:IsValid()) then error("PalUtility is unavailable") end
+            if not (world and world:IsValid()) then error("world context is unavailable") end
+            local g = playerCtx.playerUId
+            if g.A == nil or g.B == nil or g.C == nil or g.D == nil then
+                error("receiver id is incomplete")
             end
+            util:SendSystemToPlayerChat(world, msg,
+                { { A = g.A, B = g.B, C = g.C, D = g.D } })
         end)
+        if okTargeted then
+            issued = true
+            Log(string.format("[INFO] targeted system chat call issued to %s (%d bytes); delivery is not observable",
+                recipient, #msg))
+        else
+            Log(string.format("[ERROR] targeted system chat call failed for %s: %s; trying the receive fallback",
+                recipient, tostring(targetedErr)))
+        end
+    elseif not playerCtx.isLocal then
+        Log(string.format("[WARN] targeted system chat not available for %s; trying the receive fallback",
+            recipient))
     end
-    if sent then return true end
+    if issued then return true end
 
     -- Local render, without the [SYSTEM] sender the host can set.
     --
@@ -298,9 +347,16 @@ function Role.chatRaw(playerCtx, msg)
     -- render looks like. The host case is still unmeasured, and it keeps this
     -- path anyway: a host that silently loses every message the mod has for it
     -- is a certain loss, against guests possibly seeing a line about a Pal.
-    local ok = pcall(function()
-        playerCtx.pc:EnterChat_Receive(tostring(msg), 1)
+    local ok, fallbackErr = pcall(function()
+        playerCtx.pc:EnterChat_Receive(msg, 1)
     end)
+    if ok then
+        Log(string.format("[INFO] chat receive call issued to %s (%d bytes); delivery is not observable",
+            recipient, #msg))
+    else
+        Log(string.format("[ERROR] chat receive call failed for %s: %s",
+            recipient, tostring(fallbackErr)))
+    end
     return ok
 end
 

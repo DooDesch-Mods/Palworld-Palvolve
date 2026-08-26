@@ -187,55 +187,153 @@ end
 function GuidePages.write(text)
     local path = guideFile()
     if not path then
-        Log("guide pages: could not resolve the PalSchema folder - pages unchanged")
+        Log("[ERROR] guide pages: could not resolve the PalSchema folder - pages unchanged")
         return false
     end
 
     local existing = nil
-    local f = io.open(path, "rb")
+    local f, openErr, openCode = io.open(path, "rb")
     if f then
-        existing = f:read("*a")
-        f:close()
+        local readErr
+        existing, readErr = f:read("*a")
+        local closed, closeErr = f:close()
+        if not existing then
+            Log("[ERROR] guide pages: existing guide read failed - pages unchanged: "
+                .. tostring(readErr))
+            return false
+        end
+        if not closed then
+            Log("[ERROR] guide pages: existing guide close failed - pages unchanged: "
+                .. tostring(closeErr))
+            return false
+        end
+    elseif openCode == 2 then
+        Log("[INFO] guide pages: no existing guide file; a new one will be written")
+    else
+        Log("[ERROR] guide pages: existing guide could not be opened - pages unchanged: "
+            .. tostring(openErr))
+        return false
     end
-    if existing == text then return true end
+    if existing == text then
+        Log("[INFO] guide pages: generated content already matches the guide file")
+        return true
+    end
 
     local tmp = path .. ".new"
-    local out = io.open(tmp, "wb")
+    local function removeTemp(reason)
+        local removed, removeErr, removeCode = os.remove(tmp)
+        if removed then
+            Log("[INFO] guide pages: temporary file removed after " .. reason)
+        elseif removeCode == 2 then
+            Log("[INFO] guide pages: temporary cleanup skipped after " .. reason .. " - file absent")
+        else
+            Log("[WARN] guide pages: temporary cleanup failed after " .. reason .. ": "
+                .. tostring(removeErr))
+        end
+    end
+    local out, outOpenErr = io.open(tmp, "wb")
     if not out then
-        Log("guide pages: cannot write next to the PalSchema guide file - pages unchanged")
+        Log("[ERROR] guide pages: cannot write next to the PalSchema guide file - pages unchanged: "
+            .. tostring(outOpenErr))
         return false
     end
-    local wrote = out:write(text)
-    local closed = out:close()
+    local wrote, writeErr = out:write(text)
+    local closed, closeErr = out:close()
     if not (wrote and closed) then
-        os.remove(tmp)
-        Log("guide pages: write failed - pages unchanged")
+        removeTemp("write failure")
+        Log("[ERROR] guide pages: write or close failed - pages unchanged: write="
+            .. tostring(writeErr) .. ", close=" .. tostring(closeErr))
         return false
     end
 
-    local check = io.open(tmp, "rb")
-    local verify = check and check:read("*a") or nil
-    if check then check:close() end
+    local check, checkOpenErr = io.open(tmp, "rb")
+    if not check then
+        removeTemp("verification open failure")
+        Log("[ERROR] guide pages: written file could not be opened for verification - pages unchanged: "
+            .. tostring(checkOpenErr))
+        return false
+    end
+    local verify, verifyReadErr = check:read("*a")
+    local verifyClosed, verifyCloseErr = check:close()
+    if not verifyClosed then
+        removeTemp("verification close failure")
+        Log("[ERROR] guide pages: verification file close failed - pages unchanged: "
+            .. tostring(verifyCloseErr))
+        return false
+    end
     if verify ~= text then
-        os.remove(tmp)
-        Log("guide pages: written file did not verify - pages unchanged")
+        removeTemp("verification failure")
+        Log("[ERROR] guide pages: written file did not verify - pages unchanged: "
+            .. tostring(verifyReadErr))
         return false
     end
 
     local backup = path .. ".bak"
-    os.remove(backup)
-    if existing and not os.rename(path, backup) then
-        os.remove(tmp)
-        Log("guide pages: could not set the old file aside - pages unchanged")
+    if not existing then
+        local stranded, strandedOpenErr, strandedOpenCode = io.open(backup, "rb")
+        if stranded then
+            local strandedClosed, strandedCloseErr = stranded:close()
+            removeTemp("stranded rollback detection")
+            if not strandedClosed then
+                Log("[ERROR] guide pages: live guide is missing and its rollback file could not be closed: "
+                    .. tostring(strandedCloseErr))
+            else
+                Log("[ERROR] guide pages: live guide is missing while its original remains at " .. backup
+                    .. " - pages unchanged; restore that file by hand")
+            end
+            return false
+        elseif strandedOpenCode ~= 2 then
+            removeTemp("rollback inspection failure")
+            Log("[ERROR] guide pages: rollback file could not be inspected - pages unchanged: "
+                .. tostring(strandedOpenErr))
+            return false
+        end
+        Log("[INFO] guide pages: no stranded rollback file found")
+    end
+    local oldRemoved, oldRemoveErr, oldRemoveCode = os.remove(backup)
+    if oldRemoved then
+        Log("[INFO] guide pages: stale rollback file removed")
+    elseif oldRemoveCode == 2 then
+        Log("[INFO] guide pages: no stale rollback file needed cleanup")
+    else
+        removeTemp("stale rollback cleanup failure")
+        Log("[ERROR] guide pages: stale rollback file could not be removed - pages unchanged: "
+            .. tostring(oldRemoveErr))
         return false
     end
-    if not os.rename(tmp, path) then
-        if existing then os.rename(backup, path) end
-        os.remove(tmp)
-        Log("guide pages: could not swap the guide file in - pages unchanged")
+    if existing then
+        local backedUp, backupErr = os.rename(path, backup)
+        if not backedUp then
+            removeTemp("backup rename failure")
+            Log("[ERROR] guide pages: could not set the old file aside - pages unchanged: "
+                .. tostring(backupErr))
+            return false
+        end
+    end
+    if existing then Log("[INFO] guide pages: original guide file set aside for rollback") end
+    local swapped, swapErr = os.rename(tmp, path)
+    if not swapped then
+        if existing then
+            local rolledBack, rollbackErr = os.rename(backup, path)
+            if rolledBack then
+                Log("[WARN] guide pages: replacement failed and the original file was restored")
+            else
+                Log("[ERROR] guide pages: replacement failed and rollback rename failed: "
+                    .. tostring(rollbackErr) .. "; the original remains at " .. backup)
+            end
+        else
+            Log("[ERROR] guide pages: replacement failed and there was no original file to restore")
+        end
+        removeTemp("replacement failure")
+        Log("[ERROR] guide pages: could not swap the guide file in - pages unchanged: "
+            .. tostring(swapErr))
         return false
     end
-    os.remove(backup)
+    local backupRemoved, backupRemoveErr, backupRemoveCode = os.remove(backup)
+    if not backupRemoved and backupRemoveCode ~= 2 then
+        Log("[WARN] guide pages: pages updated, but rollback file cleanup failed at " .. backup
+            .. ": " .. tostring(backupRemoveErr))
+    end
     return true
 end
 
@@ -288,7 +386,7 @@ function GuidePages.onEnterWorld(worldCtx)
                 return
             end
             if GuidePages.write(text) then
-                Log("guide pages: survival guide updated, visible after the next start")
+                Log("[INFO] guide pages: survival guide updated, visible after the next start")
             end
         end)
         return true

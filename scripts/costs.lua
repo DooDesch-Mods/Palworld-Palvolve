@@ -46,61 +46,137 @@ end
 -- requesting player's controller must be threaded through explicitly.
 local function inventoryDataFor(playerCtx)
     local inv = nil
-    pcall(function()
+    local ok, err = pcall(function()
         local pc = playerCtx and playerCtx.pc
         if pc and pc:IsValid() then
             inv = pc:GetPalPlayerState():GetInventoryData()
         end
     end)
+    if not ok then
+        Log("[ERROR] inventory lookup failed for the requesting player: " .. tostring(err))
+        return nil
+    end
     if inv and inv:IsValid() then return inv end
+    Log("[ERROR] inventory lookup returned no valid inventory for the requesting player")
     return nil
 end
 
 function Costs.countItem(playerCtx, staticItemId)
-    local n = 0
-    pcall(function()
-        local inv = inventoryDataFor(playerCtx)
-        if inv then n = inv:CountItemNum(FName(staticItemId)) end
+    local inv = inventoryDataFor(playerCtx)
+    if not inv then
+        Log(string.format("[ERROR] count not attempted for %s: inventory unavailable",
+            tostring(staticItemId)))
+        return 0
+    end
+    local ok, n = pcall(function()
+        return inv:CountItemNum(FName(staticItemId))
     end)
+    if not ok then
+        Log(string.format("[ERROR] count failed for %s: %s",
+            tostring(staticItemId), tostring(n)))
+        return 0
+    end
+    if type(n) ~= "number" then
+        Log(string.format("[ERROR] count failed for %s: engine returned %s",
+            tostring(staticItemId), type(n)))
+        return 0
+    end
     return n
 end
 
 -- Consumes `need` items; success is determined from the count difference
 -- (RequestConsumeInventoryItem is the only BP-exposed consume path).
 local function tryConsumeItems(playerCtx, staticItemId, need)
-    local ok = false
-    pcall(function()
-        local inv = inventoryDataFor(playerCtx)
-        if not inv then return end
+    need = tonumber(need)
+    if not need or need < 1 or need % 1 ~= 0 then
+        Log(string.format("[ERROR] consume not attempted for %s: invalid count %s",
+            tostring(staticItemId), tostring(need)))
+        return false, 0
+    end
+    local inv = inventoryDataFor(playerCtx)
+    if not inv then
+        Log(string.format("[ERROR] consume not attempted for %s x%d: inventory unavailable",
+            tostring(staticItemId), need))
+        return false, 0
+    end
+    local okBefore, before = pcall(function()
         local id = FName(staticItemId)
-        local before = inv:CountItemNum(id)
-        if before < need then return end
-        local cdo = StaticFindObject("/Script/Pal.Default__PalIncidentBase")
-        if cdo and cdo:IsValid() then
-            cdo:RequestConsumeInventoryItem(inv, id, need)
-        end
-        local after = inv:CountItemNum(id)
-        ok = (before - after) == need
+        return inv:CountItemNum(id)
     end)
-    return ok
+    if not okBefore or type(before) ~= "number" then
+        Log(string.format("[ERROR] pre-consume count failed for %s x%d: %s",
+            tostring(staticItemId), need, tostring(before)))
+        return false, 0
+    end
+    if before < need then
+        Log(string.format("[INFO] consume skipped for %s x%d: only %d available",
+            tostring(staticItemId), need, before))
+        return false, 0
+    end
+    local cdo = StaticFindObject("/Script/Pal.Default__PalIncidentBase")
+    if not (cdo and cdo:IsValid()) then
+        Log(string.format("[ERROR] consume not attempted for %s x%d: PalIncidentBase unavailable",
+            tostring(staticItemId), need))
+        return false, 0
+    end
+    local okConsume, consumeErr = pcall(function()
+        cdo:RequestConsumeInventoryItem(inv, FName(staticItemId), need)
+    end)
+    if not okConsume then
+        Log(string.format("[ERROR] consume call failed for %s x%d: %s",
+            tostring(staticItemId), need, tostring(consumeErr)))
+        return false, 0
+    end
+    local okAfter, after = pcall(function()
+        return inv:CountItemNum(FName(staticItemId))
+    end)
+    if not okAfter or type(after) ~= "number" then
+        Log(string.format("[ERROR] post-consume count failed for %s x%d: %s; inventory state is unknown",
+            tostring(staticItemId), need, tostring(after)))
+        return false, nil
+    end
+    local taken = before - after
+    if taken ~= need then
+        Log(string.format("[ERROR] consume verification failed for %s x%d: count changed from %d to %d",
+            tostring(staticItemId), need, before, after))
+        return false, math.min(need, math.max(0, taken))
+    end
+    Log(string.format("[INFO] consumed %s x%d for the requesting player",
+        tostring(staticItemId), need))
+    return true, need
 end
 
 -- Deletes `count` items from the player's inventory for real. The in-game
 -- discard only DROPS items to the ground, where they persist in the save -
 -- this is the only true removal path exposed to Lua.
 function Costs.removeAll(playerCtx, staticItemId, count)
-    return tryConsumeItems(playerCtx, staticItemId, count)
+    local ok = tryConsumeItems(playerCtx, staticItemId, count)
+    return ok
 end
 
 local function giveItems(playerCtx, staticItemId, count)
-    local res = -1
-    pcall(function()
-        local inv = inventoryDataFor(playerCtx)
-        if inv then
-            res = inv:AddItem_ServerInternal(FName(staticItemId), count, false, 0.0, true)
-        end
+    local inv = inventoryDataFor(playerCtx)
+    if not inv then
+        Log(string.format("[ERROR] give not attempted for %s x%s: inventory unavailable",
+            tostring(staticItemId), tostring(count)))
+        return false
+    end
+    local ok, res = pcall(function()
+        return inv:AddItem_ServerInternal(FName(staticItemId), count, false, 0.0, true)
     end)
-    return res == 0
+    if not ok then
+        Log(string.format("[ERROR] give call failed for %s x%s: %s",
+            tostring(staticItemId), tostring(count), tostring(res)))
+        return false
+    end
+    if res ~= 0 then
+        Log(string.format("[ERROR] give failed for %s x%s: engine result %s",
+            tostring(staticItemId), tostring(count), tostring(res)))
+        return false
+    end
+    Log(string.format("[INFO] gave %s x%s to the requesting player",
+        tostring(staticItemId), tostring(count)))
+    return true
 end
 
 -- ---------------------------------------------------------------- drop data
@@ -326,21 +402,45 @@ end
 function Costs.beginTransaction(playerCtx, costList)
     local consumed = {}
     for _, c in ipairs(costList) do
-        if tryConsumeItems(playerCtx, c.id, c.count) then
+        local consumedOk, taken = tryConsumeItems(playerCtx, c.id, c.count)
+        if consumedOk then
             table.insert(consumed, c)
         else
-            for i = #consumed, 1, -1 do
-                giveItems(playerCtx, consumed[i].id, consumed[i].count)
+            if type(taken) == "number" and taken > 0 then
+                table.insert(consumed, { id = c.id, count = taken })
+                Log(string.format("[WARN] partial consume recorded for refund: %s x%d",
+                    tostring(c.id), taken))
+            elseif taken == nil then
+                Log(string.format("[ERROR] consume state is unknown for %s x%s; refund can only cover verified deductions",
+                    tostring(c.id), tostring(c.count)))
             end
-            return nil, c
+            local refunded = true
+            for i = #consumed, 1, -1 do
+                if not giveItems(playerCtx, consumed[i].id, consumed[i].count) then
+                    refunded = false
+                end
+            end
+            if refunded then
+                Log(string.format("[INFO] partial cost consumption rolled back after %s x%s failed",
+                    tostring(c.id), tostring(c.count)))
+            else
+                Log(string.format("[ERROR] partial cost refund failed after %s x%s could not be consumed; items may be missing",
+                    tostring(c.id), tostring(c.count)))
+            end
+            return nil, c, refunded
         end
     end
     local txn = { done = false }
     function txn.commit()
         txn.done = true
+        Log(string.format("[INFO] cost transaction committed with %d item entr%s",
+            #consumed, #consumed == 1 and "y" or "ies"))
     end
     function txn.refund(reason)
-        if txn.done then return end
+        if txn.done then
+            Log("[INFO] cost refund skipped because the transaction is already closed")
+            return
+        end
         txn.done = true
         local allOk = true
         for i = #consumed, 1, -1 do
@@ -348,9 +448,10 @@ function Costs.beginTransaction(playerCtx, costList)
         end
         if #consumed > 0 then
             if allOk then
-                Log("Cost refunded (" .. reason .. ")")
+                Log("[INFO] cost refunded (" .. tostring(reason) .. ")")
             else
-                Log("Cost refund PARTIALLY FAILED (" .. reason .. ") - please report")
+                Log("[ERROR] cost refund PARTIALLY FAILED (" .. tostring(reason)
+                    .. ") - items may be missing; please report")
             end
         end
     end

@@ -19,8 +19,8 @@
 -- unmet regardless of polarity, so "!" can never turn a failure into a met
 -- condition.
 --
--- This module must not require config.lua (config.lua requires this module
--- for its sanitizer); devMode is read lazily via package.loaded.
+-- This module must not require config.lua because config.lua requires this
+-- module for its sanitizer.
 
 local I18n = require("i18n")
 local ConditionFeed = require("conditionfeed")
@@ -30,11 +30,6 @@ local Conditions = {}
 
 local function Log(msg)
     print(string.format("[Palvolve] %s\n", msg))
-end
-
-local function devMode()
-    local cfg = package.loaded and package.loaded["config"]
-    return type(cfg) == "table" and cfg.devMode == true
 end
 
 -- ------------------------------------------------------------- game constants
@@ -1072,20 +1067,27 @@ end
 
 -- Evaluates one id; API errors and unknown ids count as NOT met (fail
 -- closed) REGARDLESS of polarity - "!" only inverts a clean boolean result,
--- so an eval failure can never satisfy a negated condition.
+-- so an eval failure can never satisfy a negated condition. A refusal caused
+-- by an evaluation failure is always warned about, independent of devMode.
 local function evalOne(id, ctx)
     local negated, base = splitNegation(id)
     local prefix, value = splitParamId(base)
     local evaluator = prefix and PARAM_EVAL[prefix] or BOOL_EVAL[base]
-    if not evaluator then return false end
-    local ok, result = pcall(evaluator, ctx, value)
-    if not ok then
-        if devMode() then
-            Log(string.format("[cond] %s eval error: %s", id, tostring(result)))
-        end
+    if not evaluator then
+        Log(string.format("[WARN] condition %s could not be evaluated: no evaluator", tostring(id)))
         return false
     end
-    if type(result) ~= "boolean" then return false end
+    local ok, result = pcall(evaluator, ctx, value)
+    if not ok then
+        Log(string.format("[WARN] condition %s could not be evaluated: %s",
+            tostring(id), tostring(result)))
+        return false
+    end
+    if type(result) ~= "boolean" then
+        Log(string.format("[WARN] condition %s could not be evaluated: evaluator returned %s",
+            tostring(id), type(result)))
+        return false
+    end
     local met = result == true
     if negated then return not met end
     return met
