@@ -7,6 +7,10 @@
 --   MedicineFacility_01 -> the appended Palvolve_Craft entry is reverted so
 --                          the vanilla bench stays a pure medicine bench
 --
+-- Our own entry is located by identity, never by position: PalSchema's object
+-- form appends rather than replaces, so any other mod that adds an item type to
+-- the same converter shifts the list under us.
+--
 -- Timing: NotifyOnNewObject only ENQUEUES; a single LoopAsync drains the
 -- queue with retries. ExecuteWithDelay is avoided on purpose - its transient
 -- callback refs get garbage collected under load ("Ref was not function"),
@@ -20,7 +24,7 @@ local OUR_ID = "Palvolve_ElementExtractor"
 local VANILLA_ID = "MedicineFacility_01"
 -- optional diagnostics: logs converter state before/after patching
 local PROBE = false
-local MAX_TRIES = 8
+local MAX_TRIES = 20
 -- The install check waits for the item manager, which belongs to the game
 -- instance and is not up when this loop first runs. Without a budget of its own
 -- the loop goes idle after the first sweep and the check never gets a second
@@ -30,6 +34,35 @@ local INSTALL_CHECK_TRIES = 60
 
 local function Log(msg)
     print(string.format("[Palvolve] %s\n", msg))
+end
+
+-- Enum values arrive from the engine either as plain numbers or as wrapped
+-- values, and the two never compare equal. Everything that has to be MATCHED
+-- goes through this; everything that has to be WRITTEN is copied from another
+-- slot of the same array, so no enum value is ever built here.
+local function enumKey(value)
+    if type(value) == "userdata" or type(value) == "table" then
+        local ok, inner = pcall(function() return value:get() end)
+        if ok and inner ~= nil then return tostring(inner) end
+    end
+    return tostring(value)
+end
+
+-- Which enum value Palvolve_Craft ended up as is decided by PalSchema when it
+-- adds the enumerator, so it is read off our own item rather than assumed to be
+-- at a fixed place in the converter list. Cached: it cannot change while the
+-- game runs.
+local craftType = nil
+
+local function resolveCraftType()
+    if craftType ~= nil then return craftType end
+    pcall(function()
+        local mgr = FindFirstOf("PalItemIDManager")
+        if not (mgr and mgr:IsValid()) then return end
+        local data = mgr:GetStaticItemData(FName("Palvolve_EvolutionStone"))
+        if data and data:IsValid() then craftType = data.TypeB end
+    end)
+    return craftType
 end
 
 local function typesToString(arr)
@@ -68,17 +101,52 @@ local function patchModel(model)
             Log(string.format("[probe-conv] %s: typesB=[%s] rankMax=%s recipes=%d",
                 id, typesToString(types), tostring(model.TargetRankMax), recipeCount(model)))
         end
-        -- the appended Palvolve_Craft entry is the LAST one in the class
-        -- default list (Medicine, Drug, ConsumeGainStatusPoints, Palvolve_Craft)
+        -- Our own entry is found by identity, never by position. It used to be
+        -- read as "the last one", which held only as long as Palvolve was the
+        -- last mod to touch this list. PalSchema's object form APPENDS, so a
+        -- second mod adding its own type pushes ours out of the last slot, and
+        -- the bench then filtered for the stranger's type instead of ours.
+        local craft = resolveCraftType()
+        if craft == nil then
+            done = false
+            return
+        end
+        local craftKey = enumKey(craft)
+        local ourIndex = nil
+        for i = 1, n do
+            if enumKey(types[i]) == craftKey then
+                ourIndex = i
+                break
+            end
+        end
+
         if id == OUR_ID then
             -- host has no Palvolve: leave the extractor bench unpatched so it does
             -- not advertise mod recipes the server will never craft (the vanilla
             -- medicine-bench revert below still runs - that is a client-only cleanup)
             if ServerCheck.blocked() then return end
-            local craftType = types[n]
-            for i = 1, n do types[i] = craftType end
-        elseif n >= 2 then
-            types[n] = types[1]
+            if not ourIndex then
+                -- PalSchema has not applied our entry yet; retry rather than
+                -- filling the bench with whatever happens to be in slot one
+                done = false
+                return
+            end
+            local ourValue = types[ourIndex]
+            for i = 1, n do types[i] = ourValue end
+        elseif ourIndex then
+            -- Only our own entries leave the vanilla bench. Whatever another mod
+            -- put here stays, wherever it sits.
+            local replacement = nil
+            for i = 1, n do
+                if enumKey(types[i]) ~= craftKey then
+                    replacement = types[i]
+                    break
+                end
+            end
+            if replacement == nil then return end
+            for i = 1, n do
+                if enumKey(types[i]) == craftKey then types[i] = replacement end
+            end
         end
         if PROBE or Config.devMode then
             Log(string.format("[probe-conv] %s: patched typesB=[%s]", id, typesToString(model.TargetTypesB)))
