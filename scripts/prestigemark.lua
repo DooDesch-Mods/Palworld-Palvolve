@@ -394,51 +394,44 @@ function PrestigeMark.reconcile(actor)
     removeGlow(actor)
 end
 
---- Re-marks every Pal in the world with a named system. Dev lever: it turns
---- "which of these looks right" from one game restart per candidate into one
---- chat line per candidate.
---- Re-marks every tracked Pal as if it were at `stage`. nil restores the real
---- one. This is what the debug key drives: one press, one rung of the ladder,
---- on the Pal that is actually out.
+--- Re-marks every visible Pal as if it were at `stage`. nil restores the real
+--- one. This is what the debug key drives: one press, one rung of the ladder.
+---
+--- The WORLD, not only the pals already marked: a pal that has never prestiged
+--- is not in that list, so stepping the ladder on a freshly summoned one showed
+--- nothing at all.
 function PrestigeMark.setStage(stage)
     stageOverride = stage and math.max(1, math.min(math.floor(stage), #STAGE_GLOW)) or nil
 
-    -- The WORLD, not only the pals already marked. A pal that has never
-    -- prestiged is not in that list, so stepping the ladder on a freshly
-    -- summoned one showed nothing at all - which is exactly what a dev key must
-    -- not do. With an override set every visible pal wears the rung; clearing it
-    -- puts each one back to what it actually earned.
     local actors = {}
     pcall(function() actors = FindAllOf("PalCharacter") or {} end)
     local count = 0
-    -- Names every actor the sweep touches. F5 spawns a loud effect at the player
-    -- and it is not clear WHICH actor wears it; a list settles that in one press
-    -- instead of one guess per round.
-    local touched = {}
-    for _, actor in ipairs(actors) do
-        if isLive(actor) then
-            local cls, nm = "?", "?"
-            pcall(function() cls = actor:GetClass():GetFullName() end)
-            pcall(function() nm = actor:GetFullName() end)
-            touched[#touched + 1] = string.format("%s%s",
-                nm, isPlayerActor(actor, nil) and " [PLAYER, skipped]" or "")
-        end
-    end
-    Log("prestige marker sweep: " .. table.concat(touched, " | "))
+    local skipped = 0
 
     for _, actor in ipairs(actors) do
-        if isLive(actor) and not isPlayerActor(actor, nil) then
+        if not isLive(actor) then
+            skipped = skipped + 1
+        elseif isPlayerActor(actor, nil) then
+            -- The player character IS a PalCharacter subclass. It wore the
+            -- shimmer twice before this guard existed, the second time at the
+            -- height of the mesh capsule, which put a looping effect over the
+            -- player's head with no way to take it off.
+            skipped = skipped + 1
+        else
             -- the marker always comes OFF, hidden or not: that is how a parked
             -- actor loses one it should never have had
             removeGlow(actor)
             if isVisibleActor(actor) then
                 PrestigeMark.reconcile(actor)
                 count = count + 1
+            else
+                skipped = skipped + 1
             end
         end
     end
     local label = stageOverride and tostring(stageOverride) or "real"
-    Log(string.format("prestige marker: stage %s, %d pal(s) re-marked", label, count))
+    Log(string.format("prestige marker: stage %s, %d pal(s) re-marked, %d skipped",
+        label, count, skipped))
     pcall(function()
         Role.chat(Role.localPlayerCtx(), string.format("Palvolve prestige stage: %s", label))
     end)

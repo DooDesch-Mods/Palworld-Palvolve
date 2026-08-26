@@ -2,34 +2,29 @@
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-08-27
+
 ### Added
 
-- **Prestige gets its own presentation, and it grows with every prestige.** Ten stages, from 13.5 seconds at the first to 20 seconds at the tenth, against 12.5 for an evolution.
-- **A prestiged Pal shimmers from then on.** Ten looks, one per stage, visible to everyone who can see it. Nothing is written to your save.
-- **An evolved Pal keeps every move it knew.** The moves it could choose from carry over, so the choice grows with each evolution instead of being traded in. Exclusive moves are still dropped, because they break the new form.
+- **A Pal at the end of its line can prestige and start over.** Level goes back to 1 and everything it earned stays: name, IVs, soul ranks, moves, other passives. Each prestige adds a rank of the Prestige passive, up to X. A Pal that still has an evolution ahead of it evolves first.
+- **Two settings decide who may prestige.** `prestigeMinEvolutions` is how long the chain behind a Pal has to be, `prestigeMinLevel` the level it has to reach. On the shipped tree, 0 opens prestige to 174 connections and 4 narrows it to 3. Both travel with the tree, so a server decides for everyone on it.
+- **Prestige has its own presentation, and it grows every time.** Ten stages, 13.5 seconds at the first and 20 at the tenth, against 12.5 for an evolution.
+- **A prestiged Pal shimmers from then on.** Ten looks, one per stage, and everyone who can see the Pal sees it. Nothing is written to your save.
+- **An evolved Pal keeps every move it knew.** The pool it can pick from carries over, so the choice grows with each evolution instead of being traded in. Exclusive moves are still dropped: they belong to the old form and break the new one.
 - **New setting `moveInheritance`:** `off`, `equipped` or `known`. It replaces `inheritNonUniqueMoves`.
+- **Six new condition types.** A named move, a named passive, an item or an amount of gold in the inventory, condenser rank, condenser souls, and the last thing the Pal was fed. All six can be negated, and none of them take anything away.
+- **A pair can evolve on its own.** The watcher follows your summoned Pal and checks more often as more of that pair's conditions come true. It runs the same path a manual evolution runs, so it cannot skip a cost or a rollback.
+- **A pair can carry its own material cost**, instead of the one the global settings work out.
+- **Evolved I to IV.** A passive that gains a rank with every evolution, next to the +5 IV each stage already gives.
 
 ### Fixed
 
 - **Evolution stones came back to the Pal Alchemy Workbench next to other PalSchema mods.** Palvolve claimed the last slot of the bench filter, and a second mod adding its own item type pushed it out. Reported by Shas Hakomairos.
-- Inventory lookup, counting, consumption and give-back failures now name the failed action and item in the log. Verified deductions are recorded before a partial transaction is refunded, every refund result is checked, and an unknown post-consume state is reported as unknown instead of looking like an ordinary missing-cost refusal.
-- Server tree transport now distinguishes an issued engine call from delivery. Clients log whether each queued frame was applied, rejected and dropped, or kept after scheduling failed. A received tree is only announced as active after its chat setting and every dependent cache have refreshed; a failed activation restores the previous tree and reports whether that rollback completed.
-- Private chat now validates its controller, receiver and message before calling the engine. The log names the local or remote receiver class, says which chat path was issued, and makes clear that the engine provides no delivery acknowledgement.
-- A condition evaluator that throws, is missing, or returns something other than a boolean now warns outside diagnostic mode. The evolution still refuses closed, but it no longer looks like an ordinary unmet condition in the log.
-- Config copies are checked through read, write, close and an exact read-back before a migration or backup can succeed. Backup pruning, migration notices and source cleanup now report failed or deliberately tolerated file operations.
-- Workbench stage and survival guide replacement now check temporary cleanup, verification closes, stale backup cleanup and rollback renames. If a replacement and its rollback both fail, the log names where the original remains instead of claiming the live file is unchanged.
-
-### In-game checks
-
-These checks are outstanding because they require a running game or dedicated server:
-
-- Configure a two-entry evolution cost, evolve normally, and confirm the log records each verified consume and the committed transaction without exposing a player id. Repeat with a fault-injection build that makes the second consume partial and its give-back fail; confirm the first and partial deductions are both refunded when possible and any failed item return is an error naming the item and count.
-- Join a dedicated server whose tree and synchronized settings differ from the client. Confirm the host logs both protocol calls as issued, the client logs each queued frame as applied, and the Palpedia, radial choices and quoted costs all show the server tree. Force `ExecuteInGameThread` to throw once and confirm queued frames are kept for the next scheduling attempt; inject a malformed frame and confirm it is warned about and deliberately dropped.
-- While connected as a guest, run `!palvolve help` and trigger one evolution refusal. Confirm the host logs a targeted system chat call issued to a remote player and the guest receives exactly one private line. From the UE4SS Lua console, call `require("role").chatRaw(nil, "test")` and confirm it returns false with an error naming the missing context.
-- Configure an evolution with a condition whose game lookup is faulted to throw, then try it with `devMode = false`. Confirm the evolution is refused and the log warns that the named condition could not be evaluated rather than reporting only that it was unmet.
-- Put a valid `config_user.lua` in the mod scripts folder while another valid file exists in the durable folder, then start the game. Byte-compare the timestamped backup and migrated file with their sources and confirm the log records the backup, verified migration, notice write and source removal. Repeat with the target folder read-only and confirm no migration success is announced.
-- Change `techLevelCap` and start once with the PalSchema building folder writable, then once with the live file locked during the replacement rename. Confirm the successful run changes only `LevelCap`; on the failed run confirm the original is restored, or the error names the `.bak` path if rollback is also forced to fail.
-- Enter a world so the survival guide is generated, then repeat with its live file locked during replacement. Confirm success is only announced after verification and swap; if rollback is forced to fail, confirm the original remains at the logged `.bak` path and the next run refuses to delete that stranded copy.
+- **Feeding a Pal by hand could take a dedicated server down when someone joined.**
+- **Picking one variant of a pair could evolve the other.** The price of whichever variant resolved first was also quoted for both.
+- **The wheel unlocked before the evolution had finished playing.**
+- **The config-loaded notice was English for everyone.** The sentence already existed in all 17 languages.
+- **A failed step looked exactly like a step that never ran.** Costs, config migration, server tree transport, private chat and the workbench and survival guide edits now name the action, the item and the file in the log, and a rollback that could not finish says where the original is.
 
 ## [1.8.4] - 2026-08-16
 
