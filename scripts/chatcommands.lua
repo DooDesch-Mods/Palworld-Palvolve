@@ -57,17 +57,22 @@ local function senderCtxForUid(uid)
     return found
 end
 
--- Splits "!palvolve rollback" into its subcommand, nil for anything that is
--- not addressed to this mod.
+-- Splits "!palvolve prestige 7 3" into its subcommand and the words after it,
+-- nil for anything that is not addressed to this mod. Handlers that take no
+-- arguments simply ignore the second return.
 local function subcommandOf(lower)
     local first = lower:match("^(%S+)")
     if not first then return nil end
     if not SIGILS[first:sub(1, 1)] then return nil end
     if first:sub(2) ~= NAME then return nil end
-    return lower:match("^%S+%s+(%S+)") or "help"
+    local sub, rest = lower:match("^%S+%s+(%S+)%s*(.*)$")
+    if not sub then return "help", {} end
+    local args = {}
+    for word in tostring(rest or ""):gmatch("%S+") do args[#args + 1] = word end
+    return sub, args
 end
 
--- handlers = { rollback = function(playerCtx) ... end, ... }; unknown
+-- handlers = { rollback = function(playerCtx, args) ... end, ... }; unknown
 -- subcommands fall back to handlers.help
 function ChatCommands.init(handlers)
     return pcall(function()
@@ -82,7 +87,7 @@ function ChatCommands.init(handlers)
                 local text = ""
                 pcall(function() text = chat.Message:ToString() end)
                 if type(text) ~= "string" then return end
-                local sub = subcommandOf(text:lower())
+                local sub, args = subcommandOf(text:lower())
                 if not sub then return end
                 local ctx = nil
                 pcall(function() ctx = senderCtxForUid(chat.SenderPlayerUId) end)
@@ -110,7 +115,7 @@ function ChatCommands.init(handlers)
                         -- call on a freed controller is a native crash that
                         -- pcall does not catch
                         if not (ctx.pc and ctx.pc:IsValid()) then return end
-                        pcall(handler, ctx)
+                        pcall(handler, ctx, args or {})
                     end)
                     return true
                 end)

@@ -461,7 +461,8 @@ end
 -- Starts one identified presentation and returns its sequence. The v3 message
 -- is sent first so the usual path claims the sequence before its legacy mirror;
 -- the receiver still handles either order because carrier ordering is unproven.
-function NetChannel.sendPhaseStart(pc, mode, fromId, toId, stone)
+--- @param stage number|nil prestige stage, carried only by the start2 frame
+function NetChannel.sendPhaseStart(pc, mode, fromId, toId, stone, stage)
     local legacyOk = false
     if not (phaseFieldSafe(mode) and phaseFieldSafe(fromId)
         and phaseFieldSafe(toId) and phaseFieldSafe(stone)) then
@@ -470,9 +471,28 @@ function NetChannel.sendPhaseStart(pc, mode, fromId, toId, stone)
         return nil, false, legacyOk
     end
     local seq = nextPhaseSequence()
+
+    -- Two frames, start2 FIRST. The old `start` shape is exactly matched by the
+    -- receiver's pattern, so a field could not be appended to it without
+    -- breaking every client that has not updated yet. start2 carries the extra
+    -- field; a client that does not know it drops the line and takes the `start`
+    -- that follows. A client that does know it claims the sequence, and the
+    -- receiver's own dedupe then discards the second frame.
+    --
+    -- Without this a connected client drew every prestige as stage 1: it cannot
+    -- read the stage off the passives instead, because those may replicate after
+    -- the frame arrives.
+    local v3Ok = false
+    if stage ~= nil and phaseFieldSafe(tostring(stage)) then
+        local frame2 = table.concat({ PHASE_PREFIX:sub(1, -2), tostring(seq), "start2",
+            tostring(mode), tostring(fromId), tostring(toId), tostring(stone),
+            tostring(stage) }, "|")
+        v3Ok = sendClientText(pc, frame2, "PalvolvePhase")
+    end
     local frame = table.concat({ PHASE_PREFIX:sub(1, -2), tostring(seq), "start",
         tostring(mode), tostring(fromId), tostring(toId), tostring(stone) }, "|")
-    local v3Ok = sendClientText(pc, frame, "PalvolvePhase")
+    local plainOk = sendClientText(pc, frame, "PalvolvePhase")
+    v3Ok = v3Ok or plainOk
     legacyOk = NetChannel.sendSignal(pc, "start")
     return seq, v3Ok, legacyOk
 end
@@ -596,8 +616,16 @@ end
 local function receiveV3Phase(text)
     if text:sub(1, #PHASE_PREFIX) ~= PHASE_PREFIX then return false end
 
-    local seqText, mode, fromId, toId, stone =
-        text:match("^PVLV3|phase|(%d+)|start|([^|]+)|([^|]+)|([^|]+)|([^|]+)$")
+    -- start2 is tried first: it is the same frame with the prestige stage
+    -- appended, and both are sent for one presentation.
+    local stageText
+    local seqText, mode, fromId, toId, stone
+    seqText, mode, fromId, toId, stone, stageText =
+        text:match("^PVLV3|phase|(%d+)|start2|([^|]+)|([^|]+)|([^|]+)|([^|]+)|([^|]+)$")
+    if not seqText then
+        seqText, mode, fromId, toId, stone =
+            text:match("^PVLV3|phase|(%d+)|start|([^|]+)|([^|]+)|([^|]+)|([^|]+)$")
+    end
     if seqText then
         local seq = tonumber(seqText)
         if not seq or seq < 1 or seq > 0x7FFFFFFF or seq % 1 ~= 0 then return true end
@@ -606,6 +634,7 @@ local function receiveV3Phase(text)
         stateForSeq.startReceived = true
         stateForSeq.info = {
             seq = seq, mode = mode, from = fromId, to = toId, stone = stone,
+            stage = tonumber(stageText),
             generation = clientGeneration,
         }
         claimLegacyMirror("start")
@@ -649,21 +678,43 @@ local function drainTreeFrames()
     treeDrainScheduled = false
     local okSync, sync = pcall(require, "treesync")
     if not (okSync and sync and sync.applyFrame) then
+        local dropped = #treeFrameQueue
         treeFrameQueue = {}
+        Log(string.format("[ERROR] dropped %d queued tree frame%s: treesync unavailable (%s)",
+            dropped, dropped == 1 and "" or "s", tostring(sync)))
         return
     end
     while #treeFrameQueue > 0 do
-        pcall(sync.applyFrame, table.remove(treeFrameQueue, 1))
+        local frame = treeFrameQueue[1]
+        local okApply, applied = pcall(sync.applyFrame, frame)
+        table.remove(treeFrameQueue, 1)
+        if not okApply then
+            Log(string.format("[ERROR] tree frame application threw and the frame was dropped: %s",
+                tostring(applied)))
+        elseif not applied then
+            Log("[WARN] rejected tree frame was deliberately dropped")
+        else
+            Log(string.format("[INFO] applied queued tree frame; %d remain", #treeFrameQueue))
+        end
     end
 end
 
 local function queueTreeFrame(frame)
     treeFrameQueue[#treeFrameQueue + 1] = frame
-    if treeDrainScheduled then return end
+    if treeDrainScheduled then
+        Log(string.format("[INFO] queued tree frame behind the scheduled drain; %d waiting",
+            #treeFrameQueue))
+        return
+    end
     treeDrainScheduled = true
-    if not pcall(ExecuteInGameThread, drainTreeFrames) then
+    local okSchedule, scheduleErr = pcall(ExecuteInGameThread, drainTreeFrames)
+    if not okSchedule then
         treeDrainScheduled = false
-        treeFrameQueue = {}
+        Log(string.format("[ERROR] tree-frame drain scheduling failed; %d frame%s kept for the next scheduling attempt: %s",
+            #treeFrameQueue, #treeFrameQueue == 1 and "" or "s", tostring(scheduleErr)))
+    else
+        Log(string.format("[INFO] tree-frame drain scheduled with %d frame%s queued",
+            #treeFrameQueue, #treeFrameQueue == 1 and "" or "s"))
     end
 end
 

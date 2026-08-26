@@ -94,6 +94,8 @@ R.base = {
     -- the element layer owns the ending
 }
 
+-- The prestige programmes live in prestige_recipes.lua, one per stage.
+
 -- Shared element-layer geometry. Accents climb around the growing pal
 -- (element 2), the ring is the full-size salvo, the cluster is the
 -- centerpiece tier for elements without a confirmed showy candidate

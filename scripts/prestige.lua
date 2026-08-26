@@ -155,6 +155,21 @@ local function deriveConnections(map, shippedMap, minimum)
             targets[#targets + 1] = connection
         end
     end
+
+    -- An authored prestige row whose `from` is not a chain end used to be
+    -- dropped without a word: the loop above only ever visits DERIVED rows, so
+    -- a row nothing derived had nowhere to attach. Someone who writes an
+    -- explicit prestige pair means it, and silently ignoring it is the worst of
+    -- the three possible behaviours.
+    local seen = {}
+    for _, pair in ipairs(targets) do seen[pair] = true end
+    for _, authored in pairs(authoredByFrom) do
+        for _, pair in ipairs(authored) do
+            if pair.enabled == true and not seen[pair] then
+                targets[#targets + 1] = pair
+            end
+        end
+    end
     return targets
 end
 
