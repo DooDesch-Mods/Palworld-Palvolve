@@ -57,7 +57,7 @@ local Config = {
 
     -- Re-teach both saved move lists after a species swap. Unique-prefixed
     -- moves are species-bound and are deliberately left behind.
-    inheritNonUniqueMoves = true,
+    moveInheritance = "known",
 
     -- Player level at which the Pal Alchemy Workbench becomes buildable in the
     -- technology tree. The stage lives in PalSchema data, not in Lua, so this is
@@ -1975,7 +1975,7 @@ local function ensureDir(dir)
     if writable() then return true end
     pcall(os.execute, 'mkdir "' .. dir .. '" >nul 2>nul')
     if writable() then return true end
-    print(string.format("[Palvolve] could not create %s - create the folder by hand "
+    print(string.format("[Palvolve] [ERROR] could not create %s - create the folder by hand "
         .. "and put config_user.lua in it\n", dir))
     return false
 end
@@ -1983,15 +1983,38 @@ end
 --- Copies a file byte for byte. Binary mode on both ends, because a config is
 --- UTF-8 and text mode would rewrite its line endings on the way through.
 local function copyFile(from, to)
-    local src = io.open(from, "rb")
-    if not src then return false, "cannot read " .. from end
-    local data = src:read("*a")
-    src:close()
-    if not data then return false, "read nothing from " .. from end
-    local dst = io.open(to, "wb")
-    if not dst then return false, "cannot write " .. to end
-    dst:write(data)
-    dst:close()
+    local src, openErr = io.open(from, "rb")
+    if not src then return false, "cannot read " .. from .. ": " .. tostring(openErr) end
+    local data, readErr = src:read("*a")
+    local srcClosed, srcCloseErr = src:close()
+    if not data and not srcClosed then
+        return false, "read and close failed for " .. from .. ": "
+            .. tostring(readErr) .. "; " .. tostring(srcCloseErr)
+    end
+    if not data then return false, "read failed for " .. from .. ": " .. tostring(readErr) end
+    if not srcClosed then return false, "close failed for " .. from .. ": " .. tostring(srcCloseErr) end
+    local dst, dstOpenErr = io.open(to, "wb")
+    if not dst then return false, "cannot write " .. to .. ": " .. tostring(dstOpenErr) end
+    local wrote, writeErr = dst:write(data)
+    local dstClosed, dstCloseErr = dst:close()
+    if not wrote and not dstClosed then
+        return false, "write and close failed for " .. to .. ": "
+            .. tostring(writeErr) .. "; " .. tostring(dstCloseErr)
+    end
+    if not wrote then return false, "write failed for " .. to .. ": " .. tostring(writeErr) end
+    if not dstClosed then return false, "close failed for " .. to .. ": " .. tostring(dstCloseErr) end
+
+    local check, checkOpenErr = io.open(to, "rb")
+    if not check then return false, "cannot verify " .. to .. ": " .. tostring(checkOpenErr) end
+    local verify, verifyReadErr = check:read("*a")
+    local checkClosed, checkCloseErr = check:close()
+    if not verify and not checkClosed then
+        return false, "verification read and close failed for " .. to .. ": "
+            .. tostring(verifyReadErr) .. "; " .. tostring(checkCloseErr)
+    end
+    if not verify then return false, "verification read failed for " .. to .. ": " .. tostring(verifyReadErr) end
+    if not checkClosed then return false, "verification close failed for " .. to .. ": " .. tostring(checkCloseErr) end
+    if verify ~= data then return false, "verification mismatch for " .. to end
     return true
 end
 
@@ -2015,18 +2038,52 @@ local function listFiles(dir, prefix)
     -- os.tmpname returns a bare name on Windows, which lands in the working
     -- directory - the game's, not ours. Anchor it next to the file instead.
     if not temp:find("[/\\]") then temp = dir .. "\\" .. temp end
-    local ok = pcall(os.execute,
+    local function cleanupTemp()
+        local removed, removeErr, removeCode = os.remove(temp)
+        if removed then
+            print(string.format("[Palvolve] [INFO] temporary backup list removed from %s\n", temp))
+        elseif removeCode == 2 then
+            print(string.format("[Palvolve] [INFO] temporary backup list cleanup skipped at %s: file absent\n",
+                temp))
+        else
+            print(string.format("[Palvolve] [WARN] temporary backup list cleanup failed at %s: %s\n",
+                temp, tostring(removeErr)))
+        end
+    end
+    local called, result, resultKind, resultCode = pcall(os.execute,
         string.format('dir /b "%s\\%s*" > "%s" 2>nul', dir, prefix, temp))
-    if not ok then return nil end
-    local handle = io.open(temp, "r")
-    if not handle then return nil end
+    if not called then
+        print(string.format("[Palvolve] [ERROR] backup listing command failed for %s: %s\n",
+            dir, tostring(result)))
+        cleanupTemp()
+        return nil
+    end
+    if not (result == true or result == 0) then
+        print(string.format("[Palvolve] [ERROR] backup listing command failed for %s: %s %s\n",
+            dir, tostring(resultKind), tostring(resultCode)))
+        cleanupTemp()
+        return nil
+    end
+    local handle, openErr = io.open(temp, "r")
+    if not handle then
+        print(string.format("[Palvolve] [ERROR] temporary backup list could not be read at %s: %s\n",
+            temp, tostring(openErr)))
+        cleanupTemp()
+        return nil
+    end
     local names = {}
     for line in handle:lines() do
         local name = line:gsub("%s+$", "")
         if name ~= "" then table.insert(names, name) end
     end
-    handle:close()
-    os.remove(temp)
+    local closed, closeErr = handle:close()
+    if not closed then
+        print(string.format("[Palvolve] [ERROR] temporary backup list close failed at %s: %s\n",
+            temp, tostring(closeErr)))
+        cleanupTemp()
+        return nil
+    end
+    cleanupTemp()
     return names
 end
 
@@ -2043,12 +2100,27 @@ local function backupExisting(target)
     local stamp = os.date("%Y-%m-%d_%H%M%S")
     local path = string.format("%s.%s.bak", target, stamp)
     local ok, err = copyFile(target, path)
-    if not ok then return nil, err end
+    if not ok then
+        local removed, removeErr, removeCode = os.remove(path)
+        if removed then
+            print(string.format("[Palvolve] [INFO] failed backup copy removed from %s\n", path))
+        elseif removeCode == 2 then
+            print(string.format("[Palvolve] [INFO] failed backup cleanup skipped at %s: file absent\n", path))
+        else
+            print(string.format("[Palvolve] [WARN] failed backup copy could not be removed from %s: %s\n",
+                path, tostring(removeErr)))
+        end
+        return nil, err
+    end
 
     local dir, file = target:match("^(.*)[/\\]([^/\\]+)$")
     if not dir then return path end
     local names = listFiles(dir, file .. ".")
-    if not names then return path end
+    if not names then
+        print(string.format("[Palvolve] [WARN] backup written to %s, but old backups could not be listed and were kept\n",
+            path))
+        return path
+    end
 
     local backups = {}
     for _, name in ipairs(names) do
@@ -2059,7 +2131,12 @@ local function backupExisting(target)
     if #backups <= BACKUP_KEEP then return path end
     table.sort(backups) -- oldest first
     for i = 1, #backups - BACKUP_KEEP do
-        os.remove(dir .. "\\" .. backups[i])
+        local oldPath = dir .. "\\" .. backups[i]
+        local removed, removeErr = os.remove(oldPath)
+        if not removed then
+            print(string.format("[Palvolve] [WARN] old backup cleanup failed at %s: %s\n",
+                oldPath, tostring(removeErr)))
+        end
     end
     return path
 end
@@ -2084,48 +2161,93 @@ end
 --- place to be than the one they started in.
 local function migrateScriptsConfig(targetDir)
     local source = scriptsConfigPath()
-    if not source or not targetDir then return end
+    if not source then
+        print("[Palvolve] [INFO] no config migration needed: no config_user.lua is in the mod folder\n")
+        return
+    end
+    if not targetDir then
+        print(string.format("[Palvolve] [ERROR] config migration not attempted for %s: target folder is unavailable\n",
+            source))
+        return
+    end
     local target = targetDir .. "\\config_user.lua"
-    if source:lower() == target:lower() then return end
+    if source:lower() == target:lower() then
+        print(string.format("[Palvolve] [INFO] config migration skipped: %s is already the durable location\n",
+            target))
+        return
+    end
 
     if not readConfigAt(source) then
-        print(string.format("[Palvolve] %s is not a usable config, so it was left where it is\n",
+        print(string.format("[Palvolve] [WARN] %s is not a usable config, so it was left where it is\n",
             source))
         return
     end
     if not ensureDir(targetDir) then return end
 
     local backupPath = nil
-    local existing = io.open(target, "rb")
+    local existing, existingOpenErr, existingOpenCode = io.open(target, "rb")
     if existing then
-        existing:close()
+        local existingClosed, existingCloseErr = existing:close()
+        if not existingClosed then
+            print(string.format("[Palvolve] [ERROR] could not close the config already at %s (%s) - leaving both files alone\n",
+                target, tostring(existingCloseErr)))
+            return
+        end
         local bakErr
         backupPath, bakErr = backupExisting(target)
         if not backupPath then
-            print(string.format("[Palvolve] could not back up the config already at %s (%s) "
+            print(string.format("[Palvolve] [ERROR] could not back up the config already at %s (%s) "
                 .. "- leaving both files alone\n", target, tostring(bakErr)))
             return
         end
+        print(string.format("[Palvolve] [INFO] existing config backed up to %s\n", backupPath))
+    elseif existingOpenCode == 2 then
+        print(string.format("[Palvolve] [INFO] no existing config at %s needed a backup\n", target))
+    else
+        print(string.format("[Palvolve] [ERROR] could not inspect the config target at %s (%s) - leaving the source where it is\n",
+            target, tostring(existingOpenErr)))
+        return
     end
 
     local okCopy, copyErr = copyFile(source, target)
     if not okCopy then
-        print(string.format("[Palvolve] could not move the config out of the mod folder (%s) "
+        print(string.format("[Palvolve] [ERROR] could not move the config out of the mod folder (%s) "
             .. "- it still loads from %s, but the next mod update deletes it\n",
             tostring(copyErr), source))
+        local removedTarget, removeTargetErr, removeTargetCode = os.remove(target)
+        if removedTarget then
+            print(string.format("[Palvolve] [INFO] failed migration copy removed from %s\n", target))
+        elseif removeTargetCode == 2 then
+            print(string.format("[Palvolve] [INFO] failed migration cleanup skipped at %s: file absent\n",
+                target))
+        else
+            print(string.format("[Palvolve] [ERROR] failed migration copy could not be removed from %s: %s\n",
+                target, tostring(removeTargetErr)))
+            return
+        end
+        if backupPath then
+            local restored, restoreErr = copyFile(backupPath, target)
+            if restored then
+                print(string.format("[Palvolve] [WARN] previous config restored to %s after migration failed\n",
+                    target))
+            else
+                print(string.format("[Palvolve] [ERROR] previous config could not be restored to %s (%s); its backup remains at %s\n",
+                    target, tostring(restoreErr), backupPath))
+            end
+        end
         return
     end
 
     -- Only now is the original expendable: the copy is on disk and readable.
-    local removed = os.remove(source)
+    local removed, removeErr = os.remove(source)
     -- package.loaded would otherwise hand the moved-away file back to a later
     -- require, from a path that no longer exists.
     package.loaded["config_user"] = nil
 
     local noticePath = source:gsub("[^/\\]+$", "") .. MOVED_NOTICE
-    local notice = io.open(noticePath, "w")
+    local notice, noticeOpenErr = io.open(noticePath, "w")
     if notice then
-        notice:write(
+        local noticeWrote, noticeWriteErr = notice:write(
             "Your config_user.lua was moved.\n\n"
             .. "It is now at:\n    " .. target .. "\n\n"
             .. "Palvolve reads it from there, and that folder survives a mod update.\n"
@@ -2137,7 +2259,19 @@ local function migrateScriptsConfig(targetDir)
             .. "moved the same way on the next start.\n\n"
             .. "You can delete this note.\n"
         )
-        notice:close()
+        local noticeClosed, noticeCloseErr = notice:close()
+        if not noticeWrote then
+            print(string.format("[Palvolve] [WARN] config moved, but the notice at %s could not be written: %s\n",
+                noticePath, tostring(noticeWriteErr)))
+        elseif not noticeClosed then
+            print(string.format("[Palvolve] [WARN] config moved, but the notice at %s could not be closed: %s\n",
+                noticePath, tostring(noticeCloseErr)))
+        else
+            print(string.format("[Palvolve] [INFO] config migration notice written to %s\n", noticePath))
+        end
+    else
+        print(string.format("[Palvolve] [WARN] config moved, but the notice at %s could not be opened: %s\n",
+            noticePath, tostring(noticeOpenErr)))
     end
 
     if removed then
@@ -2145,8 +2279,8 @@ local function migrateScriptsConfig(targetDir)
             .. "(that one survives a mod update)", target))
     else
         Role.announce(string.format("config copied to %s, but the one at %s could not be deleted "
-            .. "- remove it by hand or it comes back on the next start",
-            target, source), "warning")
+            .. "(%s) - remove it by hand or it comes back on the next start",
+            target, source, tostring(removeErr)), "error")
     end
 end
 
@@ -2259,9 +2393,9 @@ local USER_KEYS = {
     { path = "techLevelCap", kind = "int", min = 1, max = 100 },
     { path = "unlockCatchTech", kind = "bool" },
     { path = "clearIncompatibleSkins", kind = "bool" },
-    { path = "evolutionBonusSlot", kind = "enum", values = { off = true, active = true } },
-    { path = "prestigeBonusSlot", kind = "enum", values = { off = true, active = true } },
-    { path = "inheritNonUniqueMoves", kind = "bool" },
+    { path = "evolutionBonusSlot", kind = "enum", values = { "off", "active" } },
+    { path = "prestigeBonusSlot", kind = "enum", values = { "off", "active" } },
+    { path = "moveInheritance", kind = "enum", values = { "off", "equipped", "known" } },
     { path = "ivBonusPerStage", kind = "int", min = 0, max = 100 },
     { path = "ivCap", kind = "int", min = 0, max = 100 },
 

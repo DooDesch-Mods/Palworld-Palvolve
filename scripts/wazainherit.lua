@@ -107,6 +107,34 @@ local function readNames(owner, field, label)
     return names
 end
 
+-- Everything the Pal may currently put in a slot: what the species learns by level
+-- plus MasteredWaza, merged by the game itself. Asking the engine beats rebuilding
+-- the rule from DT_WazaMasterLevel, and it is the exact list the picker shows.
+local function getEquipableWaza(param)
+    return param:GetEquipableWaza()
+end
+
+local function readKnown(param)
+    local okList, list = pcall(getEquipableWaza, param)
+    if not okList or list == nil then
+        return nil, "GetEquipableWaza is unavailable: " .. tostring(list)
+    end
+    local count, countErr = readCount(list, "GetEquipableWaza")
+    if count == nil then return nil, countErr end
+
+    local names = {}
+    for i = 1, count do
+        local okValue, value = pcall(getArrayValue, list, i)
+        if okValue and value ~= nil then
+            local name = nameForValue(value)
+            -- An id this build knows and waza_static does not is skipped rather than
+            -- fatal: it costs one move, not the whole evolution.
+            if name and name ~= "MAX" and name ~= "None" then names[#names + 1] = name end
+        end
+    end
+    return names
+end
+
 local function captureHalf(owner, label)
     local equip, equipErr = readNames(owner, "EquipWaza", label .. ".EquipWaza")
     if not equip then return nil, equipErr end
@@ -125,7 +153,11 @@ function WazaInherit.capture(param)
     if not saveState then return nil, saveErr end
     local mirrorState, mirrorErr = captureHalf(mirror, "SaveParameterMirror")
     if not mirrorState then return nil, mirrorErr end
-    return { save = saveState, mirror = mirrorState }
+    -- Not fatal when it fails: the snapshot still describes both save halves, and
+    -- only the wider "known" inheritance mode has nothing to work from. The reason
+    -- travels with the snapshot so the caller can put it in the log.
+    local known, knownErr = readKnown(param)
+    return { save = saveState, mirror = mirrorState, known = known, knownError = knownErr }
 end
 
 local function semanticNames(names)
@@ -160,6 +192,7 @@ local function writeDirect(owner, field, names, label)
     -- UE4SS can grow reflected arrays by assigning the next index, but exposes
     -- no safe resize for MasteredWaza. Zeroing the unused tail removes moves
     -- semantically while leaving the allocator-owned array storage intact.
+    -- Growing that array is the native half's job, see teachRepertoire below.
     local last = math.max(count, #ids)
     for i = 1, last do
         local okWrite, writeErr = pcall(writeArrayValue, list, i, ids[i] or 0)
@@ -273,7 +306,39 @@ local function keepInherited(names)
     return kept, removed
 end
 
-function WazaInherit.apply(param, snapshot)
+-- Carrying a move across keeps it EQUIPPED, which is not the same as knowing it.
+-- The picker offers what the new species learns by level - DT_WazaMasterLevel, read
+-- through PalWazaDatabase::GetMasterrableWaza_BetweenLevel - plus whatever sits in
+-- MasteredWaza. A move the old species knew is in neither list, so swapping it out
+-- of a slot loses it for good.
+--
+-- MasteredWaza is what a skill fruit writes, it is empty on every wild-caught Pal,
+-- and this build exposes no add or setter for it. Growing it from here would mean
+-- writing past the end of a zero-length array, so this one step goes native.
+local function teachRepertoire(param, ...)
+    if type(PalvolveNative_TeachMasteredWaza) ~= "function" then
+        return false, "the native half is not loaded"
+    end
+    local seen, ids = {}, {}
+    for _, names in ipairs({ ... }) do
+        for _, name in ipairs(names) do
+            local id = WAZA_IDS[name]
+            if type(id) == "number" and id > 0 and not seen[id] then
+                seen[id] = true
+                ids[#ids + 1] = id
+            end
+        end
+    end
+    if #ids == 0 then return true, 0 end
+
+    local called, ok, added, message = pcall(PalvolveNative_TeachMasteredWaza,
+        param, table.concat(ids, ","))
+    if not called then return false, tostring(ok) end
+    if not ok then return false, tostring(message) end
+    return true, added, message
+end
+
+function WazaInherit.apply(param, snapshot, mode)
     local state, stateErr = validateState(snapshot)
     if not state then return false, stateErr end
     local equip, removedEquip = keepInherited(state.save.equip)
@@ -284,7 +349,28 @@ function WazaInherit.apply(param, snapshot)
     }
     local okWrite, writeErr = writeTransaction(param, expected)
     if not okWrite then return false, writeErr end
-    return true, { removedEquip = removedEquip, removedMastered = removedMastered }
+
+    -- "equipped" carries only what sat in the slots. "known" carries the whole list
+    -- the Pal could choose from, so every evolution widens the choice instead of
+    -- trading the old species' moves for the new one's.
+    local known, knownError = nil, nil
+    if mode == "known" then
+        known = type(snapshot.known) == "table" and keepInherited(snapshot.known) or nil
+        knownError = snapshot.knownError
+    end
+
+    -- Reported, never fatal: the moves are already equipped at this point, and an
+    -- evolution that worked must not be rolled back over the repertoire step.
+    local okTeach, added, teachDetail = teachRepertoire(param, equip, mastered, known or {})
+    return true, {
+        removedEquip = removedEquip,
+        removedMastered = removedMastered,
+        knownCount = known and #known or nil,
+        knownError = knownError,
+        taught = okTeach and added or nil,
+        teachError = (not okTeach) and added or nil,
+        teachDetail = okTeach and teachDetail or nil,
+    }
 end
 
 function WazaInherit.restore(param, snapshot)

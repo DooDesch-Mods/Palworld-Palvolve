@@ -14,6 +14,7 @@
 //   PalvolveNative_GetCaptureRecord(characterId, uid?, state?)     -> count, flagSet, message
 //   PalvolveNative_UnlockCaptureRecord(characterId, uid?, state?)  -> ok, message
 //   PalvolveNative_SetWorkSuitability(individualParameter)         -> ok, message
+//   PalvolveNative_TeachMasteredWaza(individualParameter, "id,id") -> ok, added, message
 //   PalvolveNative_ClearWorkSuitability(individualParameter)       -> ok
 //   PalvolveNative_ScanWorkCache(individualParameter, species)     -> message (diagnostic)
 //
@@ -68,7 +69,7 @@ using namespace RC::Unreal;
 
 namespace
 {
-    constexpr const wchar_t* ModVersionString = STR("1.8.4");
+    constexpr const wchar_t* ModVersionString = STR("1.9.0");
 
     // A world context object is required by the *_ForServer setters. The game mode is the
     // first reliable one available and exists only on the authority, which doubles as the
@@ -1968,6 +1969,186 @@ namespace
         return true;
     }
 
+    // Teaches moves the way a skill fruit does, by appending them to MasteredWaza.
+    //
+    // The move picker offers what the species learns by level plus whatever sits in
+    // MasteredWaza. The level part comes from DT_WazaMasterLevel through
+    // PalWazaDatabase::GetMasterrableWaza_BetweenLevel and is keyed by species, so after an
+    // evolution it lists the NEW species only. A move the old species knew is then in
+    // neither list and cannot be picked again, even though the mod carried it across
+    // equipped.
+    //
+    // This is native because Palworld exposes no way in: the object dump carries
+    // GetMasteredWaza, HasMasteredWaza and a getter on
+    // PalIndividualCharacterSaveParameterUtility, and no setter or add anywhere. The array is
+    // empty on every wild-caught Pal, and growing a zero-length TArray from Lua writes into
+    // memory nobody reserved.
+    auto teach_mastered_waza(UObject* Param, const std::vector<int32>& Ids)
+        -> std::tuple<bool, int32, std::wstring>
+    {
+        if (!Param) return { false, 0, STR("no parameter object") };
+        if (Ids.empty()) return { true, 0, STR("nothing to teach") };
+
+        int32 AddedTotal = 0;
+        int32 HalvesTouched = 0;
+        std::wstring Counts;
+        std::wstring Found;
+
+        // Both save halves are collected by the type of the struct they hold rather than by
+        // their property name. UPalIndividualCharacterParameter carries the same struct twice,
+        // as SaveParameter and SaveParameterMirror, and a lookup by name only finds what it
+        // was told to expect. Going by type also survives a rename in a game patch.
+        std::vector<std::pair<std::wstring, FStructProperty*>> Halves;
+        if (auto* Class = Param->GetClassPrivate())
+        {
+            for (FProperty* Prop : Class->ForEachProperty())
+            {
+                auto* AsStruct = CastField<FStructProperty>(Prop);
+                if (!AsStruct) continue;
+                auto Inner = AsStruct->GetStruct();
+                if (!Inner) continue;
+                if (Inner->GetName() != STR("PalIndividualCharacterSaveParameter")) continue;
+                Halves.emplace_back(Prop->GetName(), AsStruct);
+            }
+        }
+        if (Halves.empty())
+        {
+            return { false, 0, std::format(STR("{} carries no PalIndividualCharacterSaveParameter"),
+                Param->GetClassPrivate() ? Param->GetClassPrivate()->GetName() : STR("an unnamed class")) };
+        }
+
+        for (const auto& [WhichName, SaveProp] : Halves)
+        {
+            const wchar_t* Which = WhichName.c_str();
+            auto* Base = static_cast<uint8*>(SaveProp->ContainerPtrToValuePtr<void>(Param));
+            if (!Base)
+            {
+                Found += std::format(STR("{} has no storage; "), Which);
+                continue;
+            }
+
+            FArrayProperty* ArrProp = nullptr;
+            for (FProperty* Inner : SaveProp->GetStruct()->ForEachProperty())
+            {
+                if (Inner->GetName() == STR("MasteredWaza"))
+                {
+                    ArrProp = CastField<FArrayProperty>(Inner);
+                    if (!ArrProp)
+                    {
+                        // Found under the expected name but not as an array. Naming the
+                        // real class beats a second build to find out what it is.
+                        Found += std::format(STR("{} holds MasteredWaza as {}; "),
+                            Which, Inner->GetClass().GetName());
+                    }
+                    break;
+                }
+            }
+            if (!ArrProp)
+            {
+                if (Found.find(STR("MasteredWaza as")) == std::wstring::npos)
+                {
+                    std::wstring Seen;
+                    int32 Listed = 0;
+                    for (FProperty* Inner : SaveProp->GetStruct()->ForEachProperty())
+                    {
+                        const std::wstring Name = Inner->GetName();
+                        if (Name.find(STR("Waza")) == std::wstring::npos) continue;
+                        if (!Seen.empty()) Seen += STR("/");
+                        Seen += Name;
+                        if (++Listed >= 8) break;
+                    }
+                    Found += std::format(STR("{} has no MasteredWaza array (waza fields: {}); "),
+                        Which, Seen.empty() ? std::wstring(STR("none")) : Seen);
+                }
+                continue;
+            }
+
+            FProperty* ElemProp = ArrProp->GetInner();
+            if (!ElemProp)
+            {
+                Found += std::format(STR("{}.MasteredWaza has no element type; "), Which);
+                continue;
+            }
+            // EPalWazaID is two bytes wide on this build, which is why the width is read
+            // rather than assumed. Writing four bytes into a two byte slot tramples the entry
+            // behind it, and a mismatch that goes unnoticed reads as "the write did nothing".
+            const int32 ElemSize = ElemProp->GetElementSize();
+            if (ElemSize != 1 && ElemSize != 2 && ElemSize != 4 && ElemSize != 8)
+            {
+                Found += std::format(STR("{}.MasteredWaza has an element width of {} bytes; "),
+                    Which, ElemSize);
+                continue;
+            }
+
+            // Not FScriptArrayHelper. Its grow path is a template that instantiates the
+            // freezable branch as well, and FMemoryImageAllocatorBase::ResizeAllocation is
+            // not exported, so the mod stops at the linker. FScriptArray is the heap variant
+            // on its own. An array that genuinely uses the other allocator is left alone.
+            if (ArrProp->GetArrayFlags() != EArrayPropertyFlags::None)
+            {
+                Found += std::format(STR("{}.MasteredWaza uses the memory image allocator; "), Which);
+                continue;
+            }
+
+            auto* Arr = reinterpret_cast<FScriptArray*>(Base + ArrProp->GetOffset_Internal());
+            const uint32 ElemAlign = static_cast<uint32>(ElemProp->GetMinAlignment());
+
+            const auto SlotAt = [&](int32 Index) -> uint8* {
+                auto* Data = static_cast<uint8*>(Arr->GetData());
+                if (!Data) return nullptr;
+                return Data + static_cast<size_t>(Index) * static_cast<size_t>(ElemSize);
+            };
+            const auto ReadAt = [&](int32 Index) -> int32 {
+                uint8* At = SlotAt(Index);
+                if (!At) return 0;
+                switch (ElemSize)
+                {
+                case 1: return static_cast<int32>(*At);
+                case 2: return static_cast<int32>(*reinterpret_cast<uint16*>(At));
+                case 8: return static_cast<int32>(*reinterpret_cast<int64*>(At));
+                default: return *reinterpret_cast<int32*>(At);
+                }
+            };
+            const auto WriteAt = [&](int32 Index, int32 Id) {
+                uint8* At = SlotAt(Index);
+                if (!At) return;
+                switch (ElemSize)
+                {
+                case 1: *At = static_cast<uint8>(Id); break;
+                case 2: *reinterpret_cast<uint16*>(At) = static_cast<uint16>(Id); break;
+                case 8: *reinterpret_cast<int64*>(At) = Id; break;
+                default: *reinterpret_cast<int32*>(At) = Id; break;
+                }
+            };
+
+            std::vector<int32> Known;
+            const int32 Before = Arr->Num();
+            for (int32 i = 0; i < Before; ++i) Known.push_back(ReadAt(i));
+
+            int32 Added = 0;
+            for (const int32 Id : Ids)
+            {
+                if (Id <= 0) continue;
+                bool Seen = false;
+                for (const int32 Have : Known) { if (Have == Id) { Seen = true; break; } }
+                if (Seen) continue;
+                const int32 Index = Arr->AddZeroed(1, ElemSize, ElemAlign);
+                if (Index < 0) continue;
+                WriteAt(Index, Id);
+                Known.push_back(Id);
+                ++Added;
+            }
+
+            AddedTotal += Added;
+            ++HalvesTouched;
+            if (!Counts.empty()) Counts += STR(", ");
+            Counts += std::format(STR("{}: {} -> {}"), Which, Before, Arr->Num());
+        }
+
+        if (HalvesTouched == 0) return { false, 0, Found.empty() ? std::wstring(STR("no save half was readable")) : Found };
+        return { true, AddedTotal, Counts };
+    }
+
     // The uid the Lua side computes comes from the replicated PlayerState. Reading it here
     // instead, straight off the authority's own object, removes that link from the chain: the
     // caller only has to name which PlayerState it is.
@@ -2265,6 +2446,50 @@ class PalvolveNative : public CppUserModBase
             L.set_bool(Ok);
             L.set_string(to_string(Message));
             return 2;
+        });
+
+        // Takes the individual parameter and the move ids as a comma separated list, because
+        // the Lua half already holds them as numbers and a string crosses the bridge without
+        // a table walk.
+        lua.register_function("PalvolveNative_TeachMasteredWaza", [](const LuaMadeSimple::Lua& L) -> int {
+            UObject* Param = nullptr;
+            if (L.is_userdata())
+            {
+                const auto& LuaObject = L.get_userdata<LuaType::UObject>();
+                Param = LuaObject.get_remote_cpp_object();
+            }
+            if (!Param)
+            {
+                L.set_bool(false);
+                L.set_integer(0);
+                L.set_string("individual parameter (object) required");
+                return 3;
+            }
+            std::string List;
+            if (L.is_string()) List = L.get_string();
+
+            std::vector<int32> Ids;
+            size_t At = 0;
+            while (At <= List.size())
+            {
+                const size_t Comma = List.find(',', At);
+                const std::string Piece = List.substr(At, Comma == std::string::npos ? std::string::npos : Comma - At);
+                if (!Piece.empty())
+                {
+                    // A malformed piece is skipped rather than thrown: the caller is our own
+                    // Lua half, and one unreadable id must not cost the Pal the rest of them.
+                    try { Ids.push_back(static_cast<int32>(std::stol(Piece))); }
+                    catch (...) {}
+                }
+                if (Comma == std::string::npos) break;
+                At = Comma + 1;
+            }
+
+            const auto [Ok, Added, Message] = teach_mastered_waza(Param, Ids);
+            L.set_bool(Ok);
+            L.set_integer(Added);
+            L.set_string(to_string(Message));
+            return 3;
         });
 
         // Lets the Lua half put a line in front of a server admin. Used for the
