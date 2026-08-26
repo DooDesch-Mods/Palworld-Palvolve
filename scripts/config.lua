@@ -2470,6 +2470,56 @@ end
 --- point of a config file is that the author believes it took effect, and a typo
 --- that produces no line in the log is a support thread that starts from
 --- nothing.
+--- Settings that were renamed, and how to read the old one.
+---
+--- A key that is no longer in USER_KEYS is simply not read, which is fine for a
+--- typo and wrong for a rename: the author made a choice, the choice still
+--- exists under another name, and nothing tells them it stopped applying.
+--- `inheritNonUniqueMoves = false` meant "do not carry moves over"; dropping it
+--- silently turns that into the new default, which carries them.
+local RENAMED_KEYS = {
+    {
+        old = "inheritNonUniqueMoves",
+        new = "moveInheritance",
+        -- true was "carry the equipped ones", which `known` supersedes and
+        -- `equipped` reproduces exactly. The narrower reading is the honest one:
+        -- it is what the file actually asked for.
+        translate = function(raw)
+            if type(raw) ~= "boolean" then return nil end
+            return raw and "equipped" or "off"
+        end,
+    },
+}
+
+--- Carries renamed settings over and says so. Returns how many were found.
+local function applyRenamedKeys(user)
+    local carried = 0
+    for _, entry in ipairs(RENAMED_KEYS) do
+        local raw = readPath(user, entry.old)
+        if raw ~= nil then
+            carried = carried + 1
+            local value = entry.translate(raw)
+            if value == nil then
+                print(string.format(
+                    "[Palvolve] %s was renamed to %s, and '%s' does not map to any of its values - set %s yourself\n",
+                    entry.old, entry.new, tostring(raw), entry.new))
+            elseif readPath(user, entry.new) ~= nil then
+                -- Both in one file: the new one wins, because it is the one the
+                -- author can see documented. Saying so beats picking silently.
+                print(string.format(
+                    "[Palvolve] %s and %s are both set; %s was renamed to %s, so the old one is ignored\n",
+                    entry.old, entry.new, entry.old, entry.new))
+            else
+                writePath(Config, entry.new, value)
+                print(string.format(
+                    "[Palvolve] %s was renamed to %s; reading your %s as %s = \"%s\"\n",
+                    entry.old, entry.new, tostring(raw), entry.new, value))
+            end
+        end
+    end
+    return carried
+end
+
 local function applyUserKeys(user)
     for _, entry in ipairs(USER_KEYS) do
         local raw = readPath(user, entry.path)
@@ -2575,6 +2625,9 @@ if user then
             Role.announce(I18n.msg("unknownConditionsLoad", unknownPairCount), "warning")
         end
     end
+    -- Renames first, so a file that sets both is decided by applyUserKeys and
+    -- not by whichever ran last.
+    applyRenamedKeys(user)
     applyUserKeys(user)
     Config.loadArrangement(user)
     -- Separators normalised for the line an admin reads: the install root comes

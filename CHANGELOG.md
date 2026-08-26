@@ -11,7 +11,7 @@
 - **Prestige has its own presentation, and it grows every time.** Ten stages, 13.5 seconds at the first and 20 at the tenth, against 12.5 for an evolution.
 - **A prestiged Pal shimmers from then on.** Ten looks, one per stage, and everyone who can see the Pal sees it. Nothing is written to your save.
 - **An evolved Pal keeps every move it knew.** The pool it can pick from carries over, so the choice grows with each evolution instead of being traded in. Exclusive moves are still dropped: they belong to the old form and break the new one.
-- **New setting `moveInheritance`:** `off`, `equipped` or `known`. It replaces `inheritNonUniqueMoves`.
+- **New setting `moveInheritance`:** `off`, `equipped` or `known`. It replaces `inheritNonUniqueMoves`, and a config that still sets the old one is read as `equipped` or `off` to match what it asked for.
 - **Six new condition types.** A named move, a named passive, an item or an amount of gold in the inventory, condenser rank, condenser souls, and the last thing the Pal was fed. All six can be negated, and none of them take anything away.
 - **A pair can evolve on its own.** The watcher follows your summoned Pal and checks more often as more of that pair's conditions come true. It runs the same path a manual evolution runs, so it cannot skip a cost or a rollback.
 - **A pair can carry its own material cost**, instead of the one the global settings work out.
