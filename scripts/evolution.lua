@@ -16,6 +16,8 @@ local Authority = require("authority")
 local NetChannel = require("netchannel")
 local ServerCheck = require("servercheck")
 local PalPassives = require("palpassives")
+local PrestigeRecipes = require("prestige_recipes")
+local Timing = require("sequence_timing")
 local WazaInherit = require("wazainherit")
 local PalSlots = require("palslots")
 local Prestige = require("prestige")
@@ -972,11 +974,26 @@ local function applySwapSurvivors(param, skinState, wazaState)
         if not skinOk then return false, "skin clear failed: " .. tostring(skinErr) end
     end
     if wazaState then
-        local wazaOk, wazaResult = WazaInherit.apply(param, wazaState)
+        local wazaOk, wazaResult = WazaInherit.apply(param, wazaState, Config.moveInheritance)
         if not wazaOk then return false, "move inheritance failed: " .. tostring(wazaResult) end
         if (wazaResult.removedEquip or 0) > 0 or (wazaResult.removedMastered or 0) > 0 then
             Log(string.format("Move inheritance dropped %d equipped and %d mastered Unique moves",
                 wazaResult.removedEquip or 0, wazaResult.removedMastered or 0))
+        end
+        if wazaResult.knownError then
+            Log("Move inheritance could not read the known move list, carrying the equipped ones only: "
+                .. tostring(wazaResult.knownError))
+        elseif wazaResult.knownCount then
+            Log(string.format("Move inheritance carries %d known move(s)", wazaResult.knownCount))
+        end
+        if wazaResult.teachError then
+            -- The evolution stands; only the repertoire half of it did not.
+            Log("Move inheritance could not write the repertoire: " .. tostring(wazaResult.teachError))
+        elseif (wazaResult.taught or 0) > 0 then
+            -- The count is entries written, and both save halves are written, so
+            -- it reads as double the moves unless the detail is right next to it.
+            Log(string.format("Move inheritance taught %d repertoire entr(ies) [%s]",
+                wazaResult.taught, tostring(wazaResult.teachDetail)))
         end
     end
     return true
@@ -1264,16 +1281,37 @@ local function performEvolution(p)
     end
     ctx.colorFrom = Elements.colorFor(ctx.elemsFrom[1])
     ctx.colorTo = Elements.colorFor(ctx.elemsTo[1])
+    -- The finale picks its base layer from this. Read off the pair rather than
+    -- passed in, so the client side gets the same answer from the synced tree
+    -- without another field on the wire.
+    ctx.isPrestige = (pair and pair.category == "prestige") or false
+    -- Which prestige programme plays: the Pal's own stage, so the Nth prestige
+    -- outdoes the N-1th. Unknown reads as 1 rather than as nothing.
+    -- The host's number wins where it is available: the local passive list can
+    -- still be the pre-prestige one when this runs on a client.
+    ctx.prestigeStage = (pair and tonumber(pair.prestigeStage)) or 1
+    if ctx.isPrestige and not (pair and pair.prestigeStage) then
+        local probeParam = paramOf(ctx.actor)
+        if probeParam then
+            local okStages, stages = pcall(PalPassives.resolve, probeParam)
+            if okStages and type(stages) == "table" and stages.prestige
+                and (stages.prestige.stage or 0) > 0 then
+                ctx.prestigeStage = stages.prestige.stage
+            end
+        end
+    end
 
     -- Watchdog budget for this run: dissolve + teardown strategies + pump
     -- timeout + landing cap + reveal, plus the fx-driven post-reveal phase
     -- for keepsFrozenUntilDone prototypes, plus margin.
     pcall(function()
-        local budget = (fx.dissolveDurationMs and fx.dissolveDurationMs() or 1200) / 1000
+        local budget = (fx.dissolveDurationMs and fx.dissolveDurationMs(ctx) or 1200) / 1000
         budget = budget + 6 + 25 + 10 + (fx.revealDelayMs() / 1000)
         if fx.keepsFrozenUntilDone then
-            local c = Config.digimon or {}
-            budget = budget + ((c.growMs or 1600) + (c.finaleHoldMs or 3000)) / 1000
+            -- the reveal half of THIS run: a stage 10 prestige is twice as long
+            -- as an evolution and would otherwise trip its own watchdog
+            local t = Timing.forContext(ctx)
+            budget = budget + t.revealTotalMs / 1000
         end
         sequenceBudgetS = budget + 10
     end)
@@ -1357,7 +1395,7 @@ local function performEvolution(p)
         end
     end
     local wazaBefore = nil
-    if Config.inheritNonUniqueMoves then
+    if Config.moveInheritance ~= "off" then
         local wazaErr
         wazaBefore, wazaErr = WazaInherit.capture(param)
         if not wazaBefore then
@@ -1556,6 +1594,20 @@ local function performEvolution(p)
                 return
             end
             local survivorOk, survivorErr = applySwapSurvivors(param, skinBefore, wazaBefore)
+            -- Read back what actually landed. apply() reports the write as
+            -- successful and the repertoire is empty in game, so the question is
+            -- whether the write does not take or whether the reload behind the
+            -- MP sequence overwrites it from the species default.
+            if wazaBefore then
+                local readBack = WazaInherit.capture(param)
+                if readBack then
+                    Log(string.format("[waza] after write: equip %d, mastered %d (before: equip %d, mastered %d)",
+                        #(readBack.save.equip or {}), #(readBack.save.mastered or {}),
+                        #(wazaBefore.save.equip or {}), #(wazaBefore.save.mastered or {})))
+                else
+                    Log("[waza] after write: read-back failed")
+                end
+            end
             if not survivorOk then
                 restoreFailedMutation(survivorErr)
                 return
@@ -1563,6 +1615,9 @@ local function performEvolution(p)
             swapDone = true
             if txn then txn.commit() end
             Log(string.format("Prestige bonus (passive): %s", passiveResult.id))
+            -- the ladder just moved on an actor that stays alive here, so the
+            -- init hook will not fire again for it
+            pcall(function() require("prestigemark").reconcile(actor) end)
         else
             local okSwap, errSwap = pcall(writeSpeciesUnsafe, param, targetId)
             local idNow = ""
@@ -1579,6 +1634,20 @@ local function performEvolution(p)
                 return
             end
             local survivorOk, survivorErr = applySwapSurvivors(param, skinBefore, wazaBefore)
+            -- Read back what actually landed. apply() reports the write as
+            -- successful and the repertoire is empty in game, so the question is
+            -- whether the write does not take or whether the reload behind the
+            -- MP sequence overwrites it from the species default.
+            if wazaBefore then
+                local readBack = WazaInherit.capture(param)
+                if readBack then
+                    Log(string.format("[waza] after write: equip %d, mastered %d (before: equip %d, mastered %d)",
+                        #(readBack.save.equip or {}), #(readBack.save.mastered or {}),
+                        #(wazaBefore.save.equip or {}), #(wazaBefore.save.mastered or {})))
+                else
+                    Log("[waza] after write: read-back failed")
+                end
+            end
             if not survivorOk then
                 restoreFailedMutation(survivorErr)
                 return
@@ -1667,10 +1736,27 @@ local function performEvolution(p)
             setRevealFrozen(actor, true)
             local phaseSequence = nil
             pcall(function()
-                local presentationMode = pair.category == "adaptation"
-                    and "adaptation" or "evolution"
+                -- The client draws the sequence, so the mode it is told IS the
+                -- look. Anything not named here falls back to the evolution
+                -- presentation rather than reaching the wire as an unknown word.
+                local presentationMode = pair.category
+                if presentationMode ~= "adaptation" and presentationMode ~= "prestige" then
+                    presentationMode = "evolution"
+                end
+                -- the stage rides along, because the client cannot read it off
+                -- the passives: those may replicate after this frame arrives
+                local presentationStage = nil
+                if presentationMode == "prestige" then
+                    presentationStage = 1
+                    local okStages, stages = pcall(PalPassives.resolve, param)
+                    if okStages and type(stages) == "table" and stages.prestige
+                        and (stages.prestige.stage or 0) > 0 then
+                        presentationStage = stages.prestige.stage
+                    end
+                end
                 phaseSequence = NetChannel.sendPhaseStart(pcSender,
-                    presentationMode, pair.from, pair.to, pair.stone or "evolution")
+                    presentationMode, pair.from, pair.to, pair.stone or "evolution",
+                    presentationStage)
             end)
             Log(string.format("EVOLVED (server): %s -> %s (level %d) - MP sequence", pair.from, pair.to, level))
 
@@ -1819,6 +1905,22 @@ local function performEvolution(p)
                                 -- the old actor and could not re-derive the base)
                                 refreshWorkSuitability(param, playerCtx, newActor, pair.from)
                                 Log("[mpseq] activated fresh " .. targetId .. " -> reveal")
+                                -- Second read, on the far side of the reload. The
+                                -- write before the swap reports success, so what
+                                -- is left to learn is whether SpawnOtomoByLoad
+                                -- rebuilds the move lists from the new species and
+                                -- drops what was written into them.
+                                local probeParam = paramOf(newActor)
+                                if probeParam then
+                                    local afterReload = WazaInherit.capture(probeParam)
+                                    if afterReload then
+                                        Log(string.format("[waza] after reload: equip %d, mastered %d",
+                                            #(afterReload.save.equip or {}),
+                                            #(afterReload.save.mastered or {})))
+                                    else
+                                        Log("[waza] after reload: read-back failed")
+                                    end
+                                end
                                 pcall(NetChannel.sendPhaseReveal, pcSender, phaseSequence)
                                 -- The evolution flash VFX (VisualEffectComponent:
                                 -- AddVisualEffect) is a LOCAL call - on a client
@@ -2212,7 +2314,7 @@ local function performEvolution(p)
     -- hard-hidden right before it so no despawn visuals are ever seen
     local dissolveMs = 1200
     pcall(function()
-        if fx.dissolveDurationMs then dissolveMs = fx.dissolveDurationMs() end
+        if fx.dissolveDurationMs then dissolveMs = fx.dissolveDurationMs(ctx) end
     end)
     -- one-shot LoopAsync instead of ExecuteWithDelay: the delay API's
     -- transient callback refs get freed by UE4SS's callback GC under load
@@ -2410,6 +2512,10 @@ end
 -- confirmed" produce the same grey entry and are otherwise indistinguishable.
 local lastOfferReason = nil
 local lastOfferPrestige = false
+-- The wheel labels itself from lastOfferPrestige, and a prestige connection
+-- that reads as an ordinary evolution looks identical to a missing one. This
+-- records which of the two lists answered, deduped the way the verdict is.
+local lastOfferShape = nil
 
 -- Player-facing half of the verdict. The log line names the cause for support;
 -- this names it for the person looking at a grey entry, who otherwise gets
@@ -2481,6 +2587,12 @@ function Evolution.canOffer()
                 playerMessage
         end
         lastOfferPrestige = isPrestige
+        local shape = string.format("%s:%d:%s", id, n, tostring(isPrestige))
+        if shape ~= lastOfferShape then
+            lastOfferShape = shape
+            Log(string.format("Offer: %s has %d option(s), prestige=%s",
+                id, n, tostring(isPrestige)))
+        end
         prewarmNames(id)
         return nil
     end)
@@ -2490,6 +2602,220 @@ function Evolution.canOffer()
     end
     offerVerdict(reason, playerMsg)
     return reason == nil
+end
+
+-- Chat command: PREVIEW a prestige stage on the summoned Pal.
+--
+-- It changes nothing. No species swap, no save write, no cost, no gate - the
+-- point is to watch a stage while it is being authored, on whatever Pal happens
+-- to be out, including one that could never prestige.
+--
+-- The split exists because the chat hook fires on the AUTHORITY (a connected
+-- client never sees its own line through it) while the effects are drawn on the
+-- CLIENT. The host resolves the sender and freezes the Pal, the client plays.
+--
+-- Dev tool: gated on devMode like the other probe commands.
+local PREVIEW_MODE = "prestigepreview"
+-- Same split as the preview: the chat hook fires on the authority, the shimmer
+-- is drawn on the client, so the name has to travel.
+local GLOW_MODE = "prestigeglow"
+-- Long enough for the whole schedule (grow plus hold is 3.4 s by default) with
+-- room to spare, short enough that a forgotten Pal is free again quickly.
+-- Replaced by a per-run lease below; kept as the floor for a single beat.
+local PREVIEW_MIN_FREEZE_SECONDS = 4.0
+
+local function previewReply(playerCtx, text)
+    Log("prestige preview: " .. text)
+    Role.chat(playerCtx, text, "reply")
+end
+
+function Evolution.runPrestigeCommand(senderCtx, args)
+    if not Config.devMode then return end
+    args = args or {}
+    local playerCtx = senderCtx or Role.localPlayerCtx()
+    if not playerCtx then
+        Log("prestige preview: no player context for the sender")
+        return
+    end
+
+    if args[1] == "list" then
+        previewReply(playerCtx, PrestigeRecipes.describe())
+        return
+    end
+
+    local stage = tonumber(args[1])
+    local beatName = args[2]
+
+    local holder = findHolderFor(playerCtx, nil)
+    local actor = nil
+    if holder then pcall(function() actor = holder:TryGetSpawnedOtomo() end) end
+    if not (actor and actor:IsValid()) then
+        previewReply(playerCtx, I18n.msg("noPalSummoned"))
+        return
+    end
+
+    local id = ""
+    local param = paramOf(actor)
+    if param then
+        local okId, raw = pcall(function() return param:GetCharacterID():ToString() end)
+        if okId then id = baseCharacterId(raw) end
+    end
+
+    -- No stage given: the Pal's own, so the command shows what THIS Pal would
+    -- get. Falls back to 1 for a Pal that has never prestiged.
+    if not stage then
+        stage = 1
+        local okStages, stages = pcall(PalPassives.resolve, param)
+        if okStages and type(stages) == "table" and stages.prestige
+            and (stages.prestige.stage or 0) > 0 then
+            stage = stages.prestige.stage
+        end
+    end
+
+    if beatName and not PrestigeRecipes.beatNamed(stage, beatName) then
+        previewReply(playerCtx, string.format("stage %d has no beat '%s'", stage, beatName))
+        return
+    end
+
+    -- The Pal has to stand still or it walks out of its own preview. Movement is
+    -- server-authoritative, so this only works here, on the authority, and it is
+    -- the same flag the real sequence uses.
+    --
+    -- The release runs off a DEADLINE rather than a single tick, so a missed
+    -- callback cannot leave a Pal rooted to the ground. It is a preview: a stuck
+    -- Pal would be a worse bug than the one it is testing.
+    -- The lease is the run's own length plus a margin. A stage 10 preview is
+    -- twenty seconds; a constant would release the Pal in the middle of it.
+    local lease = PREVIEW_MIN_FREEZE_SECONDS
+    if not beatName then
+        lease = Timing.resolve(true, stage).fullPresentationMs / 1000 + 1.5
+    end
+    setRevealFrozen(actor, true)
+    local frozenActor = actor
+    local until_ = os.clock() + lease
+    LoopAsync(250, function()
+        if os.clock() < until_ then return false end
+        ExecuteInGameThread(function()
+            if frozenActor and frozenActor:IsValid() then
+                setRevealFrozen(frozenActor, false)
+            end
+        end)
+        Log("prestige preview: pal released")
+        return true
+    end)
+
+    Log(string.format("prestige preview: %s stage %d%s", id, stage,
+        beatName and (" beat " .. beatName) or ""))
+
+    if not Role.isDedicated() then
+        Evolution.playPrestigePreview(holder, actor, stage, beatName)
+        return
+    end
+
+    local sent = false
+    pcall(function()
+        sent = NetChannel.sendPhaseStart(playerCtx.pc, PREVIEW_MODE,
+            tostring(stage), beatName or "-", "evolution") ~= nil
+    end)
+    if not sent then Log("prestige preview: the signal to the sender FAILED") end
+end
+
+-- Chat command: swap the permanent prestige shimmer. The host owns the chat
+-- line, every client owns its own effects, so the name goes over the wire and
+-- each client re-marks what it can see.
+function Evolution.runGlowCommand(senderCtx, args)
+    if not Config.devMode then return end
+    local playerCtx = senderCtx or Role.localPlayerCtx()
+    if not playerCtx then return end
+    local name = (args or {})[1] or ""
+
+    if not Role.isDedicated() then
+        local okMark, mark = pcall(require, "prestigemark")
+        if not okMark then return end
+        local ok, info = mark.setGlow(name)
+        Role.chat(playerCtx, ok and ("glow: " .. tostring(info))
+            or ("glow names: " .. tostring(info)), "reply")
+        return
+    end
+
+    -- The host cannot answer whether the name is known: its own marker never
+    -- ran. The client says so instead, in its log.
+    local sent = false
+    pcall(function()
+        sent = NetChannel.sendPhaseStart(playerCtx.pc, GLOW_MODE,
+            name ~= "" and name or "-", "-", "evolution") ~= nil
+    end)
+    Log(string.format("glow command: '%s' to the sender: %s", name,
+        sent and "sent" or "FAILED"))
+end
+
+-- Client side of the preview. Runs the schedule at the summoned Pal without
+-- touching it.
+function Evolution.playPrestigePreview(holder, actor, stage, beatName)
+    local target = actor
+    if not (target and target:IsValid()) then
+        pcall(function() target = holder:TryGetSpawnedOtomo() end)
+    end
+    if not (target and target:IsValid()) then
+        Log("prestige preview: no pal to play it on")
+        return
+    end
+
+    local loc = nil
+    pcall(function() loc = target:K2_GetActorLocation() end)
+    if not loc then
+        Log("prestige preview: the pal has no location")
+        return
+    end
+
+    local half, meshHalf = nil, nil
+    pcall(function()
+        local cap = target.CapsuleComponent
+        if cap and cap:IsValid() then half = cap:GetScaledCapsuleHalfHeight() end
+    end)
+    pcall(function()
+        local spc = target.StaticCharacterParameterComponent
+        if spc and spc:IsValid() and spc.MeshCapsuleHalfHeight > 0 then
+            meshHalf = spc.MeshCapsuleHalfHeight
+        end
+    end)
+
+    local beats = nil
+    if beatName and beatName ~= "-" then
+        beats = PrestigeRecipes.beatNamed(stage, beatName)
+    end
+
+    Log(string.format("prestige preview: playing stage %s%s (collHalf=%s meshHalf=%s)",
+        tostring(stage), beatName and beatName ~= "-" and (" beat " .. beatName) or "",
+        tostring(half), tostring(meshHalf)))
+
+    -- required here rather than at the top: fx.lua already owns the finale for
+    -- the real sequence, and this file has no other use for it
+    local okFinale, Finale = pcall(require, "finale")
+    if not okFinale then
+        Log("prestige preview: the finale module failed to load: " .. tostring(Finale))
+        return
+    end
+
+    -- The wind-up effects belong to the preview as much as the finale does. A
+    -- single beat is played bare: it is meant to be judged on its own.
+    local intro = nil
+    if not beats then
+        local okFx, FX = pcall(require, "fx")
+        if okFx and FX.previewIntro then
+            local pawn = Role.localPlayerCtx() and Role.localPlayerCtx().pawn or nil
+            intro = FX.previewIntro(holder, pawn, loc.X, loc.Y, loc.Z, half)
+            local doneAt = os.clock() + Timing.resolve(true, stage).fullPresentationMs / 1000 + 1.5
+            LoopAsync(250, function()
+                if os.clock() < doneAt then return false end
+                ExecuteInGameThread(function() FX.previewOutro(intro) end)
+                return true
+            end)
+        end
+    end
+
+    Finale.playStandalone(holder, loc.X, loc.Y, loc.Z, {}, half, meshHalf,
+        { isPrestige = true, stage = stage, beats = beats })
 end
 
 function Evolution.offerIsPrestige()
@@ -2974,6 +3300,25 @@ local function buildRemoteCtx(actor, holder, playerCtx, pair)
     end
     ctx.colorFrom = Elements.colorFor(ctx.elemsFrom[1])
     ctx.colorTo = Elements.colorFor(ctx.elemsTo[1])
+    -- The finale picks its base layer from this. Read off the pair rather than
+    -- passed in, so the client side gets the same answer from the synced tree
+    -- without another field on the wire.
+    ctx.isPrestige = (pair and pair.category == "prestige") or false
+    -- Which prestige programme plays: the Pal's own stage, so the Nth prestige
+    -- outdoes the N-1th. Unknown reads as 1 rather than as nothing.
+    -- The host's number wins where it is available: the local passive list can
+    -- still be the pre-prestige one when this runs on a client.
+    ctx.prestigeStage = (pair and tonumber(pair.prestigeStage)) or 1
+    if ctx.isPrestige and not (pair and pair.prestigeStage) then
+        local probeParam = paramOf(ctx.actor)
+        if probeParam then
+            local okStages, stages = pcall(PalPassives.resolve, probeParam)
+            if okStages and type(stages) == "table" and stages.prestige
+                and (stages.prestige.stage or 0) > 0 then
+                ctx.prestigeStage = stages.prestige.stage
+            end
+        end
+    end
     ctx.completeOk = function() remoteRevealBusy = false; remoteCtx = nil end
     ctx.completeAbort = function()
         pcall(function() FX.cleanup(ctx) end)
@@ -2997,6 +3342,23 @@ function Evolution.onNetSignal(kind, phaseInfo)
     if not holder then return end
 
     Log("[mpseq-c] signal: " .. tostring(kind))
+    -- The preview is not a sequence: nothing is swapped, so it never enters the
+    -- remote reveal state machine and never claims the busy lock.
+    if kind == "start" and phaseInfo and phaseInfo.mode == GLOW_MODE then
+        local okMark, mark = pcall(require, "prestigemark")
+        if okMark then
+            local ok, info = mark.setGlow(phaseInfo.from or "")
+            if not ok then Log("glow names: " .. tostring(info)) end
+        end
+        return
+    end
+    if kind == "start" and phaseInfo and phaseInfo.mode == PREVIEW_MODE then
+        -- the descriptor rides in the two id fields of the phase frame: stage
+        -- in `from`, beat name in `to`
+        Evolution.playPrestigePreview(holder, nil,
+            tonumber(phaseInfo.from) or 1, phaseInfo.to)
+        return
+    end
     if kind == "start" then
         if remoteRevealBusy and (os.clock() - remoteRevealStart) < 20 then return end
         if phaseInfo and phaseInfo.from and phaseInfo.to then
@@ -3009,6 +3371,7 @@ function Evolution.onNetSignal(kind, phaseInfo)
                 to = phaseInfo.to,
                 stone = phaseInfo.stone,
                 category = phaseInfo.mode,
+                prestigeStage = phaseInfo.stage,
             }
         end
         local actor = nil
@@ -3023,7 +3386,7 @@ function Evolution.onNetSignal(kind, phaseInfo)
         pcall(function() FX.onDissolve(remoteCtx) end)
         -- after the dissolve, start the hold loop and recall the pal
         local dur = 1200
-        pcall(function() if FX.dissolveDurationMs then dur = FX.dissolveDurationMs() end end)
+        pcall(function() if FX.dissolveDurationMs then dur = FX.dissolveDurationMs(remoteCtx) end end)
         local done = false
         LoopAsync(dur, function()
             if done then return true end
@@ -3637,11 +4000,24 @@ function Evolution.init()
         end)
     end)
 
+    -- A prestiged pal shimmers, permanently. Registered here with the other
+    -- native hooks, not on a timer.
+    local okMark, errMark = pcall(function()
+        require("prestigemark").init()
+    end)
+    if not okMark then Log("prestige marker failed to load: " .. tostring(errMark)) end
+
     -- chat commands: the retail build ships without an in-game console
     pcall(function()
         local ChatCommands = require("chatcommands")
         local okCmd = ChatCommands.init({
             rollback = function(senderCtx) Evolution.rollbackLast(senderCtx) end,
+            -- Same path the wheel takes, so it grants nothing the wheel would
+            -- not. It only saves the trip through the menu while the
+            -- presentation is being tuned.
+            prestige = function(senderCtx, args) Evolution.runPrestigeCommand(senderCtx, args) end,
+            -- swaps the permanent prestige shimmer without a restart
+            glow = function(senderCtx, args) Evolution.runGlowCommand(senderCtx, args) end,
             -- dev-only aliases for probe keys that compact keyboards lack
             -- (END/INSERT); silent no-ops outside devMode
             free = function(senderCtx)

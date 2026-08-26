@@ -86,6 +86,10 @@ if Evolution and not Role.isDedicated() then
         require("radialmenu").init({
             check = Evolution.check,
             canOffer = Evolution.canOffer,
+            -- The wheel entry names itself from this. Leaving it out does not
+            -- fail loudly: the label falls back to the evolve wording and a
+            -- prestige option reads as an ordinary evolution.
+            offerIsPrestige = Evolution.offerIsPrestige,
             listOptions = Evolution.listOptions,
             executeOption = Evolution.executeOption,
         })
