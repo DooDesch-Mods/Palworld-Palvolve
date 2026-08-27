@@ -44,9 +44,9 @@
 --                (best effort - ignored when the component could not be
 --                captured, unless looping is set)
 --
--- Candidate paths come from the object dumps of build 24088745 and are
--- confirmed/pruned by the live probe pass (probes.lua NUM_ONE) against the
--- running build before final tuning.
+-- Candidate paths come from the object dumps of build 24088745. A path the
+-- running build does not have is skipped rather than fatal, so a list that
+-- outlives a game patch degrades instead of breaking.
 
 local R = {}
 
@@ -164,9 +164,8 @@ R.elements = {
                   looping = true, killAfterMs = 1100 },
             } },
     },
-    -- No showy candidate confirmed for these yet (candidate search tracked
-    -- as a follow-up): their centerpiece is a z-stacked cluster of their
-    -- own hit burst.
+    -- These three have no showy centerpiece of their own in this build, so
+    -- they stack their own hit burst along z instead.
     Earth  = { centerpiece = CLUSTER, accents = ACCENTS, ring = RING },
     Dragon = { centerpiece = CLUSTER, accents = ACCENTS, ring = RING },
     Normal = { centerpiece = CLUSTER, accents = ACCENTS, ring = RING },

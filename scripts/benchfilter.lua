@@ -98,7 +98,7 @@ local function patchModel(model)
             return
         end
         if PROBE or Config.devMode then
-            Log(string.format("[probe-conv] %s: typesB=[%s] rankMax=%s recipes=%d",
+            Log(string.format("bench filter: %s: typesB=[%s] rankMax=%s recipes=%d",
                 id, typesToString(types), tostring(model.TargetRankMax), recipeCount(model)))
         end
         -- Our own entry is found by identity, never by position. It used to be
@@ -149,7 +149,7 @@ local function patchModel(model)
             end
         end
         if PROBE or Config.devMode then
-            Log(string.format("[probe-conv] %s: patched typesB=[%s]", id, typesToString(model.TargetTypesB)))
+            Log(string.format("bench filter: %s: patched typesB=[%s]", id, typesToString(model.TargetTypesB)))
         end
     end)
     if not ok then

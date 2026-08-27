@@ -60,13 +60,13 @@ local function tintActor(actor)
     local ok, err = pcall(function()
         local meshClass = StaticFindObject("/Script/Engine.StaticMeshComponent")
         if not (meshClass and meshClass:IsValid()) then
-            Log("[probe-bench] StaticMeshComponent class not found")
+            Log("bench tint: StaticMeshComponent class not found")
             return
         end
         local meshes = actor:K2_GetComponentsByClass(meshClass)
         local count = meshes and #meshes or 0
         if PROBE or Config.devMode then
-            Log(string.format("[probe-bench] %d static mesh components on %s",
+            Log(string.format("bench tint: %d static mesh components on %s",
                 count, actor:GetFName():ToString()))
         end
         if count == 0 and (PROBE or Config.devMode) then
@@ -75,11 +75,11 @@ local function tintActor(actor)
             local allClass = StaticFindObject("/Script/Engine.ActorComponent")
             local comps = actor:K2_GetComponentsByClass(allClass)
             local total = comps and #comps or 0
-            Log(string.format("[probe-bench] %d total components", total))
+            Log(string.format("bench tint: %d total components", total))
             for i = 1, math.min(total, 30) do
                 local c = unwrap(comps[i])
                 if c and c:IsValid() then
-                    Log(string.format("[probe-bench] comp[%d]=%s (%s)", i,
+                    Log(string.format("bench tint: comp[%d]=%s (%s)", i,
                         c:GetFName():ToString(), c:GetClass():GetFName():ToString()))
                 end
             end
@@ -113,7 +113,7 @@ local function tintActor(actor)
                                 end
                             end)
                             if not okMid and (PROBE or Config.devMode) then
-                                Log(string.format("[probe-bench] MID creation failed for slot %d", m - 1))
+                                Log(string.format("bench tint: MID creation failed for slot %d", m - 1))
                             end
                         end
                         if isMid then
@@ -128,7 +128,7 @@ local function tintActor(actor)
                                 end)
                             end
                             if PROBE or Config.devMode then
-                                Log(string.format("[probe-bench] tint set on slot %d (%s)",
+                                Log(string.format("bench tint: set on slot %d (%s)",
                                     m - 1, mat:GetFName():ToString()))
                             end
                         end
@@ -138,7 +138,7 @@ local function tintActor(actor)
         end
     end)
     if not ok then
-        Log(string.format("[probe-bench] tint error: %s", tostring(err)))
+        Log(string.format("bench tint: failed: %s", tostring(err)))
     end
 end
 
@@ -166,7 +166,7 @@ local function handleActor(actor)
     -- this session, so leave the shared vanilla bench untouched)
     if isOurBench(actor) and not ServerCheck.blocked() then
         tintActor(actor)
-        if PROBE or Config.devMode then Log("[probe-bench] tint attempt on Pal Alchemy Workbench instance") end
+        if PROBE or Config.devMode then Log("bench tint: attempting on Pal Alchemy Workbench instance") end
     end
     return true
 end
@@ -204,7 +204,7 @@ function BenchVisual.init()
             end)
         end)
         if not ok and Config.devMode then
-            Log(string.format("[probe-bench] completion hook failed: %s", path))
+            Log(string.format("bench tint: completion hook failed: %s", path))
         end
     end
 

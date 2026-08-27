@@ -1929,8 +1929,8 @@ local function installSavedDir()
     local palDir = src:match("^@?(.*)[/\\][Bb]inaries[/\\]")
     if not palDir then
         -- Some loaders hand out a chunk name rather than a path. The module
-        -- search knows where this file really came from, and it answers with an
-        -- absolute path on every layout tested.
+        -- search knows where this file really came from, and answers with an
+        -- absolute path.
         local found = nil
         pcall(function() found = package.searchpath("config", package.path) end)
         if found then palDir = found:match("^(.*)[/\\][Bb]inaries[/\\]") end

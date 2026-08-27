@@ -36,8 +36,8 @@ Finale.captureOk = nil
 
 -- ---------------------------------------------------------------- asset resolve
 
--- Paths confirmed absent from the running build: never sync-load these
--- again this session (LoadAsset stalls are the expensive part).
+-- Paths this build does not have: never sync-load them again this session
+-- (a LoadAsset stall is the expensive part).
 local missing = {}
 
 -- Hot-path hygiene: these run per spawn/per driver tick, so they use NAMED
