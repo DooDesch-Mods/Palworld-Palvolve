@@ -3928,12 +3928,18 @@ function Evolution.init()
                     -- never touch game state from the load path
                     local pc = FindFirstOf("PalPlayerCharacter")
                     if not (pc and pc:IsValid()) then return end
+                    -- Before the actor is touched, not after. Without a uid
+                    -- isOwnedBy falls through to the any-owner check, which
+                    -- matches every owned pal in the world: on a listen host
+                    -- that turns a private notification into one about somebody
+                    -- else's pal, and it reads the actor to find that out.
+                    local localCtx = Role.localPlayerCtx()
+                    if not (localCtx and localCtx.playerUId) then return end
                     local actor = self:get()
                     local param = actor.CharacterParameterComponent:GetIndividualParameter()
                     -- the notification is local UX: only this machine's
                     -- player should hear about their own pals
-                    local localCtx = Role.localPlayerCtx()
-                    if not isOwnedBy(param, localCtx and localCtx.playerUId) then return end
+                    if not isOwnedBy(param, localCtx.playerUId) then return end
                     local id, isAlpha = baseCharacterId(param:GetCharacterID():ToString())
                     local pair = nil
                     for _, cand in ipairs(Config.findPairs(id)) do

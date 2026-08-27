@@ -198,9 +198,37 @@ namespace
         return guid_string(Prop->ContainerPtrToValuePtr<void>(Object));
     }
 
+    // Resolves an object to its slot in the global array, or nullptr.
+    //
+    // The round trip is the point: an index read back out of the object has to lead to a slot
+    // that still holds THAT object. A pointer to a slot that has since been recycled fails
+    // here instead of being trusted.
+    auto object_item(UObject* Object) -> FUObjectItem*
+    {
+        if (!Object) return nullptr;
+        auto* Item = FUObjectArray::IndexToObject(Object->GetInternalIndex());
+        if (!Item || Item->GetUObject() != Object) return nullptr;
+        return Item;
+    }
+
+    // True when an object is safe to read from and is not a class default.
+    //
+    // The name check alone was not enough. GetName walks the FName table, so it is a read
+    // THROUGH the object, and it was the first thing every sweep did to every entry it had
+    // collected. An object that entered PendingKill between the FindAllOf and the loop body
+    // still looked fine to that check, because the check never asked the array whether the
+    // object was still there.
+    //
+    // Order matters: the slot is validated before anything is read out of the object. A pal
+    // killed while a sweep is running is PendingKill first and destroyed after, so this is the
+    // window that has to be closed rather than narrowed.
     auto is_live(UObject* Object) -> bool
     {
-        return Object && Object->GetName().find(STR("Default__")) == StringType::npos;
+        auto* Item = object_item(Object);
+        if (!Item) return false;
+        if (!FUObjectArray::IsValid(Item, false)) return false;
+        if (FUObjectArray::IsStale(Item, false)) return false;
+        return Object->GetName().find(STR("Default__")) == StringType::npos;
     }
 
     // ================================================================== work suitability
@@ -318,22 +346,24 @@ namespace
 
     auto object_key(UObject* Param, FWorkKey& Out) -> bool
     {
-        if (!Param) return false;
-        const int32 Index = Param->GetInternalIndex();
-        auto* Item = FUObjectArray::IndexToObject(Index);
-        if (!Item || Item->GetUObject() != Param) return false;
+        auto* Item = object_item(Param);
+        if (!Item) return false;
+        // A pal being destroyed answers no. Every caller of this treats false as "not one of
+        // ours" and falls back to the game, which is the right answer for an object on its way
+        // out - and the alternative is reading state out of it on the camp's hot path.
+        if (!FUObjectArray::IsValid(Item, false) || FUObjectArray::IsStale(Item, false)) return false;
         const int32 Serial = Item->GetSerialNumber();
         if (Serial == 0) return false;
-        Out = {Index, Serial};
+        Out = {Param->GetInternalIndex(), Serial};
         return true;
     }
 
     auto allocate_object_key(UObject* Param, FWorkKey& Out) -> bool
     {
-        if (!Param) return false;
+        auto* Item = object_item(Param);
+        if (!Item) return false;
+        if (!FUObjectArray::IsValid(Item, false) || FUObjectArray::IsStale(Item, false)) return false;
         const int32 Index = Param->GetInternalIndex();
-        auto* Item = FUObjectArray::IndexToObject(Index);
-        if (!Item || Item->GetUObject() != Param) return false;
         const int32 Serial = FUObjectArray::AllocateSerialNumber(Index);
         if (Serial == 0) return false;
         Out = {Index, Serial};
@@ -1292,7 +1322,10 @@ namespace
     // keyed by object index alone because it counts traffic rather than identifying a pal.
     auto note_seen_object(void* Self) -> void
     {
-        if (!Self) return;
+        // Through the same guard as everything else. This read the index straight out of the
+        // pointer, which made the diagnostic switch the least safe path in the file.
+        auto* Item = object_item(static_cast<UObject*>(Self));
+        if (!Item || !FUObjectArray::IsValid(Item, false)) return;
         const int32 Index = static_cast<UObject*>(Self)->GetInternalIndex();
         std::lock_guard<std::mutex> Lock(g_seen_mutex);
         if (g_seen_objects.size() < SeenObjectsMax || g_seen_objects.contains(Index))
