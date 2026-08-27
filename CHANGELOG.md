@@ -15,12 +15,18 @@
 - **Six new condition types.** A named move, a named passive, an item or an amount of gold in the inventory, condenser rank, condenser souls, and the last thing the Pal was fed. All six can be negated, and none of them take anything away.
 - **A pair can evolve on its own.** The watcher follows your summoned Pal and checks more often as more of that pair's conditions come true. It runs the same path a manual evolution runs, so it cannot skip a cost or a rollback.
 - **A pair can carry its own material cost**, instead of the one the global settings work out.
+- **Two ways to offer an evolution.** `evolutionMode` stays on `selected`, where the wheel lists every target you configured. On `conditioned` it works out the strongest rule that passes and offers only that one.
+- **You decide how much a condition gives away.** `conditionDisclosure` is `exact`, `hint` or `hidden`, and one server setting feeds every screen the mod draws.
+- **An evolution or a prestige can hand out a fourth move slot.** `evolutionBonusSlot` and `prestigeBonusSlot`, both off until you turn them on.
 - **Evolved I to IV.** A passive that gains a rank with every evolution, next to the +5 IV each stage already gives.
 
 ### Fixed
 
 - **Evolution stones came back to the Pal Alchemy Workbench next to other PalSchema mods.** Palvolve claimed the last slot of the bench filter, and a second mod adding its own item type pushed it out. Reported by Shas Hakomairos.
 - **Feeding a Pal by hand could take a dedicated server down when someone joined.**
+- **Evolving a Pal that wore a skin broke the mod for that Pal.** The skin still pointed at the old species afterwards, and the entry disappeared from the wheel until the mod was reinstalled. An incompatible skin is now removed at the species change, and a rollback brings it back. `clearIncompatibleSkins` turns that off if you would rather keep the skin and the risk.
+- **An exclusive move carried into a new form broke the Pal.** Those moves belong to one species and are dropped now.
+- **A tree with conditions this version does not know refuses those pairs and says how many.** It used to unlock them instead, which is the wrong direction for a condition nobody can check.
 - **Picking one variant of a pair could evolve the other.** The price of whichever variant resolved first was also quoted for both.
 - **The wheel unlocked before the evolution had finished playing.**
 - **The config-loaded notice was English for everyone.** The sentence already existed in all 17 languages.
