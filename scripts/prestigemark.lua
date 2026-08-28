@@ -216,9 +216,50 @@ local function applyScale(comp, half)
     comp:SetRelativeScale3D({ X = scale, Y = scale, Z = scale })
 end
 
+local PAL_UTILITY = "/Script/Pal.Default__PalUtility"
+
+local function palUtilityUnsafe() return StaticFindObject(PAL_UTILITY) end
+local function holderOfUnsafe(util, actor) return util:GetOtomoHolderByOtomoPal(actor) end
+local function spawnedOtomoUnsafe(holder) return holder:TryGetSpawnedOtomo() end
+
+--- True only for a Pal that sits in a party without being the one that is out.
+---
+--- The owner is asked, not the actor, because no flag on the actor answers this.
+--- Measured on one Pal, summoned and recalled: bHidden is false either way. The
+--- main mesh reads invisible even when the Pal is standing in front of you, so
+--- gating on it put out every shimmer in the world. bIsPalActiveActor looked
+--- right once and then flickered between true and false on a Pal that had not
+--- moved, alongside ImportanceType: it tracks actor activation, not deployment.
+---
+--- The holder does answer it, and steadily. Measured:
+---   summoned  holder=true  otomoOut=true   sameActor=true
+---   parked    holder=true  otomoOut=false  sameActor=false
+---   base camp holder=false
+--- A Pal with no holder is in nobody's party, which covers base camp workers and
+--- other players' Pals, and those keep their marker.
+local function isParkedPartyPal(actor)
+    local okUtil, util = pcall(palUtilityUnsafe)
+    if not okUtil or not isLive(util) then return false end
+    local okHolder, holder = pcall(holderOfUnsafe, util, actor)
+    if not okHolder or not isLive(holder) then return false end
+    local okSpawned, spawned = pcall(spawnedOtomoUnsafe, holder)
+    if not okSpawned then return false end
+    if not isLive(spawned) then return true end
+    local okMine, mine = pcall(readAddress, actor)
+    local okOut, out = pcall(readAddress, spawned)
+    if not (okMine and okOut) then return false end
+    return mine ~= out
+end
+
+--- Whether this Pal should be wearing its marker right now.
+---
+--- Every unreadable answer keeps the marker. The cosmetic is what this module is
+--- for, so a read that fails costs one Pal its shimmer at worst, never all of them.
 local function isVisibleActor(actor)
     local ok, hidden = pcall(readHidden, actor)
     if ok and (hidden == true or hidden == 1) then return false end
+    local okParked, parked = pcall(isParkedPartyPal, actor)
+    if okParked and parked == true then return false end
     return true
 end
 
@@ -414,6 +455,18 @@ local function removeGlow(actor)
     entry.comps = nil
 end
 
+--- Records a prestige Pal without attaching anything, so the caretaker loop
+--- below can find it again. Needed because the actors are pooled: a Pal that is
+--- summoned later is never announced a second time.
+local function remember(actor, stage)
+    local key = keyOf(actor)
+    if not key then return end
+    local entry = marked[key] or { actor = actor }
+    entry.actor = actor
+    entry.stage = stage
+    marked[key] = entry
+end
+
 --- Brings one Pal's marker in line with its prestige stage. Safe to call again.
 function PrestigeMark.reconcile(actor)
     if not isLive(actor) then return end
@@ -423,13 +476,6 @@ function PrestigeMark.reconcile(actor)
 
     if isPlayerActor(actor, param) then return end
     if not isPalSpecies(param) then return end
-    -- A parked pal keeps its marker drawing and sounding at the player's feet,
-    -- so it loses it here rather than at the next summon.
-    if not isVisibleActor(actor) then
-        removeGlow(actor)
-        return
-    end
-
     -- With the debug override set, every pal wears the rung regardless of what
     -- it has earned. Without it, its own stage decides as usual.
     local stage = stageOverride or prestigeStageOf(param)
@@ -438,11 +484,27 @@ function PrestigeMark.reconcile(actor)
     if not okId then id = "?" end
     trace(string.format("%s reads stage %d", id, stage))
     if stage > 0 then
+        -- Uncapped from here down. The trace limit exists because the queue runs
+        -- for every Pal in the world, but a Pal WITH a stage is a handful at
+        -- most, and these are the lines that say whether the marker works.
+        --
+        -- Remembered BEFORE the visibility gate, and that order is the whole
+        -- point. Palworld pools its Pal actors: summoning one reuses the actor
+        -- that already existed, so object notification fires once, during world
+        -- load, while the Pal is still sitting in the party. Turned away at that
+        -- moment without an entry, it was never looked at again and stayed dark
+        -- for the session. With an entry, the caretaker loop below picks it up
+        -- the moment it is actually out.
+        remember(actor, stage)
+        if not isVisibleActor(actor) then
+            removeGlow(actor)
+            return
+        end
         if alreadyMarked(actor) then return end
         if spawnGlow(actor, stage) then
-            trace(string.format("shimmer on, stage %d", stage))
+            Log(string.format("prestige marker: %s shimmer on, stage %d", id, stage))
         else
-            trace(string.format("stage %d but the shimmer could not be attached", stage))
+            Log(string.format("prestige marker: %s stage %d but the shimmer could not be attached", id, stage))
         end
         return
     end
@@ -605,18 +667,37 @@ function PrestigeMark.init()
             --
             -- This is that code. It rides the loop that already exists rather
             -- than adding a timer of its own.
-            local stale = {}
+            -- Two directions, not one. Taking the marker off lived here
+            -- already; putting it back did not, and nothing else could. Object
+            -- notification fires once per NEW Pal, so a Pal stripped while it
+            -- sat in the party stayed dark for the rest of the session no
+            -- matter how often it was summoned again.
+            local stale, revive = {}, {}
             for key, entry in pairs(marked) do
-                if not (isLive(entry.actor) and isVisibleActor(entry.actor)) then
+                local live = isLive(entry.actor)
+                if not (live and isVisibleActor(entry.actor)) then
                     stale[#stale + 1] = { key = key, entry = entry }
+                elseif entry.comps == nil and entry.stage then
+                    revive[#revive + 1] = entry
                 end
             end
             for _, item in ipairs(stale) do
+                if item.entry.comps then
+                    Log("prestige marker: marker off, pal parked or gone")
+                end
                 for _, comp in ipairs(item.entry.comps or {}) do destroyComp(comp) end
                 item.entry.comps = nil
                 -- a destroyed actor is gone for good; a hidden one keeps its
                 -- entry so the marker returns when it is summoned again
                 if not isLive(item.entry.actor) then marked[item.key] = nil end
+            end
+            for _, entry in ipairs(revive) do
+                local ok, back = pcall(spawnGlow, entry.actor, entry.stage)
+                if ok and back then
+                    Log(string.format("prestige marker: marker back on, stage %d", entry.stage))
+                else
+                    Log("prestige marker: a summoned pal did not get its marker back")
+                end
             end
         end)
         return false
