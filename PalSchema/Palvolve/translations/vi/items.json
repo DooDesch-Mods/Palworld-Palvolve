@@ -1,6 +1,7 @@
 {
     "DT_ItemNameText": {
         "ITEM_NAME_Palvolve_EvolutionStone": "Đá Tiến hóa",
+        "ITEM_NAME_Palvolve_PrestigeStone": "Đá Uy danh",
         "ITEM_NAME_Palvolve_AdaptionStone": "Đá Thích nghi (cũ)",
         "ITEM_NAME_Palvolve_Essence_Normal": "Tinh chất Trung tính",
         "ITEM_NAME_Palvolve_AdaptationStone_Normal": "Đá Thích nghi (Trung tính)",
@@ -23,6 +24,7 @@
     },
     "DT_ItemDescriptionText": {
         "ITEM_DESC_Palvolve_EvolutionStone": "Một viên đá bí ẩn ngân vang năng lượng sống. Cho phép Pal đã gắn kết tiến hóa thành dạng họ hàng mạnh hơn khi đạt cấp yêu cầu.",
+        "ITEM_DESC_Palvolve_PrestigeStone": "Một viên Đá Tiến hóa được gieo bằng Cát Sao Đêm, khiến thiên hà duy nhất bên trong tản thành muôn vàn thiên hà. Cho phép Pal đã gắn kết ở cuối chuỗi tiến hóa bắt đầu lại từ đầu, giữ lại dấu ấn của mọi kiếp sống mà nó đã trải qua.",
         "ITEM_DESC_Palvolve_AdaptionStone": "Một viên đá lấp lánh cộng hưởng với các lực nguyên tố. Cho phép Pal đã gắn kết thích nghi thành một trong các dạng nguyên tố của nó khi đạt cấp yêu cầu.",
         "ITEM_DESC_Palvolve_Essence_Normal": "Năng lượng trung tính cô đặc, được chiết xuất từ Trái Kỹ năng hoặc nguyên liệu nguyên tố. Dùng để chế tạo Đá Thích nghi tương ứng.",
         "ITEM_DESC_Palvolve_AdaptationStone_Normal": "Một viên đá lấp lánh cộng hưởng với năng lượng trung tính. Cho phép Pal đã gắn kết thích nghi thành dạng trung tính khi đạt cấp yêu cầu.",

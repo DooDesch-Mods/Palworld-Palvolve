@@ -161,8 +161,14 @@ local Config = {
     -- Item costs (stones exist via PalSchema; false = free mode)
     requireStone = true,
     stoneCount = 1,
+    -- Prestige has its own price. The stone it takes is crafted FROM an
+    -- evolution stone, so charging both would be two evolution stones per
+    -- prestige.
+    prestigeStoneCount = 1,
     stoneItemIds = {
         evolution = "Palvolve_EvolutionStone",
+        -- crafted from an Evolution Stone + Nightstar Sand (item id NightStone)
+        prestige = "Palvolve_PrestigeStone",
         -- per-element adaptation stones (crafted from Evolution Stone +
         -- MeteorDrop + the matching element essence)
         adaptation = {
@@ -182,7 +188,8 @@ local Config = {
     },
     stoneNames = {
         evolution = "Evolution Stone",
-        adaptation = "Adaptation Stone"
+        adaptation = "Adaptation Stone",
+        prestige = "Prestige Stone"
     },
 
     -- Material costs on top of the stone. Materials derive from drop tables
@@ -2401,6 +2408,7 @@ local USER_KEYS = {
 
     -- costs
     { path = "stoneCount", kind = "int", min = 1, max = 99 },
+    { path = "prestigeStoneCount", kind = "int", min = 1, max = 99 },
     { path = "costs.enabled", kind = "bool" },
     { path = "costs.slots", kind = "int", min = 0, max = 10000 },
     { path = "costs.minRate", kind = "num", min = 0, max = 10000 },

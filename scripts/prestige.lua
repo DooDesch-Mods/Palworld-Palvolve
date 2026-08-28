@@ -128,7 +128,7 @@ local function deriveConnections(map, shippedMap, minimum)
                     to = minimum == 0 and chainEnd or best.id,
                     category = "prestige",
                     minLevel = nil,
-                    stone = "evolution",
+                    stone = "prestige",
                     enabled = true,
                     autoEvolve = false,
                     derived = true,

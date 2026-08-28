@@ -1,6 +1,7 @@
 {
     "DT_ItemNameText": {
         "ITEM_NAME_Palvolve_EvolutionStone": "进化石",
+        "ITEM_NAME_Palvolve_PrestigeStone": "转生石",
         "ITEM_NAME_Palvolve_AdaptionStone": "适应石（旧版）",
         "ITEM_NAME_Palvolve_Essence_Normal": "无属性精华",
         "ITEM_NAME_Palvolve_AdaptationStone_Normal": "适应石（无属性）",
@@ -23,6 +24,7 @@
     },
     "DT_ItemDescriptionText": {
         "ITEM_DESC_Palvolve_EvolutionStone": "一块神秘的石头，微微鸣动着生命能量。可让达到所需等级的羁绊帕鲁进化为更强的近缘形态。",
+        "ITEM_DESC_Palvolve_PrestigeStone": "一块以夜星砂为种的进化石，原本唯一的星系由此散作无数。可让处于进化链终点的羁绊帕鲁从头开始，同时保留它过往每一世的印记。",
         "ITEM_DESC_Palvolve_AdaptionStone": "一块与属性之力共鸣的闪耀石头。可让达到所需等级的羁绊帕鲁适应为其属性形态之一。",
         "ITEM_DESC_Palvolve_Essence_Normal": "从技能果实或属性素材中提取的浓缩无属性能量。用于制作对应的适应石。",
         "ITEM_DESC_Palvolve_AdaptationStone_Normal": "一块与无属性能量共鸣的闪耀石头。可让达到所需等级的羁绊帕鲁适应为无属性形态。",

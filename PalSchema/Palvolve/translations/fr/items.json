@@ -1,6 +1,7 @@
 {
     "DT_ItemNameText": {
         "ITEM_NAME_Palvolve_EvolutionStone": "Pierre d'évolution",
+        "ITEM_NAME_Palvolve_PrestigeStone": "Pierre de prestige",
         "ITEM_NAME_Palvolve_AdaptionStone": "Pierre d'adaptation (ancienne)",
         "ITEM_NAME_Palvolve_Essence_Normal": "Essence neutre",
         "ITEM_NAME_Palvolve_AdaptationStone_Normal": "Pierre d'adaptation (Neutre)",
@@ -23,6 +24,7 @@
     },
     "DT_ItemDescriptionText": {
         "ITEM_DESC_Palvolve_EvolutionStone": "Une pierre mystérieuse vibrant d'énergie vitale. Permet à un Pal lié d'évoluer vers une forme apparentée plus puissante une fois le niveau requis atteint.",
+        "ITEM_DESC_Palvolve_PrestigeStone": "Une pierre d'évolution ensemencée de Sable de nuit étoilée, dont l'unique galaxie s'est dispersée en une multitude. Permet à un Pal lié arrivé au bout de sa chaîne évolutive de recommencer depuis le début, en conservant une marque de chacune de ses vies passées.",
         "ITEM_DESC_Palvolve_AdaptionStone": "Une pierre scintillante accordée aux forces élémentaires. Permet à un Pal lié de s'adapter à l'une de ses formes élémentaires une fois le niveau requis atteint.",
         "ITEM_DESC_Palvolve_Essence_Normal": "Énergie neutre concentrée, extraite de fruits de maîtrise ou de matériaux élémentaires. Sert à fabriquer la pierre d'adaptation correspondante.",
         "ITEM_DESC_Palvolve_AdaptationStone_Normal": "Une pierre scintillante accordée à l'énergie neutre. Permet à un Pal lié de s'adapter à sa forme neutre une fois le niveau requis atteint.",

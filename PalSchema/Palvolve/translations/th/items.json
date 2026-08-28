@@ -1,6 +1,7 @@
 {
     "DT_ItemNameText": {
         "ITEM_NAME_Palvolve_EvolutionStone": "หินวิวัฒนาการ",
+        "ITEM_NAME_Palvolve_PrestigeStone": "หินเกียรติยศ",
         "ITEM_NAME_Palvolve_AdaptionStone": "หินปรับตัว (รุ่นเก่า)",
         "ITEM_NAME_Palvolve_Essence_Normal": "แก่นแท้ไร้ธาตุ",
         "ITEM_NAME_Palvolve_AdaptationStone_Normal": "หินปรับตัว (ไร้ธาตุ)",
@@ -23,6 +24,7 @@
     },
     "DT_ItemDescriptionText": {
         "ITEM_DESC_Palvolve_EvolutionStone": "หินลึกลับที่สั่นไหวด้วยพลังชีวิต ช่วยให้พัลที่ผูกพันวิวัฒนาการเป็นร่างสายเดียวกันที่แข็งแกร่งขึ้นเมื่อถึงเลเวลที่กำหนด",
+        "ITEM_DESC_Palvolve_PrestigeStone": "หินวิวัฒนาการที่ถูกเพาะด้วยทรายแสงราตรี จากดาราจักรหนึ่งเดียวแตกกระจายเป็นมากมาย ช่วยให้พัลที่ผูกพันซึ่งมาถึงปลายสายวิวัฒนาการเริ่มต้นใหม่อีกครั้ง โดยยังคงร่องรอยของทุกชีวิตที่เคยผ่านมา",
         "ITEM_DESC_Palvolve_AdaptionStone": "หินส่องประกายที่สอดคล้องกับพลังธาตุ ช่วยให้พัลที่ผูกพันปรับตัวเป็นหนึ่งในร่างธาตุของมันเมื่อถึงเลเวลที่กำหนด",
         "ITEM_DESC_Palvolve_Essence_Normal": "พลังไร้ธาตุเข้มข้น สกัดจากผลไม้สกิลหรือวัตถุดิบธาตุ ใช้สร้างหินปรับตัวที่ตรงกัน",
         "ITEM_DESC_Palvolve_AdaptationStone_Normal": "หินส่องประกายที่สอดคล้องกับพลังไร้ธาตุ ช่วยให้พัลที่ผูกพันปรับตัวเป็นร่างไร้ธาตุเมื่อถึงเลเวลที่กำหนด",

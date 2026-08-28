@@ -310,6 +310,14 @@ function Costs.resolve(pair, level, worldCtx)
                 id = stoneId, count = Config.stoneCount,
                 element = element, fallbackLabel = Config.stoneNames.adaptation,
             })
+        elseif pair.stone == "prestige" then
+            -- Its own stone and its own count. The prestige stone is crafted
+            -- from an evolution stone, so this replaces that cost rather than
+            -- adding to it.
+            table.insert(list, {
+                id = Config.stoneItemIds.prestige, count = Config.prestigeStoneCount,
+                fallbackLabel = Config.stoneNames.prestige,
+            })
         else
             table.insert(list, {
                 id = Config.stoneItemIds.evolution, count = Config.stoneCount,

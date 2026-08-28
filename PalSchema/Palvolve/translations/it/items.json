@@ -1,6 +1,7 @@
 {
     "DT_ItemNameText": {
         "ITEM_NAME_Palvolve_EvolutionStone": "Pietra evolutiva",
+        "ITEM_NAME_Palvolve_PrestigeStone": "Pietra del prestigio",
         "ITEM_NAME_Palvolve_AdaptionStone": "Pietra dell'adattamento (legacy)",
         "ITEM_NAME_Palvolve_Essence_Normal": "Essenza neutra",
         "ITEM_NAME_Palvolve_AdaptationStone_Normal": "Pietra dell'adattamento (Neutro)",
@@ -23,6 +24,7 @@
     },
     "DT_ItemDescriptionText": {
         "ITEM_DESC_Palvolve_EvolutionStone": "Una pietra misteriosa che vibra di energia vitale. Permette a un Pal legato di evolversi in una forma affine più forte una volta raggiunto il livello richiesto.",
+        "ITEM_DESC_Palvolve_PrestigeStone": "Una pietra evolutiva seminata di Sabbia stellare, la cui unica galassia si è dispersa in molte. Permette a un Pal legato giunto alla fine della sua catena evolutiva di ricominciare dall'inizio, conservando il segno di ogni vita che ha già vissuto.",
         "ITEM_DESC_Palvolve_AdaptionStone": "Una pietra scintillante sintonizzata con le forze elementali. Permette a un Pal legato di adattarsi a una delle sue forme elementali una volta raggiunto il livello richiesto.",
         "ITEM_DESC_Palvolve_Essence_Normal": "Energia neutra concentrata, estratta da frutti della tecnica o materiali elementali. Usata per creare la pietra dell'adattamento corrispondente.",
         "ITEM_DESC_Palvolve_AdaptationStone_Normal": "Una pietra scintillante sintonizzata con l'energia neutra. Permette a un Pal legato di adattarsi alla sua forma neutra una volta raggiunto il livello richiesto.",

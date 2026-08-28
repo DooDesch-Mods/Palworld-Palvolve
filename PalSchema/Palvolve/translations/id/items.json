@@ -1,6 +1,7 @@
 {
     "DT_ItemNameText": {
         "ITEM_NAME_Palvolve_EvolutionStone": "Batu Evolusi",
+        "ITEM_NAME_Palvolve_PrestigeStone": "Batu Prestise",
         "ITEM_NAME_Palvolve_AdaptionStone": "Batu Adaptasi (lama)",
         "ITEM_NAME_Palvolve_Essence_Normal": "Esensi Netral",
         "ITEM_NAME_Palvolve_AdaptationStone_Normal": "Batu Adaptasi (Netral)",
@@ -23,6 +24,7 @@
     },
     "DT_ItemDescriptionText": {
         "ITEM_DESC_Palvolve_EvolutionStone": "Batu misterius yang berdengung dengan energi kehidupan. Memungkinkan Pal yang terikat berevolusi menjadi bentuk kerabat yang lebih kuat setelah mencapai level yang diperlukan.",
+        "ITEM_DESC_Palvolve_PrestigeStone": "Batu Evolusi yang ditaburi Pasir Bintang Malam, membuat satu galaksi di dalamnya terpencar menjadi banyak. Memungkinkan Pal yang terikat di ujung rantai evolusinya memulai lagi dari awal sambil mempertahankan tanda dari setiap kehidupan yang telah dijalaninya.",
         "ITEM_DESC_Palvolve_AdaptionStone": "Batu berkilau yang selaras dengan kekuatan elemen. Memungkinkan Pal yang terikat beradaptasi menjadi salah satu bentuk elemennya setelah mencapai level yang diperlukan.",
         "ITEM_DESC_Palvolve_Essence_Normal": "Energi netral pekat, diekstrak dari Buah Skill atau material elemen. Digunakan untuk membuat Batu Adaptasi yang sesuai.",
         "ITEM_DESC_Palvolve_AdaptationStone_Normal": "Batu berkilau yang selaras dengan energi netral. Memungkinkan Pal yang terikat beradaptasi menjadi bentuk netralnya setelah mencapai level yang diperlukan.",

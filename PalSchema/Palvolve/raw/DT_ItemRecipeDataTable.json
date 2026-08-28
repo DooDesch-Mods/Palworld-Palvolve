@@ -805,6 +805,15 @@
             "WorkAmount": 100,
             "Material1_Id": "SkillCard_DragonWave",
             "Material1_Count": 1
+        },
+        "Palvolve_Craft_A02_PrestigeStone": {
+            "Product_Id": "Palvolve_PrestigeStone",
+            "Product_Count": 1,
+            "WorkAmount": 300,
+            "Material1_Id": "Palvolve_EvolutionStone",
+            "Material1_Count": 1,
+            "Material2_Id": "NightStone",
+            "Material2_Count": 1
         }
     }
 }

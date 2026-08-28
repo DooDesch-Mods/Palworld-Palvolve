@@ -1,6 +1,7 @@
 {
     "DT_ItemNameText": {
         "ITEM_NAME_Palvolve_EvolutionStone": "Kamień ewolucji",
+        "ITEM_NAME_Palvolve_PrestigeStone": "Kamień prestiżu",
         "ITEM_NAME_Palvolve_AdaptionStone": "Kamień adaptacji (stary)",
         "ITEM_NAME_Palvolve_Essence_Normal": "Esencja neutralna",
         "ITEM_NAME_Palvolve_AdaptationStone_Normal": "Kamień adaptacji (Neutralny)",
@@ -23,6 +24,7 @@
     },
     "DT_ItemDescriptionText": {
         "ITEM_DESC_Palvolve_EvolutionStone": "Tajemniczy kamień, który drży od życiowej energii. Pozwala związanemu Palowi ewoluować w silniejszą pokrewną formę po osiągnięciu wymaganego poziomu.",
+        "ITEM_DESC_Palvolve_PrestigeStone": "Kamień ewolucji zasiany Piaskiem nocnej gwiazdy, w którym jedna galaktyka rozproszyła się na wiele. Pozwala związanemu Palowi u kresu jego łańcucha zacząć od początku, zachowując ślad każdego życia, które już przeżył.",
         "ITEM_DESC_Palvolve_AdaptionStone": "Migoczący kamień dostrojony do sił żywiołów. Pozwala związanemu Palowi przyjąć jedną z jego żywiołowych form po osiągnięciu wymaganego poziomu.",
         "ITEM_DESC_Palvolve_Essence_Normal": "Skondensowana energia neutralna, wydobyta z owoców umiejętności lub materiałów żywiołów. Służy do wytworzenia odpowiedniego Kamienia adaptacji.",
         "ITEM_DESC_Palvolve_AdaptationStone_Normal": "Migoczący kamień dostrojony do energii neutralnej. Pozwala związanemu Palowi przyjąć neutralną formę po osiągnięciu wymaganego poziomu.",

@@ -117,6 +117,10 @@ local GLOBALS = {
     -- values would draw targets the host refuses, so these travel with the tree.
     { key = "prestigeMinEvolutions", kind = "number", since = 3 },
     { key = "prestigeMinLevel", kind = "number", since = 3 },
+    -- The price of a prestige, for the same reason stoneCount travels: a client
+    -- that quotes a different number than the host charges is the one thing a
+    -- cost display must never do.
+    { key = "prestigeStoneCount", kind = "number", since = 3 },
 
     -- How the transformation looks, so a server decides what its players see
     -- rather than each of them running their own cut. These are read per
