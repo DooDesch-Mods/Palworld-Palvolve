@@ -9,6 +9,8 @@
 
 local Config = require("config")
 local Recipes = require("finale_recipes")
+local PrestigeRecipes = require("prestige_recipes")
+local Timing = require("sequence_timing")
 
 local Finale = {}
 
@@ -34,8 +36,8 @@ Finale.captureOk = nil
 
 -- ---------------------------------------------------------------- asset resolve
 
--- Paths confirmed absent from the running build: never sync-load these
--- again this session (LoadAsset stalls are the expensive part).
+-- Paths this build does not have: never sync-load them again this session
+-- (a LoadAsset stall is the expensive part).
 local missing = {}
 
 -- Hot-path hygiene: these run per spawn/per driver tick, so they use NAMED
@@ -124,15 +126,13 @@ end
 
 -- ---------------------------------------------------------------- schedule build
 
--- Mirrors fx.lua digimonCfg (defaults included) - fx cannot be required
--- from here without a cycle.
-local function timings()
-    local c = Config.digimon or {}
-    local growS = math.max(c.growMs or 1600, 1) / 1000
-    local holdS = math.max(c.finaleHoldMs or 1800, 0) / 1000
-    local totalS = growS + holdS
-    local alignS = math.min(0.8, holdS * 0.4)
-    return growS, holdS, totalS, totalS - alignS - 0.3
+-- One reader, not two. This used to mirror fx.lua's digimonCfg by hand, which
+-- is exactly the duplication that lets the schedule drift against the animation
+-- the moment one of the two learns about prestige and the other does not.
+local function timings(ctx)
+    local t = Timing.forContext(ctx)
+    return t.growMs / 1000, t.finaleHoldMs / 1000,
+        (t.growMs + t.finaleHoldMs) / 1000, t.quietCutoffMs / 1000
 end
 
 local function anchorTime(spec, growS, holdS)
@@ -234,6 +234,10 @@ local function appendSpec(events, spec, elem, slotName, env, elemCycle)
                 z = zBase + zOff * i
             end
             if env.headZ and z > env.headZ then z = env.headZ end
+            -- Floor as hard as the ceiling. A descending stack that keeps going
+            -- sinks its last spawns under the terrain, and effects inside the
+            -- ground read as the pal being stuck in it.
+            if env.groundZ and z < env.groundZ then z = env.groundZ end
             events[#events + 1] = {
                 t = t, x = x, y = y, z = z,
                 path = evCand.path, rot = rot, scale = scale,
@@ -262,7 +266,7 @@ function Finale.build(ctx)
     if fc.style ~= "layered" then return nil end
     local built = nil
     pcall(function()
-        local growS, holdS, totalS, cutoff = timings()
+        local growS, holdS, totalS, cutoff = timings(ctx)
         -- Vertical anchoring: ctx.groundZ is the engine-measured floor at
         -- the evolution spot (SP); without it the ground derives from the
         -- scaled COLLISION capsule (MP re-anchors oldZ to the new pal's
@@ -296,10 +300,24 @@ function Finale.build(ctx)
             debugLog = fc.debugLog,
         }
         local events = {}
-        for _, spec in ipairs(Recipes.base) do
-            appendSpec(events, spec, nil, "base", env)
+        -- Prestige picks its programme by STAGE, so the Nth prestige of a Pal
+        -- looks bigger than its N-1th. ctx.prestigeBeats lets the preview play
+        -- one stage, or one named beat, without going through a real prestige.
+        local baseLayer, slotName
+        if ctx.isPrestige then
+            baseLayer = ctx.prestigeBeats or PrestigeRecipes.beatsFor(ctx.prestigeStage or 1)
+            slotName = "prestige"
+        else
+            baseLayer = Recipes.base
+            slotName = "base"
         end
-        local e1 = ctx.elemsTo and ctx.elemsTo[1] or nil
+        for _, spec in ipairs(baseLayer) do
+            appendSpec(events, spec, nil, slotName, env)
+        end
+        -- Prestige carries its own complete composition. Letting the element
+        -- layer append on top of it put two full shows in the same four seconds,
+        -- which reads as clutter rather than as more.
+        local e1 = (not ctx.isPrestige) and ctx.elemsTo and ctx.elemsTo[1] or nil
         if e1 and (Config.digimon and Config.digimon.elementColors) then
             local e2 = ctx.elemsTo[2] or e1
             local r1 = Recipes.elements[e1] or Recipes.defaultElement
@@ -313,6 +331,10 @@ function Finale.build(ctx)
         end
         if #events == 0 then return end
         table.sort(events, byTime)
+        if fc.debugLog and ctx.isPrestige then
+            Log(string.format("[finale] prestige stage %s: %d beat(s) -> %d event(s), %.1fs",
+                tostring(ctx.prestigeStage or "?"), #baseLayer, #events, totalS))
+        end
         if fc.debugLog then
             Log(string.format(
                 "[finale] anchors: oldZ=%.0f collHalves=%.0f/%.0f meshHalf=%.0f groundZ=%.0f grownCenterZ=%.0f sizeScale=%.2f centerAnchored=%s events=%d",
@@ -339,8 +361,14 @@ local prepareQueue = {}
 function Finale.prepare(elemsFrom, elemsTo)
     prepareQueue = {}
     if finaleCfg().style ~= "layered" then return end
+    -- Both base layers are queued because which one runs is only known at
+    -- reveal, and a cold system there is a stutter in the one moment nobody
+    -- wants one. They share their candidates, so this costs nothing extra.
     for _, spec in ipairs(Recipes.base) do
         prepareQueue[#prepareQueue + 1] = { spec = spec, elem = nil, slot = "base" }
+    end
+    for _, spec in ipairs(PrestigeRecipes.beatsFor(PrestigeRecipes.maxStage)) do
+        prepareQueue[#prepareQueue + 1] = { spec = spec, elem = nil, slot = "prestige" }
     end
     for _, elem in ipairs(elemsTo or {}) do
         local rec = Recipes.elements[elem] or Recipes.defaultElement
@@ -551,16 +579,29 @@ end
 -- hard-bounded one-shot LoopAsync with an idle guard: ticks without due
 -- work never enter the game thread, and the loop always terminates by the
 -- deadline.
-function Finale.playStandalone(worldCtx, x, y, z, elems, halfHeight, meshHalf)
+-- The schedule window, for the offline check. Exposed rather than mirrored:
+-- a second copy of these numbers is a second thing that can be wrong.
+function Finale.debugTimings(ctx)
+    local _, _, _, cutoff = timings(ctx)
+    return cutoff
+end
+
+function Finale.playStandalone(worldCtx, x, y, z, elems, halfHeight, meshHalf, opts)
+    opts = opts or {}
     local ctx = { worldCtx = worldCtx, oldX = x, oldY = y, oldZ = z, elemsTo = elems,
-        oldHalf = halfHeight, newHalf = halfHeight, meshHalfTo = meshHalf }
+        oldHalf = halfHeight, newHalf = halfHeight, meshHalfTo = meshHalf,
+        isPrestige = opts.isPrestige or false,
+        prestigeStage = opts.stage,
+        prestigeBeats = opts.beats }
     local f = Finale.build(ctx)
     if not f then
         Log("[finale] standalone: nothing to play (style/config)")
         return
     end
     local startedAt = os.clock()
-    local deadline = f.totalS + 4.0
+    -- The tail has to fit the run, not a fixed four seconds: a stage 10 preview
+    -- is twenty seconds long and would be cut off by a constant.
+    local deadline = f.totalS + 4.0 + (ctx.timing and ctx.timing.quietLeadMs or 0) / 1000
     local state = { stopped = false }
     LoopAsync(33, function()
         if state.stopped then return true end

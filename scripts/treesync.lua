@@ -23,14 +23,18 @@ local function Log(msg)
     print(string.format("[Palvolve] %s\n", msg))
 end
 
--- The prefix the client watches for. PVLV1 stays what it was, so an older
--- client ignores this and keeps working with its own file.
-TreeSync.PREFIX = "PVLV2|tree|"
+-- The v2 frame remains byte-compatible for older clients. The v3 frame is the
+-- authoritative 1.9 tree and carries the fields that affect pair selection and
+-- pricing but could not be represented by v2.
+TreeSync.PREFIX_V2 = "PVLV2|tree|"
+TreeSync.PREFIX_V3 = "PVLV3|tree|"
+TreeSync.PREFIX = TreeSync.PREFIX_V3
 
 -- Refuses to send anything near the size that kills the process. 32 KB is half
 -- of what was proven to arrive whole, and about three times what the largest
 -- published tree needs.
 local MAX_PAYLOAD = 32 * 1024
+TreeSync.MAX_PAYLOAD = MAX_PAYLOAD
 
 -- Field and record separators that cannot appear in an id, a category, a stone
 -- name or a condition: those are all [A-Za-z0-9_:.-].
@@ -43,8 +47,8 @@ local function hashOf(s)
     -- Hex literals and a split multiply, the same shape Config.treeHash uses
     -- and for the same reason: a decimal constant past 2^31 can arrive as a
     -- float where numbers are doubles, and a float cannot be xored. The plain
-    -- form works on this build and throws on another, and it would throw inside
-    -- the pcall that wraps the send - a silent no-sync rather than an error.
+    -- form works on this build and throws on another, which makes the frame fail
+    -- before it can be issued.
     local PRIME = 0x01000193
     local h = 0x811C9DC5
     for i = 1, #s do
@@ -59,10 +63,10 @@ end
 -- The words that repeat on every line get one character each; anything else
 -- travels verbatim, so a config with a category we have never seen still
 -- arrives intact rather than being silently rewritten.
-local CAT_CODE = { evolution = "e", adaptation = "a", funchain = "f" }
-local CAT_WORD = { e = "evolution", a = "adaptation", f = "funchain" }
-local STONE_CODE = { evolution = "e", adaptation = "a" }
-local STONE_WORD = { e = "evolution", a = "adaptation" }
+local CAT_CODE = { evolution = "e", adaptation = "a", funchain = "f", prestige = "p" }
+local CAT_WORD = { e = "evolution", a = "adaptation", f = "funchain", p = "prestige" }
+local STONE_CODE = { evolution = "e", adaptation = "a", prestige = "p" }
+local STONE_WORD = { e = "evolution", a = "adaptation", p = "prestige" }
 
 local B36 = "0123456789abcdefghijklmnopqrstuvwxyz"
 local function b36(n)
@@ -106,6 +110,17 @@ local GLOBALS = {
     { key = "stoneCount", kind = "number" },
     { key = "eggFilter.enabled", kind = "bool" },
     { key = "chatMessages", kind = "enum", values = { all = true, replies = true, off = true } },
+    { key = "autoEvolve", kind = "bool", since = 3 },
+
+    -- Both decide WHICH prestige connections exist at all, and host and client
+    -- derive that list separately from the same rule. A client left on its own
+    -- values would draw targets the host refuses, so these travel with the tree.
+    { key = "prestigeMinEvolutions", kind = "number", since = 3 },
+    { key = "prestigeMinLevel", kind = "number", since = 3 },
+    -- The price of a prestige, for the same reason stoneCount travels: a client
+    -- that quotes a different number than the host charges is the one thing a
+    -- cost display must never do.
+    { key = "prestigeStoneCount", kind = "number", since = 3 },
 
     -- How the transformation looks, so a server decides what its players see
     -- rather than each of them running their own cut. These are read per
@@ -146,10 +161,10 @@ local function writePath(root, path, value)
     cur[parts[#parts]] = value
 end
 
-local function encodeGlobals()
+local function encodeGlobals(version)
     local out = {}
     for _, g in ipairs(GLOBALS) do
-        local v = readPath(Config, g.key)
+        local v = (not g.since or version >= g.since) and readPath(Config, g.key) or nil
         if v ~= nil then
             if g.kind == "bool" then
                 out[#out + 1] = g.key .. "=" .. (v and "1" or "0")
@@ -180,7 +195,34 @@ end
 --- referenced by number, the largest published tree drops from 31 KB to about
 --- 12 KB, which puts it back at a comfortable distance from the size that is
 --- known to kill a server.
-function TreeSync.encode(map)
+-- V3 pair tail: |<auto:0/1>|<materials>. Material item ids share the species
+-- dictionary and travel as <base36-index>:<decimal-count> joined by semicolons.
+-- "-" preserves an absent override; "0" preserves an explicitly empty one.
+local function materialsWire(pair, idOf)
+    if pair.materials == nil then return "-" end
+    if type(pair.materials) ~= "table" then
+        return nil, "materials is not a table"
+    end
+    if #pair.materials == 0 then return "0" end
+
+    local out = {}
+    for _, material in ipairs(pair.materials) do
+        local count = type(material) == "table" and tonumber(material.count) or nil
+        local itemId = type(material) == "table" and material.id or nil
+        if not idSafe(itemId) or not count or count < 1 or count % 1 ~= 0 then
+            return nil, "materials contains an invalid item or count"
+        end
+        out[#out + 1] = b36(idOf(itemId)) .. ":" .. tostring(count)
+    end
+    return table.concat(out, CS)
+end
+
+--- Encodes one protocol version. V2 is a projection: prestige pairs and the v3
+--- pair fields are deliberately absent so an older client cannot mistake a
+--- prestige path for an ordinary evolution.
+function TreeSync.encode(map, version)
+    version = tonumber(version) or 3
+    if version ~= 2 and version ~= 3 then return nil, nil, nil, "unknown tree version" end
     local dict, dictIndex = {}, {}
     local function idOf(name)
         local at = dictIndex[name]
@@ -192,28 +234,41 @@ function TreeSync.encode(map)
 
     local out = {}
     for _, p in ipairs(map or {}) do
-        if p.enabled and idSafe(p.from) and idSafe(p.to) then
+        local legacySafe = version ~= 2 or p.category ~= "prestige"
+        if p.enabled and legacySafe and idSafe(p.from) and idSafe(p.to) then
             local conds = ""
             if type(p.conditions) == "table" and #p.conditions > 0 then
                 conds = table.concat(p.conditions, CS)
             end
-            out[#out + 1] = table.concat({
+            local fields = {
                 b36(idOf(p.from)), b36(idOf(p.to)),
                 CAT_CODE[p.category or "evolution"] or (p.category or "evolution"),
                 tostring(tonumber(p.minLevel) or 1),
                 STONE_CODE[p.stone or "evolution"] or (p.stone or "evolution"),
                 conds,
-            }, FS)
+            }
+            if version == 3 then
+                local materials, materialErr = materialsWire(p, idOf)
+                if not materials then
+                    return nil, nil, nil, string.format("%s>%s: %s",
+                        tostring(p.from), tostring(p.to), materialErr)
+                end
+                fields[#fields + 1] = p.autoEvolve == true and "1" or "0"
+                fields[#fields + 1] = materials
+            end
+            out[#out + 1] = table.concat(fields, FS)
         end
     end
-    local body = encodeGlobals() .. RS .. table.concat(dict, ",") .. RS .. table.concat(out, RS)
+    local body = encodeGlobals(version) .. RS .. table.concat(dict, ",") .. RS .. table.concat(out, RS)
     return body, hashOf(body), #out
 end
 
 --- Turns a received body back into pairs. Everything that does not look like a
 --- pair is dropped rather than guessed at: this data comes off the wire, and a
 --- half-understood record would be a wrong tree presented as the server's.
-function TreeSync.decode(body)
+function TreeSync.decode(body, version)
+    version = tonumber(version) or 3
+    if version ~= 2 and version ~= 3 then return {}, {} end
     body = tostring(body or "")
     -- line 1: globals, line 2: the id dictionary, the rest: one pair per line
     local firstBreak = body:find(RS, 1, true)
@@ -243,12 +298,20 @@ function TreeSync.decode(body)
 
     local pairsOut = {}
     for line in body:sub(secondBreak + 1):gmatch("[^" .. RS .. "]+") do
-        local from, to, cat, lvl, stone, conds =
-            line:match("^([^|]+)|([^|]+)|([^|]*)|([^|]*)|([^|]*)|(.*)$")
+        local from, to, cat, lvl, stone, conds, auto, materials
+        if version == 3 then
+            from, to, cat, lvl, stone, conds, auto, materials =
+                line:match("^([^|]+)|([^|]+)|([^|]*)|([^|]*)|([^|]*)|([^|]*)|([^|]*)|(.*)$")
+        else
+            from, to, cat, lvl, stone, conds =
+                line:match("^([^|]+)|([^|]+)|([^|]*)|([^|]*)|([^|]*)|(.*)$")
+        end
         local fi, ti = from and unb36(from), to and unb36(to)
         local fromId = fi and dict[fi + 1]
         local toId = ti and dict[ti + 1]
-        if fromId and toId then
+        local valid = fromId ~= nil and toId ~= nil
+        if version == 3 and auto ~= "0" and auto ~= "1" then valid = false end
+        if valid then
             local p = {
                 from = fromId,
                 to = toId,
@@ -262,7 +325,31 @@ function TreeSync.decode(body)
                 for c in conds:gmatch("[^;]+") do list[#list + 1] = c end
                 if #list > 0 then p.conditions = list end
             end
-            pairsOut[#pairsOut + 1] = p
+            if version == 3 then
+                p.autoEvolve = auto == "1"
+                if materials == "0" then
+                    p.materials = {}
+                elseif materials ~= "-" then
+                    local list = {}
+                    if not materials or materials == "" then
+                        valid = false
+                    else
+                        for entry in materials:gmatch("[^;]+") do
+                            local itemAt, countText = entry:match("^([0-9a-z]+):(%d+)$")
+                            local itemIndex = itemAt and unb36(itemAt) or nil
+                            local itemId = itemIndex and dict[itemIndex + 1] or nil
+                            local count = tonumber(countText)
+                            if not itemId or not count or count < 1 or count % 1 ~= 0 then
+                                valid = false
+                                break
+                            end
+                            list[#list + 1] = { id = itemId, count = count }
+                        end
+                    end
+                    if valid then p.materials = list end
+                end
+            end
+            if valid then pairsOut[#pairsOut + 1] = p end
         end
     end
     return pairsOut, globals
@@ -270,28 +357,64 @@ end
 
 -- ------------------------------------------------------------------- host
 
---- Sends the tree to one joined client. One message, size checked first: a
---- payload over the cap is a bug worth a line in the log, never a send.
-function TreeSync.sendTo(playerCtx)
-    if not playerCtx or playerCtx.isLocal then return false end
-    if not (playerCtx.pc and playerCtx.pc:IsValid()) then return false end
-    local body, hash, count = TreeSync.encode(Config.map)
-    local frame = TreeSync.PREFIX .. hash .. "|" .. count .. "|" .. body
-    if #frame > MAX_PAYLOAD then
-        Log(string.format("tree sync NOT sent: %d pairs are %d bytes, over the %d byte cap",
-            count, #frame, MAX_PAYLOAD))
+local function sendVersion(playerCtx, version, prefix)
+    local encoded, body, hash, count, encodeErr = pcall(TreeSync.encode, Config.map, version)
+    if not encoded then
+        Log(string.format("[ERROR] v%d tree sync encoding failed: %s", version, tostring(body)))
         return false
     end
-    local ok = pcall(function()
+    if not body then
+        Log(string.format("[ERROR] v%d tree sync NOT issued: %s", version, tostring(encodeErr)))
+        return false
+    end
+    local frame = prefix .. hash .. "|" .. count .. "|" .. body
+    if #frame > MAX_PAYLOAD then
+        Log(string.format("[ERROR] v%d tree sync NOT issued: %d pairs are %d bytes, over the %d byte cap",
+            version, count, #frame, MAX_PAYLOAD))
+        return false
+    end
+    local issued, issueErr = pcall(function()
         playerCtx.pc:SendScreenLogToClient(frame,
             { R = 0.2, G = 1.0, B = 0.4, A = 1.0 }, 0.1, FName("PalvolveTree"))
     end)
-    if ok then
-        Log(string.format("tree sync sent: %d pairs, %d bytes, %s", count, #frame, hash))
+    if issued then
+        Log(string.format("[INFO] v%d tree sync call issued: %d pairs, %d bytes, %s; delivery awaits the client",
+            version, count, #frame, hash))
     else
-        Log("tree sync failed to send")
+        Log(string.format("[ERROR] v%d tree sync call failed: %s",
+            version, tostring(issueErr)))
     end
-    return ok
+    return issued
+end
+
+--- Issues both complete frames to one joined client. Each frame is checked on
+--- its own because either one crossing the safety cap is enough to refuse that
+--- call; the frames are never chunked or joined near the measured fatal size.
+--- The engine exposes no delivery acknowledgement, so true means both calls
+--- were issued without throwing, not that the client received either frame.
+function TreeSync.sendTo(playerCtx)
+    if not playerCtx then
+        Log("[ERROR] tree sync not issued: no player context")
+        return false
+    end
+    if playerCtx.isLocal then
+        Log("[INFO] tree sync not issued to the local player: no network delivery is needed")
+        return false
+    end
+    local okValid, pcValid = pcall(function()
+        return playerCtx.pc ~= nil and playerCtx.pc:IsValid()
+    end)
+    if not okValid then
+        Log("[ERROR] tree sync not issued: remote player validation failed: " .. tostring(pcValid))
+        return false
+    end
+    if not pcValid then
+        Log("[ERROR] tree sync not issued: remote player controller is invalid")
+        return false
+    end
+    local legacyOk = sendVersion(playerCtx, 2, TreeSync.PREFIX_V2)
+    local v3Ok = sendVersion(playerCtx, 3, TreeSync.PREFIX_V3)
+    return legacyOk and v3Ok
 end
 
 -- ----------------------------------------------------------------- client
@@ -301,14 +424,46 @@ end
 local localMap = nil
 local localGlobals = nil
 local activeHash = nil
+local activeVersion = nil
+local activeGeneration = nil
+local connectionGeneration = 0
+local lastFrameAt = nil
 
 --- True while this client is drawing a tree that came from a server.
 function TreeSync.isActive()
-    return activeHash ~= nil
+    return localMap ~= nil
 end
 
 function TreeSync.activeHash()
     return activeHash
+end
+
+function TreeSync.activeProtocol()
+    return activeVersion
+end
+
+function TreeSync.hasV3ForGeneration(gen)
+    return activeVersion == 3 and activeGeneration == (tonumber(gen) or -1)
+end
+
+--- Starts a new connection generation. A greet can beat the local world-entry
+--- hook, so a frame received immediately before this call is carried forward;
+--- an older borrowed tree loses its protocol preference and cannot suppress a
+--- v2 frame from the next server.
+function TreeSync.beginGeneration(gen)
+    gen = math.floor(tonumber(gen) or 0)
+    if gen == connectionGeneration then return end
+    local carryEarly = lastFrameAt ~= nil
+        and activeGeneration == connectionGeneration
+        and (os.clock() - lastFrameAt) <= 2
+    connectionGeneration = gen
+    if carryEarly then
+        activeGeneration = gen
+    else
+        activeHash = nil
+        activeVersion = nil
+        activeGeneration = nil
+    end
 end
 
 --- Drops what the tree feeds: both modules cache derived lists, and a swapped
@@ -317,60 +472,124 @@ local function invalidateViews()
     -- The config's own derived tables first: the spelling map and the egg
     -- filter's parent lists are built once from the pair map, so leaving them
     -- standing means the old tree still answers those two questions.
-    pcall(function()
-        if Config.invalidateDerived then Config.invalidateDerived() end
+    local allOk = true
+    local function invalidate(label, callback)
+        local ok, err = pcall(callback)
+        if not ok then
+            allOk = false
+            Log(string.format("[ERROR] server tree %s cache invalidation failed: %s",
+                label, tostring(err)))
+        else
+            Log(string.format("[INFO] server tree %s cache invalidated", label))
+        end
+    end
+    invalidate("config-derived", function()
+        if not Config.invalidateDerived then error("invalidator unavailable") end
+        Config.invalidateDerived()
     end)
     -- Prices are cached per pair and level, so a changed cost model that leaves
     -- them standing keeps quoting the old numbers.
-    pcall(function()
-        local okCosts, costs = pcall(require, "costs")
-        if okCosts and costs and costs.clearCache then costs.clearCache() end
+    invalidate("cost", function()
+        local costs = require("costs")
+        if not (costs and costs.clearCache) then error("invalidator unavailable") end
+        costs.clearCache()
     end)
-    pcall(function()
-        local ok, view = pcall(require, "treeview")
-        if ok and view and view.invalidate then view.invalidate() end
+    invalidate("tree view", function()
+        local view = require("treeview")
+        if not (view and view.invalidate) then error("invalidator unavailable") end
+        view.invalidate()
     end)
-    pcall(function()
-        local ok, html = pcall(require, "treehtml")
-        if ok and html and html.invalidate then html.invalidate() end
+    invalidate("tree HTML", function()
+        local html = require("treehtml")
+        if not (html and html.invalidate) then error("invalidator unavailable") end
+        html.invalidate()
     end)
     -- The Palpedia page keeps the last built page next to the Pal it was built
     -- for, and reuses it whenever those two still agree - so dropping the html
     -- module's cache alone leaves the Pal the player looked at last showing the
     -- old tree. Reached through package.loaded rather than require: this module
     -- also loads on a dedicated server, which must never pull in a UI module.
-    pcall(function()
-        local tree = package.loaded["paldextree"]
-        if tree and tree.invalidate then tree.invalidate() end
+    local tree = package.loaded["paldextree"]
+    if not tree then
+        Log("[INFO] server tree Palpedia cache was not loaded; no invalidation was needed")
+    else
+        invalidate("Palpedia", function()
+            if not tree.invalidate then error("invalidator unavailable") end
+            tree.invalidate()
+        end)
+    end
+    return allOk
+end
+
+local function syncRoleChatMode()
+    local ok, err = pcall(function()
+        local Role = require("role")
+        if not Role then error("role module unavailable") end
+        Role.chatMode = Config.chatMessages
     end)
+    if not ok then
+        Log("[ERROR] server tree chat mode application failed: " .. tostring(err))
+        return false
+    end
+    Log("[INFO] server tree chat mode applied")
+    return true
 end
 
 --- Applies a received tree. Returns false when nothing usable came out of it,
---- in which case the client keeps its own file rather than showing an empty
+--- in which case the client keeps its previous tree rather than showing an empty
 --- tree that claims to be the server's.
 function TreeSync.applyFrame(frame)
-    local hash, count, body = frame:match("^" .. TreeSync.PREFIX:gsub("|", "%%|")
+    frame = tostring(frame or "")
+    if #frame > MAX_PAYLOAD then
+        Log(string.format("[WARN] server tree rejected: %d bytes exceeds the %d byte cap",
+            #frame, MAX_PAYLOAD))
+        return false
+    end
+    local version, prefix = nil, nil
+    if frame:sub(1, #TreeSync.PREFIX_V3) == TreeSync.PREFIX_V3 then
+        version, prefix = 3, TreeSync.PREFIX_V3
+    elseif frame:sub(1, #TreeSync.PREFIX_V2) == TreeSync.PREFIX_V2 then
+        version, prefix = 2, TreeSync.PREFIX_V2
+    else
+        Log("[WARN] tree frame rejected: unknown protocol prefix")
+        return false
+    end
+    local hash, count, body = frame:match("^" .. prefix:gsub("|", "%%|")
         .. "(%x+)|(%d+)|(.*)$")
-    if not (hash and body) then return false end
-    if activeHash == hash then return true end
-    local received, globals = TreeSync.decode(body)
+    if not (hash and body) then
+        Log(string.format("[WARN] server v%d tree rejected: malformed header", version))
+        return false
+    end
+    if hashOf(body) ~= hash:lower() then
+        Log(string.format("[WARN] server v%d tree checksum mismatch, keeping the current tree", version))
+        return false
+    end
+    if version == 2 and activeVersion == 3 and activeGeneration == connectionGeneration then
+        lastFrameAt = os.clock()
+        Log("[INFO] server v2 tree ignored because v3 is already active for this connection")
+        return true
+    end
+    if activeHash == hash and activeVersion == version
+        and activeGeneration == connectionGeneration then
+        Log(string.format("[INFO] duplicate server v%d tree already active: %s", version, hash))
+        return true
+    end
+    local received, globals = TreeSync.decode(body, version)
     -- An empty tree is a decision a host is allowed to make ("nothing evolves
     -- here"), and it only counts as damage when the frame says otherwise. The
     -- count travels with it precisely so the two can be told apart.
     if #received == 0 and tonumber(count) ~= 0 then
-        Log("server tree arrived empty, keeping the local one")
+        Log("[WARN] server tree arrived empty, keeping the local one")
         return false
     end
     if tonumber(count) and #received ~= tonumber(count) then
-        Log(string.format("server tree incomplete: %d of %s pairs, keeping the local one",
+        Log(string.format("[WARN] server tree incomplete: %d of %s pairs, keeping the local one",
             #received, count))
         return false
     end
-    if localMap == nil then
-        localMap = Config.map
-        localGlobals = {}
-        for _, g in ipairs(GLOBALS) do localGlobals[g.key] = readPath(Config, g.key) end
-    end
+    local previousMap = Config.map
+    local previousGlobals = {}
+    for _, g in ipairs(GLOBALS) do previousGlobals[g.key] = readPath(Config, g.key) end
     Config.map = received
     -- The rules the pairs are read under travel with them. Without these the
     -- client shows its own material costs and its own stone requirement for a
@@ -384,31 +603,54 @@ function TreeSync.applyFrame(frame)
     -- Role holds the chat mode as its own field, because config requires role
     -- and cannot be required back. A setting that only lands in Config is a
     -- setting the chat gate never sees.
-    pcall(function()
-        local okRole, Role = pcall(require, "role")
-        if okRole and Role then Role.chatMode = Config.chatMessages end
-    end)
+    local roleOk = syncRoleChatMode()
+    local viewsOk = invalidateViews()
+    if not (roleOk and viewsOk) then
+        Config.map = previousMap
+        for key, value in pairs(previousGlobals) do writePath(Config, key, value) end
+        local roleRollbackOk = syncRoleChatMode()
+        local viewsRollbackOk = invalidateViews()
+        if roleRollbackOk and viewsRollbackOk then
+            Log(string.format("[ERROR] server v%d tree activation failed; the previous tree was restored",
+                version))
+        else
+            Log(string.format("[ERROR] server v%d tree activation failed and rollback was incomplete; restart the client",
+                version))
+        end
+        return false
+    end
+    if localMap == nil then
+        localMap = previousMap
+        localGlobals = previousGlobals
+    end
     activeHash = hash
-    invalidateViews()
-    Log(string.format("server tree active: %d pairs, %d settings, %s",
-        #received, applied, hash))
+    activeVersion = version
+    activeGeneration = connectionGeneration
+    lastFrameAt = os.clock()
+    Log(string.format("[INFO] server v%d tree active: %d pairs, %d settings, %s",
+        version, #received, applied, hash))
     return true
 end
 
 --- Back to the player's own tree, for when this client leaves the server.
 function TreeSync.restoreLocal()
-    if localMap == nil then return end
+    if localMap == nil then
+        Log("[INFO] local tree restore skipped: no server tree is active")
+        return
+    end
     Config.map = localMap
     for key, value in pairs(localGlobals or {}) do
         if value ~= nil then writePath(Config, key, value) end
     end
     localMap, localGlobals, activeHash = nil, nil, nil
-    pcall(function()
-        local okRole, Role = pcall(require, "role")
-        if okRole and Role then Role.chatMode = Config.chatMessages end
-    end)
-    invalidateViews()
-    Log("back to the local tree")
+    activeVersion, activeGeneration, lastFrameAt = nil, nil, nil
+    local roleOk = syncRoleChatMode()
+    local viewsOk = invalidateViews()
+    if roleOk and viewsOk then
+        Log("[INFO] back to the local tree")
+    else
+        Log("[ERROR] local tree restored, but one or more dependent caches failed to refresh")
+    end
 end
 
 return TreeSync

@@ -125,6 +125,49 @@ function I18n.condition(id)
         or (Catalog.en.conditions and Catalog.en.conditions[id])
 end
 
+-- Hint disclosure names only the condition family. Exact condition ids and
+-- parameter values must never leak through this path.
+local CONDITION_HINT_GROUP = {
+    day = "time", night = "time",
+    inWater = "status", burning = "status", electrified = "status",
+    frozen = "status", wet = "status", poisoned = "status",
+    stunned = "status", sleeping = "status", muddy = "status",
+    blinded = "status", toxified = "status",
+    inCave = "location", inDesert = "location", inVolcano = "location",
+    inSnow = "location", inGrassland = "location", inForest = "location",
+    inSakura = "location", inDarkIsland = "location", onSkyIsland = "location",
+    onMushroomIsland = "location", atWorldTree = "location",
+    onOilrig = "location", inSanctuary = "location",
+    isMale = "pal", isFemale = "pal", hpLow = "pal", hpFull = "pal",
+    hungry = "pal", wellFed = "pal", highTrust = "pal",
+    isGliding = "context", inOwnBase = "context", inCombat = "context",
+    raining = "weather", snowing = "weather", thunderstorm = "weather",
+    foggy = "weather", isRiding = "gated",
+}
+
+local PARAM_HINT_GROUP = {
+    knowsMove = "move", knowsWaza = "move", hasPassive = "passive",
+    hasItem = "item", condenserRank = "condenser", soulHP = "soul",
+    soulAttack = "soul", soulDefense = "soul", soulCraftSpeed = "soul",
+    fedFood = "food", inParty = "party", playerLevel = "playerLevel",
+    trustRank = "trust", ivTotal = "iv", ivEach = "iv", ivHP = "iv",
+    ivMelee = "iv", ivShot = "iv", ivDefense = "iv",
+}
+
+function I18n.conditionDescription(id, level)
+    local lang = I18n.lang()
+    local cat = catalogFor(lang)
+    local hints = cat.conditionHints or {}
+    local english = Catalog.en.conditionHints or {}
+    if level == "hidden" then return hints.hidden or english.hidden or "???" end
+    if level ~= "partial" or type(id) ~= "string" then return nil end
+    local base = id:gsub("^!", "")
+    local prefix = base:match("^([^:]+):")
+    local group = (prefix and PARAM_HINT_GROUP[prefix]) or CONDITION_HINT_GROUP[base]
+    if not group then return hints.hidden or english.hidden or "???" end
+    return hints[group] or english[group] or hints.hidden or english.hidden or "???"
+end
+
 -- Name for a species the game's own text table has no row for (nil otherwise).
 -- Five Pals answer GetLocalizedText with nothing, so the wheel used to show the
 -- raw CharacterID for them. The generator bakes their names per language from

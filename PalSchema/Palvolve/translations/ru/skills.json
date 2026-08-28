@@ -1,0 +1,34 @@
+{
+    "DT_SkillNameText": {
+        "PASSIVE_Palvolve_Prestige_1": "Престиж I",
+        "PASSIVE_Palvolve_Prestige_2": "Престиж II",
+        "PASSIVE_Palvolve_Prestige_3": "Престиж III",
+        "PASSIVE_Palvolve_Prestige_4": "Престиж IV",
+        "PASSIVE_Palvolve_Prestige_5": "Престиж V: Возвышение",
+        "PASSIVE_Palvolve_Prestige_6": "Престиж VI",
+        "PASSIVE_Palvolve_Prestige_7": "Престиж VII",
+        "PASSIVE_Palvolve_Prestige_8": "Престиж VIII: Кровавая метка",
+        "PASSIVE_Palvolve_Prestige_9": "Престиж IX",
+        "PASSIVE_Palvolve_Prestige_10": "Престиж X: Кровные узы",
+        "PASSIVE_Palvolve_Evolved_1": "Эволюция I",
+        "PASSIVE_Palvolve_Evolved_2": "Эволюция II",
+        "PASSIVE_Palvolve_Evolved_3": "Эволюция III",
+        "PASSIVE_Palvolve_Evolved_4": "Эволюция IV"
+    },
+    "DT_SkillDescText": {
+        "PASSIVE_Palvolve_Prestige_1": "Возвышение начинается.\r\nАтака +{EffectValue1}%\r\nЗащита +{EffectValue2}%\r\nСкорость работы +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_2": "Новая сила укрепляется.\r\nАтака +{EffectValue1}%\r\nЗащита +{EffectValue2}%\r\nСкорость работы +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_3": "Бой и ремесло совершенствуются вместе.\r\nАтака +{EffectValue1}%\r\nЗащита +{EffectValue2}%\r\nСкорость работы +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_4": "Золотое возвышение завершено.\r\nАтака +{EffectValue1}%\r\nЗащита +{EffectValue2}%\r\nСкорость работы +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_5": "Сила возвышения разрушает прежний предел.\r\nАтака +{EffectValue1}%\r\nЗащита +{EffectValue2}%\r\nСкорость работы +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_6": "Сила возвышения крепнет ещё больше.\r\nАтака +{EffectValue1}%\r\nЗащита +{EffectValue2}%\r\nСкорость работы +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_7": "Бой и ремесло приближаются к вершине.\r\nАтака +{EffectValue1}%\r\nЗащита +{EffectValue2}%\r\nСкорость работы +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_8": "Кровавая метка пробуждается.\r\nАтака +{EffectValue1}%\r\nЗащита +{EffectValue2}%\r\nСкорость работы +{EffectValue3}%\r\nПохищение жизни +{EffectValue4}% исцеляет этого Пала.",
+        "PASSIVE_Palvolve_Prestige_9": "Кровавая метка становится сильнее.\r\nАтака +{EffectValue1}%\r\nЗащита +{EffectValue2}%\r\nСкорость работы +{EffectValue3}%\r\nПохищение жизни +{EffectValue4}% исцеляет этого Пала.",
+        "PASSIVE_Palvolve_Prestige_10": "Сила кровных уз достигает вершины.\r\nАтака +{EffectValue1}%\r\nЗащита +{EffectValue2}%\r\nСкорость работы +{EffectValue3}%\r\nПохищение жизни +{EffectValue4}% исцеляет Пала и тренера.",
+        "PASSIVE_Palvolve_Evolved_1": "Макс. ОЗ +{EffectValue1}%\nСкорость передвижения +{EffectValue2}%\nСкорость работы +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_2": "Макс. ОЗ +{EffectValue1}%\nСкорость передвижения +{EffectValue2}%\nСкорость работы +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_3": "Макс. ОЗ +{EffectValue1}%\nСкорость передвижения +{EffectValue2}%\nСкорость работы +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_4": "Макс. ОЗ +{EffectValue1}%\nСкорость передвижения +{EffectValue2}%\nСкорость работы +{EffectValue3}%"
+    }
+}

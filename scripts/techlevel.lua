@@ -41,36 +41,56 @@ end
 -- byte alone, so hand edits elsewhere in the file survive.
 function TechLevel.apply()
     local want = tonumber(Config.techLevelCap)
-    if not want then return end
+    if not want then
+        Log("[ERROR] Tech level: update not attempted - configured stage is not a number")
+        return
+    end
     want = math.floor(want)
     if want < 1 then want = 1 end
     if want > 100 then want = 100 end
 
     local path = buildingFile()
     if not path then
-        Log("Tech level: could not resolve the PalSchema building file - stage unchanged")
+        Log("[ERROR] Tech level: could not resolve the PalSchema building file - stage unchanged")
         return
     end
 
-    local f = io.open(path, "rb")
+    local f, fileOpenErr = io.open(path, "rb")
     if not f then
-        Log("Tech level: PalSchema building file not readable - stage unchanged")
+        Log("[ERROR] Tech level: PalSchema building file not readable - stage unchanged: "
+            .. tostring(fileOpenErr))
         return
     end
-    local raw = f:read("*a")
-    f:close()
-    if not raw or raw == "" then return end
+    local raw, readErr = f:read("*a")
+    local readClosed, readCloseErr = f:close()
+    if not raw then
+        Log("[ERROR] Tech level: PalSchema building file read failed - stage unchanged: "
+            .. tostring(readErr))
+        return
+    end
+    if not readClosed then
+        Log("[ERROR] Tech level: PalSchema building file close failed - stage unchanged: "
+            .. tostring(readCloseErr))
+        return
+    end
+    if raw == "" then
+        Log("[ERROR] Tech level: PalSchema building file is empty - stage unchanged")
+        return
+    end
 
     local current = tonumber(raw:match('"LevelCap"%s*:%s*(%d+)'))
     if not current then
-        Log("Tech level: no LevelCap field in the PalSchema building file - stage unchanged")
+        Log("[ERROR] Tech level: no LevelCap field in the PalSchema building file - stage unchanged")
         return
     end
-    if current == want then return end
+    if current == want then
+        Log(string.format("[INFO] Tech level: workbench unlock stage already %d - no rewrite needed", want))
+        return
+    end
 
     local patched, n = raw:gsub('("LevelCap"%s*:%s*)%d+', '%1' .. tostring(want), 1)
     if n ~= 1 then
-        Log("Tech level: LevelCap could not be rewritten - stage unchanged")
+        Log("[ERROR] Tech level: LevelCap could not be rewritten - stage unchanged")
         return
     end
 
@@ -80,45 +100,95 @@ function TechLevel.apply()
     -- either because the LevelCap field is gone. Write a sibling file, confirm
     -- every step, then swap.
     local tmp = path .. ".new"
-    local out = io.open(tmp, "wb")
+    local function removeTemp(reason)
+        local removed, removeErr, removeCode = os.remove(tmp)
+        if removed then
+            Log("[INFO] Tech level: temporary file removed after " .. reason)
+        elseif removeCode == 2 then
+            Log("[INFO] Tech level: temporary cleanup skipped after " .. reason .. " - file absent")
+        else
+            Log("[WARN] Tech level: temporary cleanup failed after " .. reason .. ": "
+                .. tostring(removeErr))
+        end
+    end
+    local out, outOpenErr = io.open(tmp, "wb")
     if not out then
-        Log("Tech level: cannot write next to the PalSchema building file - stage unchanged")
+        Log("[ERROR] Tech level: cannot write next to the PalSchema building file - stage unchanged: "
+            .. tostring(outOpenErr))
         return
     end
-    local wrote = out:write(patched)
-    local closed = out:close()
+    local wrote, writeErr = out:write(patched)
+    local closed, closeErr = out:close()
     if not (wrote and closed) then
-        os.remove(tmp)
-        Log("Tech level: write failed - stage unchanged")
+        removeTemp("write failure")
+        Log("[ERROR] Tech level: write or close failed - stage unchanged: write="
+            .. tostring(writeErr) .. ", close=" .. tostring(closeErr))
         return
     end
 
     -- verify the replacement before it replaces anything
-    local check = io.open(tmp, "rb")
-    local verify = check and check:read("*a") or nil
-    if check then check:close() end
+    local check, checkOpenErr = io.open(tmp, "rb")
+    if not check then
+        removeTemp("verification open failure")
+        Log("[ERROR] Tech level: written file could not be opened for verification - stage unchanged: "
+            .. tostring(checkOpenErr))
+        return
+    end
+    local verify, verifyReadErr = check:read("*a")
+    local verifyClosed, verifyCloseErr = check:close()
+    if not verifyClosed then
+        removeTemp("verification close failure")
+        Log("[ERROR] Tech level: verification file close failed - stage unchanged: "
+            .. tostring(verifyCloseErr))
+        return
+    end
     if not verify or #verify ~= #patched or not verify:match('"LevelCap"%s*:%s*' .. tostring(want)) then
-        os.remove(tmp)
-        Log("Tech level: written file did not verify - stage unchanged")
+        removeTemp("verification failure")
+        Log("[ERROR] Tech level: written file did not verify - stage unchanged: " .. tostring(verifyReadErr))
         return
     end
 
     local backup = path .. ".bak"
-    os.remove(backup)
-    if not os.rename(path, backup) then
-        os.remove(tmp)
-        Log("Tech level: could not set the old file aside - stage unchanged")
+    local oldRemoved, oldRemoveErr, oldRemoveCode = os.remove(backup)
+    if oldRemoved then
+        Log("[INFO] Tech level: stale rollback file removed")
+    elseif oldRemoveCode == 2 then
+        Log("[INFO] Tech level: no stale rollback file needed cleanup")
+    else
+        removeTemp("stale rollback cleanup failure")
+        Log("[ERROR] Tech level: stale rollback file could not be removed - stage unchanged: "
+            .. tostring(oldRemoveErr))
         return
     end
-    if not os.rename(tmp, path) then
-        os.rename(backup, path) -- put the original back
-        os.remove(tmp)
-        Log("Tech level: could not swap the new file in - stage unchanged")
+    local backedUp, backupErr = os.rename(path, backup)
+    if not backedUp then
+        removeTemp("backup rename failure")
+        Log("[ERROR] Tech level: could not set the old file aside - stage unchanged: "
+            .. tostring(backupErr))
         return
     end
-    os.remove(backup)
+    Log("[INFO] Tech level: original building file set aside for rollback")
+    local swapped, swapErr = os.rename(tmp, path)
+    if not swapped then
+        local rolledBack, rollbackErr = os.rename(backup, path)
+        if rolledBack then
+            Log("[WARN] Tech level: replacement failed and the original file was restored")
+        else
+            Log("[ERROR] Tech level: replacement failed and rollback rename failed: "
+                .. tostring(rollbackErr) .. "; the original remains at " .. backup)
+        end
+        removeTemp("replacement failure")
+        Log("[ERROR] Tech level: could not swap the new file in - stage unchanged: "
+            .. tostring(swapErr))
+        return
+    end
+    local backupRemoved, backupRemoveErr = os.remove(backup)
+    if not backupRemoved then
+        Log("[WARN] Tech level: stage changed, but rollback file cleanup failed at " .. backup
+            .. ": " .. tostring(backupRemoveErr))
+    end
     Log(string.format(
-        "Tech level: workbench unlock stage changed from %d to %d - active after the next game start",
+        "[INFO] Tech level: workbench unlock stage changed from %d to %d - active after the next game start",
         current, want))
 end
 

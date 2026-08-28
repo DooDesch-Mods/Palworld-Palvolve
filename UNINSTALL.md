@@ -44,3 +44,7 @@ A server's files are not reachable from a browser. `PalvolveSaveCleaner.zip` fro
 Run the Save Cleaner on it. Reinstalling both halves of the mod also brings the world back, and from there you can pick either path above.
 
 Either way the backup the cleaner writes is there, and so are Palworld's own world backups in the `backup` folder inside the world.
+
+## Evolved and prestige passives
+
+Palvolve's evolved and prestige passives are stored on the individual Pals in the world save. Before removing the PalSchema data folder, run the Save Cleaner so those custom passives do not become unresolved ids. The cleaner removes `Palvolve_Evolved_<stage>` and `Palvolve_Prestige_<stage>` entries while leaving every normal passive and every other mod's passive in place.

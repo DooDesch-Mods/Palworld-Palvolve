@@ -1,6 +1,7 @@
 {
     "DT_ItemNameText": {
         "ITEM_NAME_Palvolve_EvolutionStone": "進化の石",
+        "ITEM_NAME_Palvolve_PrestigeStone": "転生の石",
         "ITEM_NAME_Palvolve_AdaptionStone": "適応の石（旧式）",
         "ITEM_NAME_Palvolve_Essence_Normal": "無属性エッセンス",
         "ITEM_NAME_Palvolve_AdaptationStone_Normal": "適応の石（無属性）",
@@ -23,6 +24,7 @@
     },
     "DT_ItemDescriptionText": {
         "ITEM_DESC_Palvolve_EvolutionStone": "生命エネルギーを帯びて微かに鳴る、不思議な石。必要レベルに達した絆あるパルを、より強い近縁の姿へ進化させる。",
+        "ITEM_DESC_Palvolve_PrestigeStone": "夜星砂を種として蓄え、一つだった銀河が無数に散り広がった進化の石。進化の系譜の果てに至った絆あるパルを、これまで生きた一生ごとの証を残したまま、始まりからやり直させる。",
         "ITEM_DESC_Palvolve_AdaptionStone": "属性の力と共鳴する、きらめく石。必要レベルに達した絆あるパルを、その属性形態のいずれかへ適応させる。",
         "ITEM_DESC_Palvolve_Essence_Normal": "技の実や属性素材から抽出した、凝縮された無属性エネルギー。対応する適応の石の作成に使う。",
         "ITEM_DESC_Palvolve_AdaptationStone_Normal": "無属性エネルギーと共鳴する、きらめく石。必要レベルに達した絆あるパルを、無属性の姿へ適応させる。",

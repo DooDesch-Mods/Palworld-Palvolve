@@ -1,6 +1,7 @@
 {
     "DT_ItemNameText": {
         "ITEM_NAME_Palvolve_EvolutionStone": "進化石",
+        "ITEM_NAME_Palvolve_PrestigeStone": "轉生石",
         "ITEM_NAME_Palvolve_AdaptionStone": "適應石（舊版）",
         "ITEM_NAME_Palvolve_Essence_Normal": "無屬性精華",
         "ITEM_NAME_Palvolve_AdaptationStone_Normal": "適應石（無屬性）",
@@ -23,6 +24,7 @@
     },
     "DT_ItemDescriptionText": {
         "ITEM_DESC_Palvolve_EvolutionStone": "一塊神祕的石頭，微微鳴動著生命能量。可讓達到所需等級的羈絆帕魯進化為更強的近緣形態。",
+        "ITEM_DESC_Palvolve_PrestigeStone": "一塊以夜星砂為種的進化石，原本唯一的星系由此散作無數。可讓處於進化鏈終點的羈絆帕魯從頭開始，同時保留牠過往每一世的印記。",
         "ITEM_DESC_Palvolve_AdaptionStone": "一塊與屬性之力共鳴的閃耀石頭。可讓達到所需等級的羈絆帕魯適應為其屬性形態之一。",
         "ITEM_DESC_Palvolve_Essence_Normal": "從技能果實或屬性素材中提取的濃縮無屬性能量。用於製作對應的適應石。",
         "ITEM_DESC_Palvolve_AdaptationStone_Normal": "一塊與無屬性能量共鳴的閃耀石頭。可讓達到所需等級的羈絆帕魯適應為無屬性形態。",

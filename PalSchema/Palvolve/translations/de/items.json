@@ -1,6 +1,7 @@
 {
     "DT_ItemNameText": {
         "ITEM_NAME_Palvolve_EvolutionStone": "Entwicklungsstein",
+        "ITEM_NAME_Palvolve_PrestigeStone": "Prestigestein",
         "ITEM_NAME_Palvolve_AdaptionStone": "Adaptionsstein (Alt)",
         "ITEM_NAME_Palvolve_Essence_Normal": "Neutralessenz",
         "ITEM_NAME_Palvolve_AdaptationStone_Normal": "Adaptionsstein (Neutral)",
@@ -23,6 +24,7 @@
     },
     "DT_ItemDescriptionText": {
         "ITEM_DESC_Palvolve_EvolutionStone": "Ein geheimnisvoller Stein voller Lebensenergie. Erlaubt einem verbundenen Pal die Entwicklung in eine stärkere verwandte Form, sobald es das nötige Level erreicht hat.",
+        "ITEM_DESC_Palvolve_PrestigeStone": "Ein Entwicklungsstein, durchsetzt mit Sternsand - aus der einen Galaxie sind viele geworden. Erlaubt einem verbundenen Pal am Ende seiner Kette einen neuen Anfang, mit dem Zeichen jedes Lebens, das es schon hatte.",
         "ITEM_DESC_Palvolve_AdaptionStone": "Ein schimmernder Stein voller Elementarkraft. Erlaubt einem verbundenen Pal den Wechsel in eine seiner Elementarformen, sobald es das nötige Level erreicht hat.",
         "ITEM_DESC_Palvolve_Essence_Normal": "Konzentrierte Neutral-Energie, gewonnen aus Technikfrüchten oder elementaren Materialien. Wird für den passenden Adaptionsstein benötigt.",
         "ITEM_DESC_Palvolve_AdaptationStone_Normal": "Ein schimmernder Stein voller Neutral-Energie. Erlaubt einem verbundenen Pal den Wechsel in seine Neutral-Form, sobald es das nötige Level erreicht hat.",

@@ -1,0 +1,34 @@
+{
+    "DT_SkillNameText": {
+        "PASSIVE_Palvolve_Prestige_1": "Prestige I",
+        "PASSIVE_Palvolve_Prestige_2": "Prestige II",
+        "PASSIVE_Palvolve_Prestige_3": "Prestige III",
+        "PASSIVE_Palvolve_Prestige_4": "Prestige IV",
+        "PASSIVE_Palvolve_Prestige_5": "Prestige V: Thăng hoa",
+        "PASSIVE_Palvolve_Prestige_6": "Prestige VI",
+        "PASSIVE_Palvolve_Prestige_7": "Prestige VII",
+        "PASSIVE_Palvolve_Prestige_8": "Prestige VIII: Khắc ấn Máu",
+        "PASSIVE_Palvolve_Prestige_9": "Prestige IX",
+        "PASSIVE_Palvolve_Prestige_10": "Prestige X: Huyết ước",
+        "PASSIVE_Palvolve_Evolved_1": "Tiến hóa I",
+        "PASSIVE_Palvolve_Evolved_2": "Tiến hóa II",
+        "PASSIVE_Palvolve_Evolved_3": "Tiến hóa III",
+        "PASSIVE_Palvolve_Evolved_4": "Tiến hóa IV"
+    },
+    "DT_SkillDescText": {
+        "PASSIVE_Palvolve_Prestige_1": "Hành trình thăng tiến bắt đầu.\r\nTấn công +{EffectValue1}%\r\nPhòng thủ +{EffectValue2}%\r\nTốc độ làm việc +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_2": "Sức mạnh mới dần bén rễ.\r\nTấn công +{EffectValue1}%\r\nPhòng thủ +{EffectValue2}%\r\nTốc độ làm việc +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_3": "Chiến đấu và kỹ nghệ cùng được tôi luyện.\r\nTấn công +{EffectValue1}%\r\nPhòng thủ +{EffectValue2}%\r\nTốc độ làm việc +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_4": "Hành trình thăng tiến vàng đã hoàn tất.\r\nTấn công +{EffectValue1}%\r\nPhòng thủ +{EffectValue2}%\r\nTốc độ làm việc +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_5": "Sức mạnh thăng hoa phá vỡ giới hạn cũ.\r\nTấn công +{EffectValue1}%\r\nPhòng thủ +{EffectValue2}%\r\nTốc độ làm việc +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_6": "Sức mạnh thăng hoa càng thêm vững chắc.\r\nTấn công +{EffectValue1}%\r\nPhòng thủ +{EffectValue2}%\r\nTốc độ làm việc +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_7": "Chiến đấu và kỹ nghệ tiến gần đến đỉnh cao.\r\nTấn công +{EffectValue1}%\r\nPhòng thủ +{EffectValue2}%\r\nTốc độ làm việc +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_8": "Ấn Máu thức tỉnh.\r\nTấn công +{EffectValue1}%\r\nPhòng thủ +{EffectValue2}%\r\nTốc độ làm việc +{EffectValue3}%\r\nHút máu +{EffectValue4}% hồi phục cho Pal này.",
+        "PASSIVE_Palvolve_Prestige_9": "Ấn Máu trở nên mạnh hơn.\r\nTấn công +{EffectValue1}%\r\nPhòng thủ +{EffectValue2}%\r\nTốc độ làm việc +{EffectValue3}%\r\nHút máu +{EffectValue4}% hồi phục cho Pal này.",
+        "PASSIVE_Palvolve_Prestige_10": "Sức mạnh huyết ước đạt đến đỉnh cao.\r\nTấn công +{EffectValue1}%\r\nPhòng thủ +{EffectValue2}%\r\nTốc độ làm việc +{EffectValue3}%\r\nHút máu +{EffectValue4}% hồi phục cho Pal và người huấn luyện.",
+        "PASSIVE_Palvolve_Evolved_1": "HP tối đa +{EffectValue1}%\nTốc độ di chuyển +{EffectValue2}%\nTốc độ làm việc +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_2": "HP tối đa +{EffectValue1}%\nTốc độ di chuyển +{EffectValue2}%\nTốc độ làm việc +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_3": "HP tối đa +{EffectValue1}%\nTốc độ di chuyển +{EffectValue2}%\nTốc độ làm việc +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_4": "HP tối đa +{EffectValue1}%\nTốc độ di chuyển +{EffectValue2}%\nTốc độ làm việc +{EffectValue3}%"
+    }
+}

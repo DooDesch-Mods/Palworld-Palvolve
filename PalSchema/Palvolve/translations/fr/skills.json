@@ -1,0 +1,34 @@
+{
+    "DT_SkillNameText": {
+        "PASSIVE_Palvolve_Prestige_1": "Prestige I",
+        "PASSIVE_Palvolve_Prestige_2": "Prestige II",
+        "PASSIVE_Palvolve_Prestige_3": "Prestige III",
+        "PASSIVE_Palvolve_Prestige_4": "Prestige IV",
+        "PASSIVE_Palvolve_Prestige_5": "Prestige V : Ascendant",
+        "PASSIVE_Palvolve_Prestige_6": "Prestige VI",
+        "PASSIVE_Palvolve_Prestige_7": "Prestige VII",
+        "PASSIVE_Palvolve_Prestige_8": "Prestige VIII : Marqué par le sang",
+        "PASSIVE_Palvolve_Prestige_9": "Prestige IX",
+        "PASSIVE_Palvolve_Prestige_10": "Prestige X : Lié par le sang",
+        "PASSIVE_Palvolve_Evolved_1": "Évolué I",
+        "PASSIVE_Palvolve_Evolved_2": "Évolué II",
+        "PASSIVE_Palvolve_Evolved_3": "Évolué III",
+        "PASSIVE_Palvolve_Evolved_4": "Évolué IV"
+    },
+    "DT_SkillDescText": {
+        "PASSIVE_Palvolve_Prestige_1": "L'ascension commence.\r\nAttaque +{EffectValue1}%\r\nDéfense +{EffectValue2}%\r\nVitesse de travail +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_2": "Une force nouvelle s'installe.\r\nAttaque +{EffectValue1}%\r\nDéfense +{EffectValue2}%\r\nVitesse de travail +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_3": "Le combat et l'artisanat progressent ensemble.\r\nAttaque +{EffectValue1}%\r\nDéfense +{EffectValue2}%\r\nVitesse de travail +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_4": "L'ascension dorée est achevée.\r\nAttaque +{EffectValue1}%\r\nDéfense +{EffectValue2}%\r\nVitesse de travail +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_5": "Le pouvoir ascendant brise l'ancienne limite.\r\nAttaque +{EffectValue1}%\r\nDéfense +{EffectValue2}%\r\nVitesse de travail +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_6": "Le pouvoir ascendant s'affermit encore.\r\nAttaque +{EffectValue1}%\r\nDéfense +{EffectValue2}%\r\nVitesse de travail +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_7": "Le combat et l'artisanat approchent de leur apogée.\r\nAttaque +{EffectValue1}%\r\nDéfense +{EffectValue2}%\r\nVitesse de travail +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_8": "La Marque de sang s'éveille.\r\nAttaque +{EffectValue1}%\r\nDéfense +{EffectValue2}%\r\nVitesse de travail +{EffectValue3}%\r\nVol de vie +{EffectValue4}% soigne ce Pal.",
+        "PASSIVE_Palvolve_Prestige_9": "La Marque de sang se renforce.\r\nAttaque +{EffectValue1}%\r\nDéfense +{EffectValue2}%\r\nVitesse de travail +{EffectValue3}%\r\nVol de vie +{EffectValue4}% soigne ce Pal.",
+        "PASSIVE_Palvolve_Prestige_10": "Le pouvoir lié par le sang atteint son apogée.\r\nAttaque +{EffectValue1}%\r\nDéfense +{EffectValue2}%\r\nVitesse de travail +{EffectValue3}%\r\nVol de vie +{EffectValue4}% soigne le Pal et son dresseur.",
+        "PASSIVE_Palvolve_Evolved_1": "PV max +{EffectValue1}%\nVitesse de déplacement +{EffectValue2}%\nVitesse de travail +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_2": "PV max +{EffectValue1}%\nVitesse de déplacement +{EffectValue2}%\nVitesse de travail +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_3": "PV max +{EffectValue1}%\nVitesse de déplacement +{EffectValue2}%\nVitesse de travail +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_4": "PV max +{EffectValue1}%\nVitesse de déplacement +{EffectValue2}%\nVitesse de travail +{EffectValue3}%"
+    }
+}

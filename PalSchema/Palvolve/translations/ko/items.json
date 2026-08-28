@@ -1,6 +1,7 @@
 {
     "DT_ItemNameText": {
         "ITEM_NAME_Palvolve_EvolutionStone": "진화의 돌",
+        "ITEM_NAME_Palvolve_PrestigeStone": "환생의 돌",
         "ITEM_NAME_Palvolve_AdaptionStone": "적응의 돌(구형)",
         "ITEM_NAME_Palvolve_Essence_Normal": "무속성 정수",
         "ITEM_NAME_Palvolve_AdaptationStone_Normal": "적응의 돌(무속성)",
@@ -23,6 +24,7 @@
     },
     "DT_ItemDescriptionText": {
         "ITEM_DESC_Palvolve_EvolutionStone": "생명 에너지가 낮게 울리는 신비한 돌. 필요한 레벨에 도달한 유대 맺은 팰을 더 강한 근연 형태로 진화시킨다.",
+        "ITEM_DESC_Palvolve_PrestigeStone": "밤별 모래를 씨앗 삼아 하나의 은하가 수많은 은하로 흩어진 진화의 돌. 진화 계보의 끝에 도달한 유대 맺은 팰이 이미 살아온 모든 생의 흔적을 간직한 채 처음부터 다시 시작하게 한다.",
         "ITEM_DESC_Palvolve_AdaptionStone": "원소의 힘에 조율된 반짝이는 돌. 필요한 레벨에 도달한 유대 맺은 팰을 원소 형태 중 하나로 적응시킨다.",
         "ITEM_DESC_Palvolve_Essence_Normal": "기술 열매나 원소 소재에서 추출한 응축된 무속성 에너지. 대응하는 적응의 돌 제작에 사용된다.",
         "ITEM_DESC_Palvolve_AdaptationStone_Normal": "무속성 에너지에 조율된 반짝이는 돌. 필요한 레벨에 도달한 유대 맺은 팰을 무속성 형태로 적응시킨다.",

@@ -1,6 +1,7 @@
 {
     "DT_ItemNameText": {
         "ITEM_NAME_Palvolve_EvolutionStone": "Evrim Taşı",
+        "ITEM_NAME_Palvolve_PrestigeStone": "Prestij Taşı",
         "ITEM_NAME_Palvolve_AdaptionStone": "Adaptasyon Taşı (eski)",
         "ITEM_NAME_Palvolve_Essence_Normal": "Nötr Öz",
         "ITEM_NAME_Palvolve_AdaptationStone_Normal": "Adaptasyon Taşı (Nötr)",
@@ -23,6 +24,7 @@
     },
     "DT_ItemDescriptionText": {
         "ITEM_DESC_Palvolve_EvolutionStone": "Yaşam enerjisiyle hafifçe titreşen gizemli bir taş. Gerekli seviyeye ulaşan bağlı bir Pal'ın daha güçlü, akraba bir forma evrimleşmesini sağlar.",
+        "ITEM_DESC_Palvolve_PrestigeStone": "Gece Yıldızı Kumu ile ekilmiş, tek galaksisi birçok galaksiye dağılmış bir Evrim Taşı. Evrim zincirinin sonundaki bağlı bir Pal'ın, yaşadığı her hayatın izini koruyarak en baştan başlamasını sağlar.",
         "ITEM_DESC_Palvolve_AdaptionStone": "Element güçlerine uyumlanmış ışıltılı bir taş. Gerekli seviyeye ulaşan bağlı bir Pal'ın element formlarından birine adapte olmasını sağlar.",
         "ITEM_DESC_Palvolve_Essence_Normal": "Beceri Meyvelerinden veya element malzemelerinden çıkarılmış yoğun nötr enerji. Eşleşen Adaptasyon Taşı'nı üretmek için kullanılır.",
         "ITEM_DESC_Palvolve_AdaptationStone_Normal": "Nötr enerjiye uyumlanmış ışıltılı bir taş. Gerekli seviyeye ulaşan bağlı bir Pal'ın nötr formuna adapte olmasını sağlar.",

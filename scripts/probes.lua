@@ -2314,4 +2314,973 @@ function M.probePak()
     Log("[probe-pak] open - click a card, run !palvolve pak again to close")
 end
 
+-- ------------------------------------------------- 1.9.0 planning probes (P1-P6)
+--
+-- Markers: [p1-eat] [p2-addpassive] [p3-addwaza] [p4-level] [p5-rank] [p6-passiveread]
+--
+-- Six questions the 1.9.0 plan cannot answer from static data
+-- (Workspace/docs/Palvolve/RELEASE-1.9.0.md). Run them in the test world
+-- "ModDev" on a summoned pal that is not needed afterwards: P2, P3 and P4 WRITE
+-- to the pal. P4 restores what it wrote; P2 and P3 do not, because whether the
+-- addition sticks is the measurement.
+
+-- The individual parameter of a pal actor, by the same route the mod uses.
+local function paramOf(pal)
+    local param = nil
+    pcall(function() param = pal.CharacterParameterComponent:GetIndividualParameter() end)
+    if not (param and param:IsValid()) then
+        pcall(function() param = pal:GetIndividualParameter() end)
+    end
+    if param and param:IsValid() then return param end
+    return nil
+end
+
+-- Summoned pal plus its parameter, or nil and a logged reason.
+-- The pal actually STANDING IN THE WORLD, resolved through the holder the way
+-- the mod itself does it (evolution.lua:841).
+--
+-- firstOwnedMonster is wrong here: IsPlayersOtomo is true for every party
+-- member, not only the summoned one, so it returns whichever party pal the
+-- object walk meets first. Every probe run before this one named a subject that
+-- was not the pal the tester had out, which made every status-screen check
+-- meaningless.
+local function spawnedOtomo()
+    local pal = nil
+    pcall(function()
+        local pc = FindFirstOf("PalPlayerController")
+        if not (pc and pc:IsValid()) then return end
+        local cls = StaticFindObject("/Script/Pal.PalOtomoHolderComponentBase")
+        if not cls then return end
+        local holder = pc:GetComponentByClass(cls)
+        if not (holder and holder:IsValid()) then return end
+        local a = holder:TryGetSpawnedOtomo()
+        if a and a:IsValid() then pal = a end
+    end)
+    return pal
+end
+
+local function probeSubject(marker)
+    local pal = spawnedOtomo()
+    if not pal then
+        Log(string.format("[%s] no pal is out - summon one first", marker))
+        return nil
+    end
+    local param = paramOf(pal)
+    if not param then
+        Log(string.format("[%s] pal has no individual parameter", marker))
+        return nil
+    end
+    local id, actorName = "?", "?"
+    pcall(function() id = param:GetCharacterID():ToString() end)
+    pcall(function() actorName = pal:GetFullName() end)
+    Log(string.format("[%s] subject: %s (spawned otomo, actor %s)",
+        marker, tostring(id), tostring(actorName)))
+    return pal, param, id
+end
+
+-- Names in a NameProperty array, as plain strings.
+local function nameList(arr)
+    local out = {}
+    pcall(function()
+        local n = arr:GetArrayNum()
+        for i = 1, n do
+            local v = arr[i]
+            local s = nil
+            pcall(function() s = v:ToString() end)
+            table.insert(out, tostring(s or v))
+        end
+    end)
+    return out
+end
+
+-- P4: is a written Level/Exp picked up in the session, or only after a relog?
+-- Writes level 1, reads back through the game's own getter, then restores.
+function M.probeLevelWrite()
+    local _, param = probeSubject("p4-level")
+    if not param then return end
+
+    local before, expBefore, savedLevel = nil, nil, nil
+    pcall(function() before = param:GetLevel() end)
+    pcall(function() savedLevel = param.SaveParameter.Level end)
+    pcall(function() expBefore = param.SaveParameter.Exp end)
+    local hpBefore, atkBefore = nil, nil
+    pcall(function() hpBefore = param:GetMaxHP() end)
+    pcall(function() atkBefore = param:GetAttack() end)
+    Log(string.format("[p4-level] before: GetLevel=%s SaveParameter.Level=%s Exp=%s MaxHP=%s Attack=%s",
+        tostring(before), tostring(savedLevel), tostring(expBefore),
+        tostring(hpBefore), tostring(atkBefore)))
+
+    -- Both halves, the way the species swap writes them. Writing only
+    -- SaveParameter and finding the getter unchanged would look like proof that
+    -- a native path is needed, when it would only prove the mirror was skipped.
+    local wrote = pcall(function()
+        param.SaveParameter.Level = 1
+        param.SaveParameter.Exp = 0
+        param.SaveParameterMirror.Level = 1
+        param.SaveParameterMirror.Exp = 0
+    end)
+    if not wrote then
+        Log("[p4-level] VERDICT: the write itself failed - the field is not settable from Lua")
+        return
+    end
+
+    local afterGet, afterRaw = nil, nil
+    pcall(function() afterGet = param:GetLevel() end)
+    pcall(function() afterRaw = param.SaveParameter.Level end)
+    Log(string.format("[p4-level] after write: GetLevel=%s SaveParameter.Level=%s",
+        tostring(afterGet), tostring(afterRaw)))
+
+    -- A level that moves while the stats derived from it do not is the work
+    -- suitability bug in a new coat, so both are read here rather than assumed.
+    local hpAfter, atkAfter = nil, nil
+    pcall(function() hpAfter = param:GetMaxHP() end)
+    pcall(function() atkAfter = param:GetAttack() end)
+    Log(string.format("[p4-level] derived after write: MaxHP=%s Attack=%s (before: MaxHP=%s Attack=%s)",
+        tostring(hpAfter), tostring(atkAfter), tostring(hpBefore), tostring(atkBefore)))
+
+    if tonumber(afterRaw) == 1 and tonumber(afterGet) == 1 then
+        Log("[p4-level] VERDICT: the getter follows the write in-session - plain Lua is enough")
+    elseif tonumber(afterRaw) == 1 then
+        Log("[p4-level] VERDICT: the field changed but GetLevel did not - a native path or a relog is needed")
+    else
+        Log("[p4-level] VERDICT: the write did not land at all")
+    end
+
+    -- Put the pal back. The probe is about whether the write is seen, not about
+    -- costing the tester a levelled pal.
+    pcall(function()
+        param.SaveParameter.Level = savedLevel
+        param.SaveParameter.Exp = expBefore
+        param.SaveParameterMirror.Level = savedLevel
+        param.SaveParameterMirror.Exp = expBefore
+    end)
+    pcall(function() param:FullRecoveryHP() end)
+    local restored = nil
+    pcall(function() restored = param:GetLevel() end)
+    Log(string.format("[p4-level] restored to %s (was %s)", tostring(restored), tostring(before)))
+end
+
+-- P5: the soul rank ceiling and the per-rank stat gain, read from the game's
+-- own settings rather than guessed, plus what the pal carries today.
+function M.probeSoulRanks()
+    local _, param = probeSubject("p5-rank")
+
+    local setting = StaticFindObject("/Script/Pal.Default__PalGameSetting")
+    if setting and setting:IsValid() then
+        local function read(name)
+            local v = nil
+            pcall(function() v = setting[name] end)
+            return tostring(v)
+        end
+        Log(string.format("[p5-rank] CharacterMaxRank=%s WorkSuitabilityMaxRank=%s",
+            read("CharacterMaxRank"), read("WorkSuitabilityMaxRank")))
+        Log(string.format("[p5-rank] perRank: HP=%s Attack=%s Defence=%s",
+            read("AddMaxHPPerHPRank"), read("AddAttackPerAttackRank"),
+            read("AddDefencePerDefenceRank")))
+    else
+        Log("[p5-rank] PalGameSetting CDO not found")
+    end
+
+    if not param then return end
+    local function raw(field)
+        local v = nil
+        pcall(function() v = param.SaveParameter[field] end)
+        return tostring(v)
+    end
+    Log(string.format("[p5-rank] pal: Rank=%s Rank_HP=%s Rank_Attack=%s Rank_Defence=%s Rank_CraftSpeed=%s",
+        raw("Rank"), raw("Rank_HP"), raw("Rank_Attack"), raw("Rank_Defence"), raw("Rank_CraftSpeed")))
+end
+
+-- P6: does PassiveSkillList read the same for the summoned pal and the rest of
+-- the party? A2 needs one read path, not three.
+function M.probePassiveRead()
+    local marker = "p6-passiveread"
+    local _, param = probeSubject(marker)
+    if param then
+        local ok = pcall(function()
+            local list = nameList(param.SaveParameter.PassiveSkillList)
+            Log(string.format("[%s] summoned: %d passives [%s]", marker, #list, table.concat(list, ", ")))
+        end)
+        if not ok then Log(string.format("[%s] summoned: read FAILED", marker)) end
+    end
+
+    -- The holder is a COMPONENT of the player's CONTROLLER, not a property on
+    -- the character. Reading `pc.OtomoHolder` returns nil, and the first run
+    -- logged "no otomo holder" as if the party were empty. Same route the mod
+    -- itself uses in findHolderFor (evolution.lua:317).
+    local holder = nil
+    pcall(function()
+        local pc = FindFirstOf("PalPlayerController")
+        if not (pc and pc:IsValid()) then return end
+        local cls = StaticFindObject("/Script/Pal.PalOtomoHolderComponentBase")
+        if not cls then return end
+        local h = pc:GetComponentByClass(cls)
+        if h and h:IsValid() then holder = h end
+    end)
+    if not (holder and holder:IsValid()) then
+        Log(string.format("[%s] no otomo holder - party not read", marker))
+        return
+    end
+    local slots = 0
+    pcall(function() slots = holder:GetMaxOtomoNum() end)
+    for i = 0, (tonumber(slots) or 0) - 1 do
+        pcall(function()
+            local handle = holder:GetOtomoIndividualHandle(i)
+            if not (handle and handle:IsValid()) then return end
+            local p = handle:TryGetIndividualParameter()
+            if not (p and p:IsValid()) then
+                Log(string.format("[%s] otomo slot %d: handle without parameter", marker, i))
+                return
+            end
+            local id = "?"
+            pcall(function() id = p:GetCharacterID():ToString() end)
+            local ok = pcall(function()
+                local list = nameList(p.SaveParameter.PassiveSkillList)
+                Log(string.format("[%s] otomo slot %d (%s): %d passives [%s]",
+                    marker, i, tostring(id), #list, table.concat(list, ", ")))
+            end)
+            if not ok then
+                Log(string.format("[%s] otomo slot %d (%s): read FAILED", marker, i, tostring(id)))
+            end
+        end)
+    end
+    Log(string.format("[%s] for the Palbox half: swap this pal into the box, take another out, run again", marker))
+end
+
+-- P2: does the game's own AddPassiveSkill go past the four-slot cap? Adds a
+-- handful of ordinary stat passives and watches whether the list keeps growing.
+function M.probeAddPassive()
+    local marker = "p2-addpassive"
+    local _, param = probeSubject(marker)
+    if not param then return end
+
+    local function listNow()
+        local out = {}
+        pcall(function() out = nameList(param.SaveParameter.PassiveSkillList) end)
+        return out
+    end
+
+    local before = listNow()
+    Log(string.format("[%s] before: %d [%s]", marker, #before, table.concat(before, ", ")))
+
+    -- Ordinary stat passives, so a cap shows as the list refusing to grow
+    -- rather than as one bad id being rejected.
+    local candidates = { "PAL_ALLAttack_up2", "PAL_ALLAttack_up1", "Deffence_up1", "MoveSpeed_up_2", "PAL_rude" }
+    for _, id in ipairs(candidates) do
+        local called = pcall(function() param:AddPassiveSkill(FName(id), FName("None")) end)
+        local now = listNow()
+        Log(string.format("[%s] add %s: called=%s -> %d [%s]",
+            marker, id, tostring(called), #now, table.concat(now, ", ")))
+    end
+
+    local after = listNow()
+    if #after > 4 then
+        Log(string.format("[%s] VERDICT: the list holds %d - more than four passives are possible", marker, #after))
+        Log(string.format("[%s] now open the pal status screen: does the UI draw every entry?", marker))
+        return
+    end
+
+    -- Control. Without it "nothing was added" has two readings: the game caps
+    -- the list at four, or AddPassiveSkill does nothing when called from Lua.
+    -- Removing one and adding it back separates them.
+    if #after == 0 then
+        Log(string.format("[%s] VERDICT: the list is empty and nothing was added - the call does nothing here", marker))
+        return
+    end
+
+    local victim = after[#after]
+    pcall(function() param:RemovePassiveSkill(FName(victim)) end)
+    local removed = listNow()
+    Log(string.format("[%s] control: removed %s -> %d [%s]",
+        marker, victim, #removed, table.concat(removed, ", ")))
+
+    if #removed == #after then
+        Log(string.format("[%s] VERDICT: neither add nor remove changes the list - Lua cannot write it this way", marker))
+        return
+    end
+
+    pcall(function() param:AddPassiveSkill(FName(victim), FName("None")) end)
+    local back = listNow()
+    Log(string.format("[%s] control: added %s back -> %d [%s]",
+        marker, victim, #back, table.concat(back, ", ")))
+
+    if #back > #removed then
+        Log(string.format("[%s] VERDICT: add works below the cap and refuses above it - four is a real cap", marker))
+    else
+        Log(string.format("[%s] VERDICT: remove works but add does not - the pal is now one passive short, restore it by hand", marker))
+    end
+    Log(string.format("[%s] now open the pal status screen: does the UI draw every entry?", marker))
+end
+
+-- P3: does AddEquipWaza give a pal a fourth active slot, and does the UI show it?
+function M.probeAddWaza()
+    local marker = "p3-addwaza"
+    local _, param = probeSubject(marker)
+    if not param then return end
+
+    -- The same two routes conditions.lua uses. GetArrayNum on the array this
+    -- getter returns silently yields nothing, which the first run read as an
+    -- empty move list on a level 28 pal - a measurement, not a fact.
+    local function equipped()
+        local out = {}
+        local arr = nil
+        pcall(function() arr = param:GetEquipWaza() end)
+        if not arr then return out end
+        local ok = pcall(function()
+            arr:ForEach(function(_, elem) table.insert(out, tostring(elem:get())) end)
+        end)
+        if not ok or #out == 0 then
+            out = {}
+            pcall(function()
+                for i = 1, #arr do
+                    local v = arr[i]
+                    if type(v) == "userdata" then pcall(function() v = v:get() end) end
+                    table.insert(out, tostring(v))
+                end
+            end)
+        end
+        return out
+    end
+
+    local before = equipped()
+    Log(string.format("[%s] before: %d equipped [%s]", marker, #before, table.concat(before, ", ")))
+
+    -- EPalWazaID is an enum, so the value has to be the NUMBER. The first run
+    -- passed names, two of which ("PowerBomb", "SandBlast") are not even 1.0
+    -- members; everything coerced to None, which the array already held, so the
+    -- append short-circuited on the duplicate check and read as a cap.
+    local candidates = {
+        { id = 113, name = "IceMissile" },
+        { id = 30, name = "waza_30" },
+        { id = 45, name = "waza_45" },
+    }
+    for _, cand in ipairs(candidates) do
+        local called = pcall(function() param:AddEquipWaza(cand.id) end)
+        local now = equipped()
+        Log(string.format("[%s] add %s (=%d): called=%s -> %d [%s]",
+            marker, cand.name, cand.id, tostring(called), #now, table.concat(now, ", ")))
+    end
+
+    local after = equipped()
+    if #after > #before then
+        Log(string.format("[%s] VERDICT: equipped list grew to %d", marker, #after))
+    else
+        Log(string.format("[%s] VERDICT: the equipped list did not grow", marker))
+    end
+    Log(string.format("[%s] now open the pal status screen: is the extra move drawn and usable?", marker))
+end
+
+-- P1: does the eating hook fire for a party or summoned pal, or only for a base
+-- camp worker? Arms both candidates and logs which pal triggers them.
+local eatHooksArmed = false
+function M.probeEatHook()
+    local marker = "p1-eat"
+    if eatHooksArmed then
+        Log(string.format("[%s] already armed - feed a summoned pal, then a base camp worker", marker))
+        return
+    end
+
+    -- Named after the base camp on purpose: that is the suspicion this probe tests.
+    local okA = pcall(RegisterHook,
+        "/Script/Pal.PalAIActionBaseCampRecoverHungryEat:OnFinishEatingTime",
+        function(self)
+            pcall(function()
+                local owner = "?"
+                pcall(function() owner = self:get():GetFullName() end)
+                Log(string.format("[%s] OnFinishEatingTime fired on %s", marker, tostring(owner)))
+            end)
+        end)
+
+    local okB = pcall(RegisterHook,
+        "/Script/Pal.PalIndividualCharacterParameter:TryFindEatItem",
+        function(self)
+            pcall(function()
+                local id = "?"
+                pcall(function() id = self:get():GetCharacterID():ToString() end)
+                Log(string.format("[%s] TryFindEatItem fired for %s", marker, tostring(id)))
+            end)
+        end)
+
+    eatHooksArmed = okA or okB
+    Log(string.format("[%s] armed: OnFinishEatingTime=%s TryFindEatItem=%s",
+        marker, tostring(okA), tostring(okB)))
+    Log(string.format("[%s] now feed the SUMMONED pal by hand, then let a base camp worker eat, and compare", marker))
+end
+
+-- P8: can the passive list be grown by writing the array directly, instead of
+-- going through AddPassiveSkill? P2 proved the four-cap sits inside that
+-- function; PalPassives8 (Workshop 3785879882) sidesteps it with a plain
+-- append and ships that way. Its own note names UE4SS c2ac246 and its
+-- Info.json depends on UE4SSExperimentalPW, so whether the append works on
+-- this build (c838a8ac) is the open question.
+--
+-- Leaves the pal as found: the test entry is removed again.
+function M.probeArrayGrow()
+    local marker = "p8-arraygrow"
+    local _, param = probeSubject(marker)
+    if not param then return end
+
+    local TEST_SKILL = "PAL_conceited"
+
+    local function listNow()
+        local out = {}
+        pcall(function() out = nameList(param.SaveParameter.PassiveSkillList) end)
+        return out
+    end
+
+    local before = listNow()
+    Log(string.format("[%s] before: %d [%s]", marker, #before, table.concat(before, ", ")))
+    for _, n in ipairs(before) do
+        if n == TEST_SKILL then
+            Log(string.format("[%s] pal already carries %s - pick another subject", marker, TEST_SKILL))
+            return
+        end
+    end
+
+    local appended = pcall(function()
+        local list = param.SaveParameter.PassiveSkillList
+        list[#list + 1] = FName(TEST_SKILL)
+    end)
+    local after = listNow()
+    Log(string.format("[%s] direct append: called=%s -> %d [%s]",
+        marker, tostring(appended), #after, table.concat(after, ", ")))
+
+    if #after > #before then
+        Log(string.format("[%s] VERDICT: the array grows from Lua on this UE4SS build - no native patch needed", marker))
+    else
+        Log(string.format("[%s] VERDICT: the array did NOT grow - this build needs the other route", marker))
+    end
+
+    -- The mirror carries the same list on the swap path, so it is checked too
+    -- rather than assumed to follow.
+    local mirror = {}
+    local okMirror = pcall(function() mirror = nameList(param.SaveParameterMirror.PassiveSkillList) end)
+    Log(string.format("[%s] mirror after append: readable=%s %d entries",
+        marker, tostring(okMirror), #mirror))
+
+    if #after > #before then
+        pcall(function() param:RemovePassiveSkill(FName(TEST_SKILL)) end)
+        local restored = listNow()
+        Log(string.format("[%s] restored: %d [%s]", marker, #restored, table.concat(restored, ", ")))
+        if #restored ~= #before then
+            Log(string.format("[%s] WARNING: the pal did not return to %d passives - fix it by hand", marker, #before))
+        end
+    end
+end
+
+-- P7: does a passive DEFINED BY PalSchema actually work, or does it only
+-- appear? The prestige reward hangs on this. PalCodex records the neighbouring
+-- failure: a custom partner skill defined in one table only shows placeholder
+-- text and does nothing.
+--
+-- The test row is Palvolve_Prestige_Test in PalSchema/Palvolve/raw, with
+-- MaxHP +50 percent so the effect is impossible to miss, and LotteryWeight 0
+-- so it never rolls onto a wild pal.
+function M.probeSchemaPassive()
+    local marker = "p7-schemapassive"
+    local _, param = probeSubject(marker)
+    if not param then return end
+
+    local TEST_SKILL = "Palvolve_Prestige_Test"
+
+    local function listNow()
+        local out = {}
+        pcall(function() out = nameList(param.SaveParameter.PassiveSkillList) end)
+        return out
+    end
+    -- Both, and the buffed one is the one that answers the question: the plain
+    -- getter returns the base value, the _withBuff variant is where passive
+    -- effects land. Reading only the base is what made the first three runs
+    -- look like the passive did nothing.
+    local function stats()
+        local hp, hpBuff, def, defBuff = nil, nil, nil, nil
+        pcall(function() hp = param:GetMaxHP() end)
+        pcall(function()
+            local v = param:GetMaxHP_withBuff()
+            hpBuff = (type(v) == "table" or type(v) == "userdata") and v.Value or v
+        end)
+        pcall(function() def = param:GetDefense() end)
+        pcall(function() defBuff = param:GetDefense_withBuff() end)
+        return string.format("MaxHP=%s MaxHP_withBuff=%s Defense=%s Defense_withBuff=%s",
+            tostring(hp), tostring(hpBuff), tostring(def), tostring(defBuff))
+    end
+    local function maxHp()
+        local v = nil
+        pcall(function() v = param:GetMaxHP_withBuff() end)
+        return v
+    end
+
+    local before = listNow()
+    local hpBefore = maxHp()
+    Log(string.format("[%s] before: %d passives [%s] %s",
+        marker, #before, table.concat(before, ", "), stats()))
+    for _, n in ipairs(before) do
+        if n == TEST_SKILL then
+            Log(string.format("[%s] pal already carries the test passive - remove it first", marker))
+            return
+        end
+    end
+
+    local appended = pcall(function()
+        local list = param.SaveParameter.PassiveSkillList
+        list[#list + 1] = FName(TEST_SKILL)
+    end)
+    local after = listNow()
+    Log(string.format("[%s] append: called=%s -> %d [%s]",
+        marker, tostring(appended), #after, table.concat(after, ", ")))
+    if #after == #before then
+        Log(string.format("[%s] VERDICT: the entry did not land - nothing else can be concluded", marker))
+        return
+    end
+
+    -- The effect is built when the passive component is set up, not on the
+    -- write, so the value is read again after the game had a frame.
+    Log(string.format("[%s] right after the write: %s", marker, stats()))
+
+    Log(string.format("[%s] recall and re-summon the pal, then run !palvolve xschemacheck", marker))
+end
+
+-- Second half of P7, run after a recall and re-summon: did the effect arrive?
+function M.probeSchemaPassiveCheck()
+    local marker = "p7-schemapassive"
+    local _, param = probeSubject(marker)
+    if not param then return end
+
+    local TEST_SKILL = "Palvolve_Prestige_Test"
+    local list = {}
+    pcall(function() list = nameList(param.SaveParameter.PassiveSkillList) end)
+    local carries = false
+    for _, n in ipairs(list) do if n == TEST_SKILL then carries = true end end
+
+    local function stats()
+        local hp, hpBuff, def, defBuff = nil, nil, nil, nil
+        pcall(function() hp = param:GetMaxHP() end)
+        pcall(function()
+            local v = param:GetMaxHP_withBuff()
+            hpBuff = (type(v) == "table" or type(v) == "userdata") and v.Value or v
+        end)
+        pcall(function() def = param:GetDefense() end)
+        pcall(function() defBuff = param:GetDefense_withBuff() end)
+        return string.format("MaxHP=%s MaxHP_withBuff=%s Defense=%s Defense_withBuff=%s",
+            tostring(hp), tostring(hpBuff), tostring(def), tostring(defBuff))
+    end
+    Log(string.format("[%s] check: carries=%s passives=%d [%s] %s",
+        marker, tostring(carries), #list, table.concat(list, ", "), stats()))
+
+    if not carries then
+        Log(string.format("[%s] VERDICT: the entry did not survive - it is not persisted this way", marker))
+        return
+    end
+    Log(string.format("[%s] compare MaxHP with the value from the first half:", marker))
+    Log(string.format("[%s]   clearly higher -> the PalSchema passive WORKS, prestige can use it", marker))
+    Log(string.format("[%s]   unchanged      -> it exists on paper only, the reward needs another carrier", marker))
+    Log(string.format("[%s] also open the status screen: is it drawn with a name, or as a placeholder?", marker))
+end
+
+-- Removes the P7 test passive again, so no pal is left carrying a probe entry.
+function M.probeSchemaPassiveClear()
+    local marker = "p7-schemapassive"
+    local _, param = probeSubject(marker)
+    if not param then return end
+    pcall(function() param:RemovePassiveSkill(FName("Palvolve_Prestige_Test")) end)
+    local list = {}
+    pcall(function() list = nameList(param.SaveParameter.PassiveSkillList) end)
+    Log(string.format("[%s] cleared: %d [%s]", marker, #list, table.concat(list, ", ")))
+end
+
+-- Control for P7: the same measurement with a VANILLA passive. If a known-good
+-- passive does not move the getters either, the getters are the wrong
+-- instrument and the P7 result says nothing about our own row.
+function M.probeVanillaControl()
+    local marker = "p7-control"
+    local _, param = probeSubject(marker)
+    if not param then return end
+
+    local CONTROL = "Deffence_up2"
+
+    local function stats()
+        local hp, def, defBuff = nil, nil, nil
+        pcall(function() hp = param:GetMaxHP() end)
+        pcall(function() def = param:GetDefense() end)
+        pcall(function() defBuff = param:GetDefense_withBuff() end)
+        return string.format("MaxHP=%s Defense=%s Defense_withBuff=%s",
+            tostring(hp), tostring(def), tostring(defBuff))
+    end
+    local function listNow()
+        local out = {}
+        pcall(function() out = nameList(param.SaveParameter.PassiveSkillList) end)
+        return out
+    end
+
+    local before = listNow()
+    for _, n in ipairs(before) do
+        if n == CONTROL then
+            Log(string.format("[%s] pal already carries %s - pick another subject", marker, CONTROL))
+            return
+        end
+    end
+    Log(string.format("[%s] before: %d [%s] %s", marker, #before, table.concat(before, ", "), stats()))
+
+    pcall(function()
+        local list = param.SaveParameter.PassiveSkillList
+        list[#list + 1] = FName(CONTROL)
+    end)
+    local after = listNow()
+    Log(string.format("[%s] after adding the vanilla %s: %d [%s] %s",
+        marker, CONTROL, #after, table.concat(after, ", "), stats()))
+    Log(string.format("[%s] recall and re-summon, then run !palvolve xcontrolcheck", marker))
+end
+
+function M.probeVanillaControlCheck()
+    local marker = "p7-control"
+    local _, param = probeSubject(marker)
+    if not param then return end
+    local hp, def, defBuff = nil, nil, nil
+    pcall(function() hp = param:GetMaxHP() end)
+    pcall(function() def = param:GetDefense() end)
+    pcall(function() defBuff = param:GetDefense_withBuff() end)
+    local list = {}
+    pcall(function() list = nameList(param.SaveParameter.PassiveSkillList) end)
+    Log(string.format("[%s] check: %d [%s] MaxHP=%s Defense=%s Defense_withBuff=%s",
+        marker, #list, table.concat(list, ", "), tostring(hp), tostring(def), tostring(defBuff)))
+    Log(string.format("[%s] moved -> the getters DO see passives, so our row is the problem", marker))
+    Log(string.format("[%s] unchanged -> the getters never show passives, and P7 needs another measurement", marker))
+    pcall(function() param:RemovePassiveSkill(FName("Deffence_up2")) end)
+    Log(string.format("[%s] control passive removed again", marker))
+end
+
+-- One run instead of eight. Everything that can be measured without a rebuild
+-- happens immediately; the two questions that need the passive component to be
+-- rebuilt (our own row and the vanilla control) are staged here and read back
+-- by M.probeRunAllCheck after one recall and re-summon.
+function M.probeRunAll()
+    local marker = "xall"
+    local pal, param, id = probeSubject(marker)
+    if not param then return end
+
+    local function listNow()
+        local out = {}
+        pcall(function() out = nameList(param.SaveParameter.PassiveSkillList) end)
+        return out
+    end
+    local function equipped()
+        local out = {}
+        local arr = nil
+        pcall(function() arr = param:GetEquipWaza() end)
+        if not arr then return out end
+        local ok = pcall(function()
+            arr:ForEach(function(_, elem) table.insert(out, tostring(elem:get())) end)
+        end)
+        if not ok or #out == 0 then
+            out = {}
+            pcall(function()
+                for i = 1, #arr do
+                    local v = arr[i]
+                    if type(v) == "userdata" then pcall(function() v = v:get() end) end
+                    table.insert(out, tostring(v))
+                end
+            end)
+        end
+        return out
+    end
+    local function stats()
+        local hp, def, defBuff = nil, nil, nil
+        pcall(function() hp = param:GetMaxHP() end)
+        pcall(function() def = param:GetDefense() end)
+        pcall(function() defBuff = param:GetDefense_withBuff() end)
+        return string.format("MaxHP=%s Defense=%s Defense_withBuff=%s",
+            tostring(hp), tostring(def), tostring(defBuff))
+    end
+
+    Log(string.format("[%s] 1/6 stats: %s", marker, stats()))
+
+    -- P5: the ceilings and the per-rank gain, straight from the game settings
+    local setting = StaticFindObject("/Script/Pal.Default__PalGameSetting")
+    if setting and setting:IsValid() then
+        local function read(name)
+            local v = nil
+            pcall(function() v = setting[name] end)
+            return tostring(v)
+        end
+        Log(string.format("[%s] 2/6 caps: CharacterMaxRank=%s perRank HP=%s Attack=%s Defence=%s",
+            marker, read("CharacterMaxRank"), read("AddMaxHPPerHPRank"),
+            read("AddAttackPerAttackRank"), read("AddDefencePerDefenceRank")))
+    else
+        Log(string.format("[%s] 2/6 caps: PalGameSetting CDO not found", marker))
+    end
+
+    -- P6: does every party slot read through the same path as the summoned pal
+    local holder = nil
+    pcall(function()
+        local pc = FindFirstOf("PalPlayerController")
+        if not (pc and pc:IsValid()) then return end
+        local cls = StaticFindObject("/Script/Pal.PalOtomoHolderComponentBase")
+        if cls then
+            local h = pc:GetComponentByClass(cls)
+            if h and h:IsValid() then holder = h end
+        end
+    end)
+    local slotsRead, slotsTotal = 0, 0
+    if holder then
+        local n = 0
+        pcall(function() n = holder:GetMaxOtomoNum() end)
+        for i = 0, (tonumber(n) or 0) - 1 do
+            pcall(function()
+                local handle = holder:GetOtomoIndividualHandle(i)
+                if not (handle and handle:IsValid()) then return end
+                local p = handle:TryGetIndividualParameter()
+                if not (p and p:IsValid()) then return end
+                slotsTotal = slotsTotal + 1
+                local ok = pcall(function() local _ = nameList(p.SaveParameter.PassiveSkillList) end)
+                if ok then slotsRead = slotsRead + 1 end
+            end)
+        end
+    end
+    Log(string.format("[%s] 3/6 party read: %d of %d slots readable via SaveParameter",
+        marker, slotsRead, slotsTotal))
+
+    -- P8: does the passive array grow from Lua, past the AddPassiveSkill cap
+    local passivesBefore = listNow()
+    local grew = false
+    pcall(function()
+        local list = param.SaveParameter.PassiveSkillList
+        list[#list + 1] = FName("PAL_conceited")
+    end)
+    grew = #listNow() > #passivesBefore
+    pcall(function() param:RemovePassiveSkill(FName("PAL_conceited")) end)
+    Log(string.format("[%s] 4/6 array append past the cap: %s (%d passives before)",
+        marker, grew and "WORKS" or "FAILED", #passivesBefore))
+
+    -- P3: does the equipped move list grow with a numeric enum value
+    local wazaBefore = equipped()
+    pcall(function() param:AddEquipWaza(113) end)
+    local wazaAfter = equipped()
+    Log(string.format("[%s] 5/6 AddEquipWaza(113): %d -> %d entries [%s]",
+        marker, #wazaBefore, #wazaAfter, table.concat(wazaAfter, ", ")))
+
+    -- P7 plus control, both staged for the rebuild
+    local staged = {}
+    for _, skill in ipairs({ "Palvolve_Prestige_Test", "Deffence_up2" }) do
+        local has = false
+        for _, n in ipairs(listNow()) do if n == skill then has = true end end
+        if not has then
+            pcall(function()
+                local list = param.SaveParameter.PassiveSkillList
+                list[#list + 1] = FName(skill)
+            end)
+            table.insert(staged, skill)
+        end
+    end
+    Log(string.format("[%s] 6/6 staged for the rebuild: [%s] -> now %s",
+        marker, table.concat(staged, ", "), stats()))
+    Log(string.format("[%s] RECALL the pal, SUMMON it again, then run !palvolve xallcheck", marker))
+end
+
+-- Reads back what probeRunAll staged, then puts the pal back as it was.
+function M.probeRunAllCheck()
+    local marker = "xall"
+    local _, param = probeSubject(marker)
+    if not param then return end
+
+    local list = {}
+    pcall(function() list = nameList(param.SaveParameter.PassiveSkillList) end)
+    local hp, def, defBuff = nil, nil, nil
+    pcall(function() hp = param:GetMaxHP() end)
+    pcall(function() def = param:GetDefense() end)
+    pcall(function() defBuff = param:GetDefense_withBuff() end)
+    Log(string.format("[%s] after rebuild: %d passives [%s] MaxHP=%s Defense=%s Defense_withBuff=%s",
+        marker, #list, table.concat(list, ", "),
+        tostring(hp), tostring(def), tostring(defBuff)))
+    Log(string.format("[%s] the vanilla Deffence_up2 is the control: it moved Defense_withBuff by 3 last time.", marker))
+    Log(string.format("[%s] our own row counts as working only if the number rose by MORE than that.", marker))
+    Log(string.format("[%s] also look at the status screen: is Prestige (Test) drawn with its name?", marker))
+
+    for _, skill in ipairs({ "Palvolve_Prestige_Test", "Deffence_up2" }) do
+        pcall(function() param:RemovePassiveSkill(FName(skill)) end)
+    end
+    local rest = {}
+    pcall(function() rest = nameList(param.SaveParameter.PassiveSkillList) end)
+    Log(string.format("[%s] cleaned up: %d passives [%s]", marker, #rest, table.concat(rest, ", ")))
+end
+
+-- Checks the two authored ladders in one go: do the rows load, does Evolved I
+-- apply, and do our own two passives stack the way the native accumulator says
+-- they should (additive, base * (1 + sum/100)).
+function M.probeLadders()
+    local marker = "ladders"
+    local _, param = probeSubject(marker)
+    if not param then return end
+
+    local function listNow()
+        local out = {}
+        pcall(function() out = nameList(param.SaveParameter.PassiveSkillList) end)
+        return out
+    end
+    local function def()
+        local base, buff = nil, nil
+        pcall(function() base = param:GetDefense() end)
+        pcall(function() buff = param:GetDefense_withBuff() end)
+        return base, buff
+    end
+
+    local before = listNow()
+    local b0, w0 = def()
+    Log(string.format("[%s] before: %d [%s] Defense=%s withBuff=%s",
+        marker, #before, table.concat(before, ", "), tostring(b0), tostring(w0)))
+
+    -- Evolved first, Prestige second - the order the design fixes.
+    for _, skill in ipairs({ "Palvolve_Evolved_1", "Palvolve_Prestige_1" }) do
+        local has = false
+        for _, n in ipairs(listNow()) do if n == skill then has = true end end
+        if not has then
+            pcall(function()
+                local list = param.SaveParameter.PassiveSkillList
+                list[#list + 1] = FName(skill)
+            end)
+        end
+    end
+    local after = listNow()
+    Log(string.format("[%s] staged: %d [%s]", marker, #after, table.concat(after, ", ")))
+    Log(string.format("[%s] RECALL and re-summon, then !palvolve xladderscheck", marker))
+end
+
+function M.probeLaddersCheck()
+    local marker = "ladders"
+    local _, param = probeSubject(marker)
+    if not param then return end
+    local list = {}
+    pcall(function() list = nameList(param.SaveParameter.PassiveSkillList) end)
+    local base, buff = nil, nil
+    pcall(function() base = param:GetDefense() end)
+    pcall(function() buff = param:GetDefense_withBuff() end)
+    Log(string.format("[%s] after rebuild: %d [%s] Defense=%s withBuff=%s",
+        marker, #list, table.concat(list, ", "), tostring(base), tostring(buff)))
+    Log(string.format("[%s] Evolved I gives +5, Prestige I gives +15, so together +20 percent.", marker))
+    Log(string.format("[%s] On a base of 56 that is 67. Anything else means the rows are not both applying.", marker))
+    for _, skill in ipairs({ "Palvolve_Evolved_1", "Palvolve_Prestige_1" }) do
+        pcall(function() param:RemovePassiveSkill(FName(skill)) end)
+    end
+    local rest = {}
+    pcall(function() rest = nameList(param.SaveParameter.PassiveSkillList) end)
+    Log(string.format("[%s] cleaned up: %d [%s]", marker, #rest, table.concat(rest, ", ")))
+end
+
+-- Shows every rank band of the two ladders side by side. The status screen has
+-- four passive widgets, so the pal's own entries are set aside for the look and
+-- put back by the second command. PalPassives.restore writes an exact list, so
+-- both directions are the same operation.
+-- The set-aside list lives in a file, not only in memory. It used to be a local:
+-- a game restart dropped it, the next call then captured whatever probe set was
+-- still on the pal and wrote THAT back as "the original". One test pal lost its
+-- own passives that way.
+local BANDS_STORE = "palvolve_bands_backup.txt"
+
+local function bandsLoad()
+    local f = io.open(BANDS_STORE, "r")
+    if not f then return nil end
+    local line = f:read("*l")
+    f:close()
+    if not line or line == "" then return nil end
+    local out = {}
+    for id in line:gmatch("[^,]+") do table.insert(out, (id:gsub("^%s+", ""):gsub("%s+$", ""))) end
+    return (#out > 0) and out or nil
+end
+
+local function bandsStore(list)
+    local f = io.open(BANDS_STORE, "w")
+    if not f then return false end
+    f:write(table.concat(list or {}, ","))
+    f:close()
+    return true
+end
+
+local function bandsClear()
+    os.remove(BANDS_STORE)
+end
+
+local function isLadderId(id)
+    return id:match("^Palvolve_Evolved_%d+$") or id:match("^Palvolve_Prestige_%d+$")
+        or id:match("^Palvolve_Look_")
+end
+
+function M.probeBands(which)
+    local marker = "bands"
+    local _, param = probeSubject(marker)
+    if not param then return end
+
+    local PalPassives = nil
+    local okReq, mod = pcall(require, "palpassives")
+    if okReq then PalPassives = mod end
+    if not (PalPassives and PalPassives.capture and PalPassives.restore) then
+        Log(string.format("[%s] palpassives module unavailable", marker))
+        return
+    end
+
+    if not bandsLoad() then
+        local captured, capErr = PalPassives.capture(param)
+        if not captured then
+            Log(string.format("[%s] could not read the pal: %s", marker, tostring(capErr)))
+            return
+        end
+        -- Never enshrine a probe set as "the original" - that is how one test pal
+        -- lost its own passives. But a contaminated pal is still worth looking
+        -- at, so the set is applied anyway and only the backup is skipped.
+        local contaminated = nil
+        for _, id in ipairs(captured) do
+            if isLadderId(id) then contaminated = id end
+        end
+        if contaminated then
+            Log(string.format("[%s] no backup taken: this pal already carries %s, so what "
+                .. "is on it now is not its own. bandsoff will not restore it.",
+                marker, contaminated))
+        else
+            bandsStore(captured)
+            Log(string.format("[%s] set aside: [%s]", marker, table.concat(captured, ", ")))
+        end
+    end
+
+    -- Four at a time, because four is what the screen draws.
+    local SETS = {
+        prestige = { "Palvolve_Prestige_1", "Palvolve_Prestige_4",
+                     "Palvolve_Prestige_8", "Palvolve_Prestige_10" },
+        evolved = { "Palvolve_Evolved_1", "Palvolve_Evolved_2",
+                    "Palvolve_Evolved_3", "Palvolve_Evolved_4" },
+        mixed = { "Palvolve_Evolved_4", "Palvolve_Prestige_1",
+                  "Palvolve_Prestige_7", "Palvolve_Prestige_10" },
+        -- four rows that differ only in Rank and the two pal-type flags, to
+        -- find out what actually drives the frame beyond the rank number
+        looks = { "Palvolve_Look_R5_Plain", "Palvolve_Look_R5_Tree",
+                  "Palvolve_Look_R4_Mut", "Palvolve_Look_R4_Plain" },
+    }
+    local wanted = SETS[tostring(which or "prestige")] or SETS.prestige
+    local ok, err = PalPassives.restore(param, wanted)
+    if not ok then
+        Log(string.format("[%s] could not write the set: %s", marker, tostring(err)))
+        return
+    end
+    Log(string.format("[%s] showing [%s]", marker, table.concat(wanted, ", ")))
+    Log(string.format("[%s] recall and re-summon, then open the status screen.", marker))
+    Log(string.format("[%s] !palvolve bands evolved / bands mixed for the others, "
+        .. "!palvolve bandsoff to put the pal back", marker))
+end
+
+function M.probeBandsOff()
+    local marker = "bands"
+    local _, param = probeSubject(marker)
+    if not param then return end
+    local saved = bandsLoad()
+    if not saved then
+        Log(string.format("[%s] nothing was set aside", marker))
+        return
+    end
+    local PalPassives = nil
+    local okReq, mod = pcall(require, "palpassives")
+    if okReq then PalPassives = mod end
+    if not PalPassives then return end
+    local ok, err = PalPassives.restore(param, saved)
+    Log(string.format("[%s] restored: %s [%s]", marker,
+        ok and "ok" or tostring(err), table.concat(saved, ", ")))
+    if ok then bandsClear() end
+end
+
 return M

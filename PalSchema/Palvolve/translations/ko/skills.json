@@ -1,0 +1,34 @@
+{
+    "DT_SkillNameText": {
+        "PASSIVE_Palvolve_Prestige_1": "프레스티지 I",
+        "PASSIVE_Palvolve_Prestige_2": "프레스티지 II",
+        "PASSIVE_Palvolve_Prestige_3": "프레스티지 III",
+        "PASSIVE_Palvolve_Prestige_4": "프레스티지 IV",
+        "PASSIVE_Palvolve_Prestige_5": "프레스티지 V: 초월",
+        "PASSIVE_Palvolve_Prestige_6": "프레스티지 VI",
+        "PASSIVE_Palvolve_Prestige_7": "프레스티지 VII",
+        "PASSIVE_Palvolve_Prestige_8": "프레스티지 VIII: 혈인",
+        "PASSIVE_Palvolve_Prestige_9": "프레스티지 IX",
+        "PASSIVE_Palvolve_Prestige_10": "프레스티지 X: 혈맹",
+        "PASSIVE_Palvolve_Evolved_1": "진화 I",
+        "PASSIVE_Palvolve_Evolved_2": "진화 II",
+        "PASSIVE_Palvolve_Evolved_3": "진화 III",
+        "PASSIVE_Palvolve_Evolved_4": "진화 IV"
+    },
+    "DT_SkillDescText": {
+        "PASSIVE_Palvolve_Prestige_1": "상승이 시작됩니다.\r\n공격 +{EffectValue1}%\r\n방어 +{EffectValue2}%\r\n작업 속도 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_2": "새로운 힘이 자리 잡습니다.\r\n공격 +{EffectValue1}%\r\n방어 +{EffectValue2}%\r\n작업 속도 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_3": "전투와 작업 능력이 함께 단련됩니다.\r\n공격 +{EffectValue1}%\r\n방어 +{EffectValue2}%\r\n작업 속도 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_4": "황금빛 상승이 완성됩니다.\r\n공격 +{EffectValue1}%\r\n방어 +{EffectValue2}%\r\n작업 속도 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_5": "초월의 힘이 오래된 한계를 깨뜨립니다.\r\n공격 +{EffectValue1}%\r\n방어 +{EffectValue2}%\r\n작업 속도 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_6": "초월의 힘이 더욱 굳건해집니다.\r\n공격 +{EffectValue1}%\r\n방어 +{EffectValue2}%\r\n작업 속도 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_7": "전투와 작업 능력이 정점에 다가갑니다.\r\n공격 +{EffectValue1}%\r\n방어 +{EffectValue2}%\r\n작업 속도 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_8": "혈인이 깨어납니다.\r\n공격 +{EffectValue1}%\r\n방어 +{EffectValue2}%\r\n작업 속도 +{EffectValue3}%\r\n생명력 흡수 +{EffectValue4}%로 이 팰을 회복합니다.",
+        "PASSIVE_Palvolve_Prestige_9": "혈인이 더욱 강해집니다.\r\n공격 +{EffectValue1}%\r\n방어 +{EffectValue2}%\r\n작업 속도 +{EffectValue3}%\r\n생명력 흡수 +{EffectValue4}%로 이 팰을 회복합니다.",
+        "PASSIVE_Palvolve_Prestige_10": "혈맹의 힘이 정점에 도달합니다.\r\n공격 +{EffectValue1}%\r\n방어 +{EffectValue2}%\r\n작업 속도 +{EffectValue3}%\r\n생명력 흡수 +{EffectValue4}%로 팰과 조련사를 회복합니다.",
+        "PASSIVE_Palvolve_Evolved_1": "최대 HP +{EffectValue1}%\n이동 속도 +{EffectValue2}%\n작업 속도 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_2": "최대 HP +{EffectValue1}%\n이동 속도 +{EffectValue2}%\n작업 속도 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_3": "최대 HP +{EffectValue1}%\n이동 속도 +{EffectValue2}%\n작업 속도 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_4": "최대 HP +{EffectValue1}%\n이동 속도 +{EffectValue2}%\n작업 속도 +{EffectValue3}%"
+    }
+}

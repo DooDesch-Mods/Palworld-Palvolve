@@ -22,5 +22,17 @@
         "MaxStackCount": 99,
         "SortId": 999029,
         "Weight": 1.0
+    },
+    "Palvolve_PrestigeStone": {
+        "Type": "Generic",
+        "IconTexture": "$resource/Palvolve/prestigestone",
+        "TypeA": "Material",
+        "TypeB": "Palvolve_Craft",
+        "Rank": 1,
+        "Rarity": 4,
+        "Price": 12000,
+        "MaxStackCount": 99,
+        "SortId": 999002,
+        "Weight": 1.0
     }
 }

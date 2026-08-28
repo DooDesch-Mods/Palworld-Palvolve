@@ -1,6 +1,7 @@
 {
     "DT_ItemNameText": {
         "ITEM_NAME_Palvolve_EvolutionStone": "Piedra evolutiva",
+        "ITEM_NAME_Palvolve_PrestigeStone": "Piedra de prestigio",
         "ITEM_NAME_Palvolve_AdaptionStone": "Piedra de adaptación (legado)",
         "ITEM_NAME_Palvolve_Essence_Normal": "Esencia neutra",
         "ITEM_NAME_Palvolve_AdaptationStone_Normal": "Piedra de adaptación (Neutra)",
@@ -23,6 +24,7 @@
     },
     "DT_ItemDescriptionText": {
         "ITEM_DESC_Palvolve_EvolutionStone": "Una piedra misteriosa que vibra con energía vital. Permite que un Pal vinculado evolucione a una forma afín más fuerte al alcanzar el nivel requerido.",
+        "ITEM_DESC_Palvolve_PrestigeStone": "Una piedra evolutiva sembrada con Arena estelar, cuya única galaxia se ha dispersado en muchas. Permite que un Pal vinculado que haya llegado al final de su cadena vuelva a empezar desde el principio, conservando una marca de cada vida que ya ha vivido.",
         "ITEM_DESC_Palvolve_AdaptionStone": "Una piedra reluciente afinada con las fuerzas elementales. Permite que un Pal vinculado se adapte a una de sus formas elementales al alcanzar el nivel requerido.",
         "ITEM_DESC_Palvolve_Essence_Normal": "Energía neutra concentrada, extraída de frutas técnicas o materiales elementales. Se usa para crear la piedra de adaptación correspondiente.",
         "ITEM_DESC_Palvolve_AdaptationStone_Normal": "Una piedra reluciente afinada con energía neutra. Permite que un Pal vinculado se adapte a su forma neutra al alcanzar el nivel requerido.",

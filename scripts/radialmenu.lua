@@ -131,6 +131,10 @@ end
 -- language detection and the localized entry label live in i18n.lua
 
 local function labelText()
+    if api and api.offerIsPrestige then
+        local ok, prestige = pcall(api.offerIsPrestige)
+        if ok and prestige == true then return I18n.msg("prestige") end
+    end
     return I18n.msg("evolve")
 end
 

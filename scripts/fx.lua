@@ -35,8 +35,89 @@
 local Config = require("config")
 local Recipes = require("finale_recipes")
 local Finale = require("finale")
+local Timing = require("sequence_timing")
 
 -- ---------------------------------------------------------------- shared helpers
+
+-- Prestige dims the viewer's screen for the length of the sequence.
+--
+-- The fade STARTS dim and runs to clear on its own, which is less elegant than
+-- fading into darkness and holding it, and it is the only version that is safe:
+-- a hold would have to be reversed by a timer, and UE4SS' callback collector can
+-- take every pending callback of the mod at once. A black screen that only a
+-- restart clears is not worth the better ramp.
+-- Starting at 0.42 across the whole 5.8 second sequence was invisible: by the
+-- time the new form appears the ramp is already down to a fifth. It now starts
+-- close to black and clears while the pal grows, which puts the dark part where
+-- the moment is.
+local PRESTIGE_FADE_ALPHA = 0.85
+local PRESTIGE_FADE_SECONDS = 2.2
+-- Far enough to cover the pal and what is around it, close enough that someone
+-- on the other side of the map does not get a dimmed screen for a stranger.
+local PRESTIGE_FADE_RANGE = 3500
+
+local function cameraManagerFor(ctx)
+    local pcm = nil
+    pcall(function()
+        local pawn = ctx.playerPawn
+        if not (pawn and pawn:IsValid()) then return end
+        local pc = pawn.Controller
+        if not (pc and pc:IsValid()) then return end
+        pcm = pc.PlayerCameraManager
+    end)
+    if pcm and pcm:IsValid() then return pcm end
+    return nil
+end
+
+local function withinFadeRange(ctx)
+    local px, py, pz = nil, nil, nil
+    pcall(function()
+        local pawn = ctx.playerPawn
+        if not (pawn and pawn:IsValid()) then return end
+        local l = pawn:K2_GetActorLocation()
+        px, py, pz = l.X, l.Y, l.Z
+    end)
+    -- No measurable viewer position means no reason to withhold the effect:
+    -- the common case for that is the local player's own pal.
+    if px == nil then return true end
+    local dx = (ctx.oldX or 0) - px
+    local dy = (ctx.oldY or 0) - py
+    local dz = (ctx.oldZ or 0) - pz
+    return (dx * dx + dy * dy + dz * dz) <= (PRESTIGE_FADE_RANGE * PRESTIGE_FADE_RANGE)
+end
+
+local function startPrestigeFade(ctx)
+    if not ctx.isPrestige then return end
+    if not withinFadeRange(ctx) then return end
+    local pcm = cameraManagerFor(ctx)
+    if not pcm then
+        print("[Palvolve] prestige fade skipped: no camera manager on this client\n")
+        return
+    end
+    local ok, err = pcall(function()
+        pcm:StartCameraFade(PRESTIGE_FADE_ALPHA, 0.0, PRESTIGE_FADE_SECONDS,
+            { R = 0, G = 0, B = 0, A = 1 }, false, false)
+    end)
+    if ok then
+        ctx.fx.fadeManager = pcm
+        -- An effect nobody can see in a log is indistinguishable from one that
+        -- never ran, and this one already looked like it never ran once.
+        print(string.format("[Palvolve] prestige fade: %.2f -> 0 over %.1fs\n",
+            PRESTIGE_FADE_ALPHA, PRESTIGE_FADE_SECONDS))
+    else
+        print(string.format("[Palvolve] prestige fade failed: %s\n", tostring(err)))
+    end
+end
+
+-- Runs on every teardown path, including aborts. The fade clears itself, so
+-- this only shortens it; it must never be the thing that has to work.
+local function stopPrestigeFade(ctx)
+    local pcm = ctx.fx and ctx.fx.fadeManager
+    if not pcm then return end
+    ctx.fx.fadeManager = nil
+    if not pcm:IsValid() then return end
+    pcall(function() pcm:StopCameraFade() end)
+end
 
 local function playEffect(actor, effectId)
     pcall(function()
@@ -118,6 +199,58 @@ local function spawnBurst(worldCtx, x, y, z, elem)
     end)
 end
 
+-- Prestige owns the whole sequence, not just its finale. The dissolve half used
+-- to be the evolution's: element bursts around a spinning pal. These two spawn
+-- the charge that replaces them - a system that runs for the entire wind-up and
+-- a heavier burst than the element tier.
+--
+-- The looping charge is the only system in this file that outlives its own
+-- spawn call, so it is captured and killed at the reveal. It also carries an
+-- autoDestroy fallback: if the kill never runs, the system still ends.
+local PRESTIGE_CHARGE =
+    "/Game/Pal/Effect/Common/RaidBoss/NS_RaidBoss_WorldTreeDragon_ModeChange_Charge.NS_RaidBoss_WorldTreeDragon_ModeChange_Charge"
+local PRESTIGE_BURST =
+    "/Game/Pal/Effect/Common/RaidBoss/NS_RaidBoss_Summon_00.NS_RaidBoss_Summon_00"
+
+local function spawnSystemAt(worldCtx, path, x, y, z, scale, autoDestroy)
+    if not (worldCtx and worldCtx:IsValid()) then return nil end
+    local comp = nil
+    pcall(function()
+        local ns = StaticFindObject(path)
+        if not (ns and ns:IsValid()) then
+            LoadAsset(path)
+            ns = StaticFindObject(path)
+        end
+        local lib = StaticFindObject("/Script/Niagara.Default__NiagaraFunctionLibrary")
+        if not (ns and ns:IsValid() and lib and lib:IsValid()) then return end
+        local sc = scale or 1
+        comp = lib:SpawnSystemAtLocation(worldCtx, ns, { X = x, Y = y, Z = z },
+            { Pitch = 0, Yaw = 0, Roll = 0 }, { X = sc, Y = sc, Z = sc },
+            autoDestroy ~= false, true, 0, false)
+    end)
+    return comp
+end
+
+local function startPrestigeCharge(ctx)
+    if not ctx.isPrestige then return end
+    local comp = spawnSystemAt(ctx.worldCtx, PRESTIGE_CHARGE,
+        ctx.oldX or 0, ctx.oldY or 0, (ctx.oldZ or 0) - (ctx.oldHalf or 30), 1.4, true)
+    if comp and comp:IsValid() then
+        ctx.fx.chargeComp = comp
+        print("[Palvolve] prestige charge running\n")
+    else
+        print("[Palvolve] prestige charge could not spawn\n")
+    end
+end
+
+local function stopPrestigeCharge(ctx)
+    local comp = ctx.fx and ctx.fx.chargeComp
+    if not comp then return end
+    ctx.fx.chargeComp = nil
+    if not comp:IsValid() then return end
+    pcall(function() comp:Deactivate() end)
+end
+
 -- Pre-redesign climax, kept as the whole-feature fallback for the layered
 -- finale: simultaneous bursts around the spot in the TARGET form's
 -- element(s) - dual-element targets alternate. Offsets are ctx-overridable
@@ -138,15 +271,10 @@ end
 
 -- ---------------------------------------------------------------- staging
 
-local function digimonCfg()
-    local c = Config.digimon or {}
-    return {
-        spinUpMs = math.max(c.spinUpMs or 1200, 1),
-        shrinkMs = math.max(c.shrinkMs or 1200, 1),
-        growMs = math.max(c.growMs or 1600, 1),
-        peakDegPerSec = math.max(c.peakDegPerSec or 1080, 0),
-        finaleHoldMs = math.max(c.finaleHoldMs or 1800, 0),
-    }
+-- The run's own timing, not the global config. Without a context this is the
+-- evolution timing, which is the shortest and therefore the safest default.
+local function digimonCfg(ctx)
+    return Timing.forContext(ctx)
 end
 
 local function yawTowardsPlayer(ctx, x, y)
@@ -181,8 +309,8 @@ end
 
 local M = {
     keepsFrozenUntilDone = true,
-    dissolveDurationMs = function()
-        local c = digimonCfg()
+    dissolveDurationMs = function(ctx)
+        local c = digimonCfg(ctx)
         return c.spinUpMs + c.shrinkMs
     end,
     revealDelayMs = function() return 100 end,
@@ -200,7 +328,8 @@ local M = {
     onDissolve = function(ctx)
         -- adopt this sequence's transform backend (MP overrides the yaw sink)
         activeYawFn = ctx.setYaw
-        local c = digimonCfg()
+        startPrestigeCharge(ctx)
+        local c = digimonCfg(ctx)
         preloadBursts(ctx.elemsFrom, ctx.elemsTo)
         Finale.prepare(ctx.elemsFrom, ctx.elemsTo)
         local faceYaw = yawTowardsPlayer(ctx, ctx.oldX, ctx.oldY) or ctx.oldYaw or 0
@@ -264,8 +393,15 @@ local M = {
                     state.lastBurst = now
                     state.burstNo = (state.burstNo or 0) + 1
                     spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ)
-                    spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ,
-                        elemAt(ctx.elemsFrom, state.burstNo))
+                    if ctx.isPrestige then
+                        -- heavier and colourless: the old form's elements have
+                        -- no say in a return to the base form
+                        spawnSystemAt(ctx.worldCtx, PRESTIGE_BURST,
+                            ctx.oldX, ctx.oldY, ctx.oldZ, 0.9, true)
+                    else
+                        spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ,
+                            elemAt(ctx.elemsFrom, state.burstNo))
+                    end
                 end
                 if t >= totalS then state.stopped = true end
             end)
@@ -312,6 +448,10 @@ local M = {
 
     onPreReveal = function(ctx, newActor)
         activeYawFn = ctx.setYaw
+        stopPrestigeCharge(ctx)
+        -- Here, not at the dissolve: the darkness belongs to the moment the new
+        -- form appears, and from here it clears while the pal grows.
+        startPrestigeFade(ctx)
         -- freeze the fresh actor so its own summon/landing logic cannot fight
         -- the grow animation
         if ctx.freeze then pcall(ctx.freeze, newActor) end
@@ -335,7 +475,7 @@ local M = {
         -- the pal grows while the spin winds down, keeps turning majestically
         -- through the hold and steers back into the face-player yaw at the
         -- very end.
-        local c = digimonCfg()
+        local c = digimonCfg(ctx)
         local faceYaw = yawTowardsPlayer(ctx, ctx.oldX, ctx.oldY) or (ctx.fx.faceYaw or 0)
         setYaw(newActor, faceYaw)
         pcall(function()
@@ -473,6 +613,8 @@ local M = {
     end,
 
     cleanup = function(ctx)
+        stopPrestigeFade(ctx)
+        stopPrestigeCharge(ctx)
         if ctx.fx.dissolveState then ctx.fx.dissolveState.stopped = true end
         if ctx.fx.stopPeak then ctx.fx.stopPeak() end
         Finale.stopAll(ctx.fx.finale)
@@ -510,6 +652,30 @@ local M = {
             -- an abort before the teardown must take it off again
             pcall(function() ctx.actor:GetMainMesh():SetOverlayMaterial(nil) end)
         end
+    end,
+
+    -- The preview plays the EFFECTS of a prestige, not the actor animation: no
+    -- spin, no shrink, no swap. Without this it only ever showed the finale
+    -- half, which is why it did not feel like the whole run.
+    --
+    -- It deliberately leaves the Pal's transform alone. A stuck scale would be a
+    -- worse bug than an incomplete preview, and the transform is not what is
+    -- being authored here.
+    previewIntro = function(worldCtx, playerPawn, x, y, z, half)
+        local ctx = {
+            worldCtx = worldCtx, playerPawn = playerPawn,
+            oldX = x, oldY = y, oldZ = z, oldHalf = half,
+            isPrestige = true, fx = {},
+        }
+        startPrestigeCharge(ctx)
+        startPrestigeFade(ctx)
+        return ctx
+    end,
+
+    previewOutro = function(ctx)
+        if not ctx then return end
+        stopPrestigeCharge(ctx)
+        stopPrestigeFade(ctx)
     end,
 }
 

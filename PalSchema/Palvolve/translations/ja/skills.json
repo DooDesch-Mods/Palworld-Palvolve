@@ -1,0 +1,34 @@
+{
+    "DT_SkillNameText": {
+        "PASSIVE_Palvolve_Prestige_1": "プレステージ I",
+        "PASSIVE_Palvolve_Prestige_2": "プレステージ II",
+        "PASSIVE_Palvolve_Prestige_3": "プレステージ III",
+        "PASSIVE_Palvolve_Prestige_4": "プレステージ IV",
+        "PASSIVE_Palvolve_Prestige_5": "プレステージ V：昇華",
+        "PASSIVE_Palvolve_Prestige_6": "プレステージ VI",
+        "PASSIVE_Palvolve_Prestige_7": "プレステージ VII",
+        "PASSIVE_Palvolve_Prestige_8": "プレステージ VIII：血印",
+        "PASSIVE_Palvolve_Prestige_9": "プレステージ IX",
+        "PASSIVE_Palvolve_Prestige_10": "プレステージ X：血盟",
+        "PASSIVE_Palvolve_Evolved_1": "進化 I",
+        "PASSIVE_Palvolve_Evolved_2": "進化 II",
+        "PASSIVE_Palvolve_Evolved_3": "進化 III",
+        "PASSIVE_Palvolve_Evolved_4": "進化 IV"
+    },
+    "DT_SkillDescText": {
+        "PASSIVE_Palvolve_Prestige_1": "昇華が始まる。\r\n攻撃 +{EffectValue1}%\r\n防御 +{EffectValue2}%\r\n作業速度 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_2": "新たな力が根づく。\r\n攻撃 +{EffectValue1}%\r\n防御 +{EffectValue2}%\r\n作業速度 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_3": "戦闘と作業の技が共に研ぎ澄まされる。\r\n攻撃 +{EffectValue1}%\r\n防御 +{EffectValue2}%\r\n作業速度 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_4": "黄金の昇華が完成する。\r\n攻撃 +{EffectValue1}%\r\n防御 +{EffectValue2}%\r\n作業速度 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_5": "昇華の力が古き限界を打ち破る。\r\n攻撃 +{EffectValue1}%\r\n防御 +{EffectValue2}%\r\n作業速度 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_6": "昇華の力がさらに強く根づく。\r\n攻撃 +{EffectValue1}%\r\n防御 +{EffectValue2}%\r\n作業速度 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_7": "戦闘と作業の技が頂点に迫る。\r\n攻撃 +{EffectValue1}%\r\n防御 +{EffectValue2}%\r\n作業速度 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_8": "血印が目覚める。\r\n攻撃 +{EffectValue1}%\r\n防御 +{EffectValue2}%\r\n作業速度 +{EffectValue3}%\r\nライフスティール +{EffectValue4}%でこのパルを回復。",
+        "PASSIVE_Palvolve_Prestige_9": "血印がさらに強まる。\r\n攻撃 +{EffectValue1}%\r\n防御 +{EffectValue2}%\r\n作業速度 +{EffectValue3}%\r\nライフスティール +{EffectValue4}%でこのパルを回復。",
+        "PASSIVE_Palvolve_Prestige_10": "血盟の力が頂点に達する。\r\n攻撃 +{EffectValue1}%\r\n防御 +{EffectValue2}%\r\n作業速度 +{EffectValue3}%\r\nライフスティール +{EffectValue4}%でパルとトレーナーを回復。",
+        "PASSIVE_Palvolve_Evolved_1": "最大HP +{EffectValue1}%\n移動速度 +{EffectValue2}%\n作業速度 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_2": "最大HP +{EffectValue1}%\n移動速度 +{EffectValue2}%\n作業速度 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_3": "最大HP +{EffectValue1}%\n移動速度 +{EffectValue2}%\n作業速度 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_4": "最大HP +{EffectValue1}%\n移動速度 +{EffectValue2}%\n作業速度 +{EffectValue3}%"
+    }
+}

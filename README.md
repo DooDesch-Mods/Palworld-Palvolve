@@ -14,7 +14,9 @@
 - **143 curated transformations** as the starting point: evolution chains like Pengullet to Penking, fun chains like Sweepa to Snugloo, and 87 element adaptations.
 - **Evolve when you want to:** hold 4, pick Evolve, and your Pal transforms in front of you with a finale built from its target elements. F2 does the same without the menu once you switch it on (`confirmKeyEnabled = true`).
 - **Keeps identity and progress:** every learned move carries over, even ones the new form could never learn on its own, and level, nickname, gender, passives, IVs, souls and condenser rank all stay. Alphas evolve into Alpha forms, Luckys stay Lucky.
-- **Conditional evolutions:** a pair can require day or night, water, a status effect, a location, a party member, a known move element, or a trainer-level, trust-rank or IV threshold. Greyed options name exactly what is still missing, in your game language.
+- **Prestige at the end of a line:** a Pal with nowhere left to evolve can start over. Level goes back to 1, everything it earned stays, and each prestige adds a rank of the Prestige passive up to 10. The presentation grows with the rank, and a prestiged Pal shimmers from then on.
+- **Conditional evolutions:** a pair can require day or night, water, a status effect, a location, a party member, a known move or passive, an item or an amount of gold, a condenser rank, the last thing the Pal was fed, or a trainer-level, trust-rank or IV threshold. Every one of them can be inverted. Greyed options name exactly what is still missing, in your game language.
+- **Evolutions that fire on their own:** switch a pair to automatic and it triggers the moment its conditions are true, taking the same costs and leaving the same rollback as a manual one.
 - **Evolution tree in the Palpedia:** a third tab, "Evolutions", shows what the selected Pal evolves from and into, with the level, the stone and the conditions each step needs. Click a Pal inside the tree to make it the new centre and walk a whole line without leaving the screen.
 - **Web configurator:** build your own evolution tree at [palvolve.doodesch.de](https://palvolve.doodesch.de/?utm_source=github&utm_medium=readme&utm_campaign=palvolve) - rewire pairs, set levels and conditions, share it as a short link, and download the config. 17 languages.
 - **Reversible by design:** every evolution is snapshotted first, `!palvolve rollback` restores the previous form, and an aborted transformation refunds what it used.
@@ -144,6 +146,12 @@ Evolution turns a Pal into a different Pal (Pengullet to Penking). Adaptation ch
 **How do I evolve a Pal?**
 Build the Pal Alchemy Workbench (unlocks at level 10, adjustable), forge an Evolution Stone from skill-fruit essences, then hold 4 and pick Evolve. `!palvolve rollback` undoes it.
 
+**How do I prestige a Pal?**
+Take a Pal to the end of its evolution line and to the level `prestigeMinLevel` asks for, then hold 4: the entry reads Prestige instead of Evolve. It costs a Prestige Stone, crafted at the Pal Alchemy Workbench from an Evolution Stone and Nightstar Sand. On a server both settings come from the host, so what qualifies is the host's decision.
+
+**Why does a Pal I expected to prestige only offer Evolve?**
+It still has an evolution ahead of it, and those come first. A Pal that appears in no pair at all can prestige straight away when `prestigeMinEvolutions` is 0.
+
 **The workbench unlocks too late (or too early) for my run?**
 Set `techLevelCap` in the configurator or in `config_user.lua` to the player level you want, anywhere from 1 to 100. The mod rewrites its own technology entry on startup, so the setting survives mod updates.
 
@@ -181,6 +189,7 @@ tell me and I will correct the entry.
 | Dynamic Pals | Not fully compatible, evolve options can stay greyed out | 2026-07-20, Nexus | Open, unverified |
 | PalMagic | Not fully compatible, evolve options can stay greyed out | 2026-07-20, Nexus | Open, unverified |
 | Existing Pal Editor | Evolve entry missing from the radial menu | 2026-07-20, Nexus | Likely fixed in 1.3.3 |
+| Technology Tree Overhaul | Evolution stones missing from the Pal Alchemy Workbench | 2026-08-25, Discord (Shas Hakomairos) | Fixed in 1.9.0 |
 
 The Existing Pal Editor report matched a Palvolve bug of its own: the radial menu could lose its
 Evolve entry for a whole session because the wheel's interface classes load late. That was fixed in

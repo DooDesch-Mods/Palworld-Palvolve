@@ -6,12 +6,12 @@
 --
 -- Wire format:
 --   ID    = MAGIC (high 16 bits) | opcode (low 16 bits)
---   Index = (reqId << 8) | pairIndex   (int32, stays positive)
--- The client only ever sends WHICH radial option it picked (a small index),
--- never the target species. The host re-derives the pair from its OWN
--- config at that index and re-validates ownership/level/cost - a hostile or
--- desynced client can never make the host evolve something it did not
--- authorize.
+--   Index = (reqId << 8) | targetIndex   (int32, stays positive)
+--   opcode 7 = legacy evolve, 8 = prestige, 9 = v3-aware evolve
+-- The client only ever sends WHICH target-list option it picked (a small
+-- index), never the target species. The host re-derives the pair or prestige
+-- target from its OWN config and re-validates ownership/level/cost - a hostile
+-- or desynced client can never name something the host did not authorize.
 local Config = require("config")
 local Role = require("role")
 
@@ -23,16 +23,20 @@ end
 
 local MAGIC = 0x50560000
 local MAGIC_MASK = 0xFFFF0000
-local OP_EVOLVE = 7
+local OP_EVOLVE_LEGACY = 7
+local OP_PRESTIGE = 8
+local OP_EVOLVE_V3 = 9
+NetChannel.OP_EVOLVE_LEGACY = OP_EVOLVE_LEGACY
+NetChannel.OP_PRESTIGE = OP_PRESTIGE
+NetChannel.OP_EVOLVE_V3 = OP_EVOLVE_V3
 
 -- host -> client phase signals, carried in SendScreenLogToClient (invisible
 -- in the retail HUD; the client mod hooks that RPC and parses the prefix).
 -- The host drives the MP evolution presentation as a small state machine:
---   start  = species swapped + pal frozen; client plays the dissolve + recalls
---   ready  = old body destroyed (pool broken); client re-summons the new form
---   reveal = new actor spawned, teleported to the old spot + frozen; client
---            plays the grow/finale reveal
+--   start  = identifies the transformation and starts the client presentation
+--   reveal = the fresh actor is placed and frozen; the client grows/reveals it
 local SIGNAL_PREFIX = "PVLV1|sig|"
+local PHASE_PREFIX = "PVLV3|phase|"
 
 local function palUtility()
     local u = StaticFindObject("/Script/Pal.Default__PalUtility")
@@ -56,22 +60,55 @@ end
 
 local reqCounter = 0
 
--- Sends "evolve my summoned pal via radial option <pairIndex>" to the host.
--- Returns ok (the send was issued; delivery/result comes back as a chat ack).
-function NetChannel.sendEvolve(playerCtx, pairIndex)
-    if not (playerCtx and playerCtx.pc and playerCtx.pc:IsValid()) then
-        return false, "no player"
+local function validTargetIndex(index)
+    local n = tonumber(index)
+    return n and n % 1 == 0 and n >= 1 and n <= 255
+end
+
+local function v3TreeReady()
+    local serverCheck = package.loaded["servercheck"]
+    local sync = package.loaded["treesync"]
+    if not (serverCheck and serverCheck.getGeneration and sync and sync.hasV3ForGeneration) then
+        return false
     end
+    if serverCheck.remoteV3Ready then return serverCheck.remoteV3Ready() end
+    return sync.hasV3ForGeneration(serverCheck.getGeneration())
+end
+
+function NetChannel.v3TreeReady()
+    return v3TreeReady()
+end
+
+local function sendRequest(playerCtx, opcode, targetIndex)
+    if not validTargetIndex(targetIndex) then return false, "invalid option index" end
+    if not (playerCtx and playerCtx.pc) then return false, "no player" end
+    targetIndex = math.floor(targetIndex)
     local ok = pcall(function()
+        if not playerCtx.pc:IsValid() then error("invalid player") end
         local util = palUtility()
         local holder = util and util:GetOtomoHolderComponent(playerCtx.pc)
         if not (holder and holder:IsValid()) then error("no otomo holder component") end
         reqCounter = (reqCounter + 1) & 0x7FFFFF
-        local index = ((reqCounter << 8) | (pairIndex & 0xFF)) & 0x7FFFFFFF
-        holder:SetSelectOtomoID_ToServer(MAGIC | OP_EVOLVE, index)
+        local index = ((reqCounter << 8) | targetIndex) & 0x7FFFFFFF
+        holder:SetSelectOtomoID_ToServer(MAGIC | opcode, index)
     end)
     if not ok then Log("[net] send failed") end
     return ok
+end
+
+-- Sends "evolve my summoned pal via radial option <pairIndex>" to the host.
+-- Returns ok (the send was issued; delivery/result comes back as a chat ack).
+function NetChannel.sendEvolve(playerCtx, pairIndex)
+    local opcode = v3TreeReady() and OP_EVOLVE_V3 or OP_EVOLVE_LEGACY
+    return sendRequest(playerCtx, opcode, pairIndex)
+end
+
+-- Prestige is never sent on version knowledge alone. The v3 tree proves that
+-- this exact connection generation received the target list whose index the
+-- client is about to transmit.
+function NetChannel.sendPrestige(playerCtx, targetIndex)
+    if not v3TreeReady() then return false, "v3 tree not ready" end
+    return sendRequest(playerCtx, OP_PRESTIGE, targetIndex)
 end
 
 -- The "do you run Palvolve?" handshake is host-driven, not a client ping: no
@@ -198,7 +235,10 @@ local function greetSender(senderCtx)
     end
 end
 
--- handler(senderCtx, pairIndex, holder) -> ok, message
+-- handler(senderCtx, request) -> ok, message
+-- request is plain data: { opcode, index }. The host-side handler resolves the
+-- indexed pair or prestige target from its own config and never receives a
+-- species id from the client.
 -- Runs entirely on the game thread inside the RPC's own hook frame: RPC
 -- handlers already execute on the game thread, and the holder reference from
 -- `self` only stays valid within that frame (deferring it via LoopAsync lets
@@ -210,13 +250,13 @@ function NetChannel.initHost(handler)
     -- pre-hook's `self:get()` does not survive being stored - it reads back
     -- nil). The post-hook re-derives the holder from ITS OWN fresh `self`
     -- parameter (same holder, valid in the post scope) and runs the evolve.
-    local pendingPairIndex = nil -- set by pre when a valid evolve arrives
-    local pendingRestore = nil   -- selection value to restore after the body
+    local pendingRequest = nil -- set by pre when a valid request arrives
+    local pendingRestore = nil -- selection value to restore after the body
 
     local hostHookOk = pcall(function()
         RegisterHook("/Script/Pal.PalOtomoHolderComponentBase:SetSelectOtomoID_ToServer",
             function(self, ID, Index)
-                pendingPairIndex = nil
+                pendingRequest = nil
                 pendingRestore = nil
                 pcall(function()
                     local id = ID:get()
@@ -236,7 +276,7 @@ function NetChannel.initHost(handler)
                     local opcode = id & 0xFFFF
                     local raw = Index:get()
                     local reqId = (raw >> 8) & 0x7FFFFF
-                    local pairIndex = raw & 0xFF
+                    local targetIndex = raw & 0xFF
 
                     -- neutralize the vanilla side effect: overwrite the params
                     -- with the player's current legitimate selection before the
@@ -249,9 +289,21 @@ function NetChannel.initHost(handler)
                         pendingRestore = cur
                     end)
 
+                    local knownOpcode = opcode == OP_EVOLVE_LEGACY
+                        or opcode == OP_PRESTIGE or opcode == OP_EVOLVE_V3
+                    if not knownOpcode then
+                        Log(string.format("Request dropped: unknown opcode %d", opcode))
+                        return
+                    end
+                    if not validTargetIndex(targetIndex) then
+                        Log(string.format("Request dropped: opcode %d has invalid option %d",
+                            opcode, targetIndex))
+                        return
+                    end
+
                     local senderCtx = Role.playerCtxFor(owner)
                     if not (senderCtx and senderCtx.playerUId) then
-                        if opcode == OP_EVOLVE then Log("Evolve request dropped: sender player id unresolved") end
+                        Log("Request dropped: sender player id unresolved")
                         return
                     end
                     -- Deliberately not a drop: a zero id still identifies the requester well
@@ -265,29 +317,28 @@ function NetChannel.initHost(handler)
 
                     local drop = gate(guidStr(senderCtx.playerUId), reqId)
                     if drop then
-                        if opcode == OP_EVOLVE then Log("Evolve request dropped: " .. drop) end
+                        Log("Request dropped: " .. drop)
                         return
                     end
 
-                    if opcode == OP_EVOLVE then
-                        pendingPairIndex = pairIndex
-                        Log(string.format("Evolve request received (reqId %d, option %d)", reqId, pairIndex))
-                    end
+                    pendingRequest = { opcode = opcode, index = targetIndex }
+                    Log(string.format("Request received (reqId %d, opcode %d, option %d)",
+                        reqId, opcode, targetIndex))
                 end)
             end,
             function(self, ID, Index)
                 pcall(function()
-                    local pairIndex = pendingPairIndex
+                    local request = pendingRequest
                     local restore = pendingRestore
-                    pendingPairIndex = nil
+                    pendingRequest = nil
                     pendingRestore = nil
-                    if pairIndex == nil and restore == nil then return end
+                    if request == nil and restore == nil then return end
 
                     -- fresh holder from the POST-hook's own self (survives here,
                     -- unlike a stored pre-hook reference)
                     local holder = self:get()
                     if not (holder and holder:IsValid()) then
-                        if pairIndex ~= nil then Log("Evolve aborted: holder invalid at post-hook") end
+                        if request ~= nil then Log("Request aborted: holder invalid at post-hook") end
                         return
                     end
 
@@ -301,27 +352,27 @@ function NetChannel.initHost(handler)
                         end
                     end
 
-                    if pairIndex ~= nil then
+                    if request ~= nil then
                         -- the owner (controller) is a stable actor; the handler
                         -- re-resolves the holder from it via GetComponentByClass
                         local owner = holder:GetOwner()
                         if not (owner and owner:IsValid()) then
-                            Log("Evolve aborted: request owner invalid")
+                            Log("Request aborted: owner invalid")
                             return
                         end
                         local senderCtx = Role.playerCtxFor(owner)
                         if not senderCtx then
-                            Log("Evolve aborted: sender context unresolved at post-hook")
+                            Log("Request aborted: sender context unresolved at post-hook")
                             return
                         end
-                        -- the handler (headless path) drives the phase signals
-                        -- itself via NetChannel.sendSignal; here we relay a
+                        -- the handler (headless path) drives the phase stream
+                        -- itself via NetChannel.sendPhaseStart/Reveal; here we relay a
                         -- failure reason to the requester AND log it server-side,
                         -- so a rejected evolve leaves a trace even when the chat
                         -- channel does not render on the client
-                        local ok, msg = handler(senderCtx, pairIndex)
+                        local ok, msg = handler(senderCtx, request)
                         if not ok then
-                            Log("Evolve rejected: " .. tostring(msg or "no reason given"))
+                            Log("Request rejected: " .. tostring(msg or "no reason given"))
                             if msg then Role.chat(senderCtx, msg, "reply") end
                         end
                     end
@@ -374,77 +425,356 @@ function NetChannel.initHost(handler)
     end
 
     if hostHookOk then
-        Log("Network channel active (host): evolve requests via carrier C")
+        Log("Network channel active (host): indexed requests via carrier C")
     else
-        Log("Network channel host hook FAILED to register - evolve requests will NOT reach the server")
+        Log("Network channel host hook FAILED to register - indexed requests will NOT reach the server")
     end
 end
 
--- Host -> client phase signal (parameterless kind: "start"/"ready"/"reveal").
-function NetChannel.sendSignal(pc, kind)
-    if not (pc and pc:IsValid()) then return end
-    pcall(function()
-        pc:SendScreenLogToClient(SIGNAL_PREFIX .. kind,
-            { R = 0.0, G = 0.0, B = 0.0, A = 0.0 }, 0.1, FName("PalvolveSig"))
+local phaseCounter = 0
+
+local function sendClientText(pc, text, tag)
+    if not pc then return false end
+    return pcall(function()
+        if not pc:IsValid() then error("invalid player controller") end
+        pc:SendScreenLogToClient(text,
+            { R = 0.0, G = 0.0, B = 0.0, A = 0.0 }, 0.1, FName(tag))
     end)
 end
 
--- Client side: hook the host's phase signals (SendScreenLogToClient) and
--- dispatch the kind to onSignal(kind). Registered in every process; on the
--- host it also sees its own outgoing signal, but the client handlers no-op
--- without a local player, so it is harmless there.
+local function phaseFieldSafe(value)
+    local s = tostring(value or "")
+    return s ~= "" and not s:find("|", 1, true) and not s:find("[\r\n]")
+end
+
+local function nextPhaseSequence()
+    phaseCounter = (phaseCounter + 1) & 0x7FFFFFFF
+    if phaseCounter == 0 then phaseCounter = 1 end
+    return phaseCounter
+end
+
+-- The legacy signal stays unchanged for 1.8 clients and for the handshake.
+function NetChannel.sendSignal(pc, kind)
+    return sendClientText(pc, SIGNAL_PREFIX .. tostring(kind or ""), "PalvolveSig")
+end
+
+-- Starts one identified presentation and returns its sequence. The v3 message
+-- is sent first so the usual path claims the sequence before its legacy mirror;
+-- the receiver still handles either order because carrier ordering is unproven.
+--- @param stage number|nil prestige stage, carried only by the start2 frame
+function NetChannel.sendPhaseStart(pc, mode, fromId, toId, stone, stage)
+    local legacyOk = false
+    if not (phaseFieldSafe(mode) and phaseFieldSafe(fromId)
+        and phaseFieldSafe(toId) and phaseFieldSafe(stone)) then
+        Log("[net] v3 phase start not sent: invalid presentation field")
+        legacyOk = NetChannel.sendSignal(pc, "start")
+        return nil, false, legacyOk
+    end
+    local seq = nextPhaseSequence()
+
+    -- Two frames, start2 FIRST. The old `start` shape is exactly matched by the
+    -- receiver's pattern, so a field could not be appended to it without
+    -- breaking every client that has not updated yet. start2 carries the extra
+    -- field; a client that does not know it drops the line and takes the `start`
+    -- that follows. A client that does know it claims the sequence, and the
+    -- receiver's own dedupe then discards the second frame.
+    --
+    -- Without this a connected client drew every prestige as stage 1: it cannot
+    -- read the stage off the passives instead, because those may replicate after
+    -- the frame arrives.
+    local v3Ok = false
+    if stage ~= nil and phaseFieldSafe(tostring(stage)) then
+        local frame2 = table.concat({ PHASE_PREFIX:sub(1, -2), tostring(seq), "start2",
+            tostring(mode), tostring(fromId), tostring(toId), tostring(stone),
+            tostring(stage) }, "|")
+        v3Ok = sendClientText(pc, frame2, "PalvolvePhase")
+    end
+    local frame = table.concat({ PHASE_PREFIX:sub(1, -2), tostring(seq), "start",
+        tostring(mode), tostring(fromId), tostring(toId), tostring(stone) }, "|")
+    local plainOk = sendClientText(pc, frame, "PalvolvePhase")
+    v3Ok = v3Ok or plainOk
+    legacyOk = NetChannel.sendSignal(pc, "start")
+    return seq, v3Ok, legacyOk
+end
+
+function NetChannel.sendPhaseReveal(pc, seq)
+    local n = tonumber(seq)
+    local v3Ok = false
+    if n and n % 1 == 0 and n >= 1 and n <= 0x7FFFFFFF then
+        local frame = PHASE_PREFIX .. tostring(math.floor(n)) .. "|reveal"
+        v3Ok = sendClientText(pc, frame, "PalvolvePhase")
+    else
+        Log("[net] v3 phase reveal not sent: invalid sequence")
+    end
+    local legacyOk = NetChannel.sendSignal(pc, "reveal")
+    return v3Ok, legacyOk
+end
+
+local clientGeneration = 0
+local signalHandler = nil
+local pongHandler = nil
+local phaseStates = {}
+local phaseOrder = {}
+local callbackQueue = {}
+local callbackDrainScheduled = false
+local legacyPending = {}
+local legacyTimerArmed = false
+local legacySuppress = { start = nil, reveal = nil }
+local treeFrameQueue = {}
+local treeDrainScheduled = false
+local MAX_PHASE_STATES = 64
+local LEGACY_GRACE_MS = 150
+
+local function drainClientCallbacks()
+    callbackDrainScheduled = false
+    while #callbackQueue > 0 do
+        local event = table.remove(callbackQueue, 1)
+        if event.pong ~= nil or event.generation == clientGeneration then
+            if event.pong ~= nil then
+                if pongHandler then pcall(pongHandler, event.pong) end
+            elseif signalHandler then
+                pcall(signalHandler, event.kind, event.phase)
+            end
+        end
+    end
+end
+
+local function queueClientCallback(kind, phase, pong)
+    callbackQueue[#callbackQueue + 1] = {
+        kind = kind, phase = phase, pong = pong, generation = clientGeneration,
+    }
+    if callbackDrainScheduled then return end
+    callbackDrainScheduled = true
+    local ok = pcall(ExecuteInGameThread, drainClientCallbacks)
+    if not ok then
+        callbackDrainScheduled = false
+        callbackQueue = {}
+    end
+end
+
+local armLegacyTimer
+local function drainLegacySignals()
+    legacyTimerArmed = false
+    local ready = legacyPending
+    legacyPending = {}
+    for _, pending in ipairs(ready) do
+        if pending.generation == clientGeneration then
+            queueClientCallback(pending.kind, nil, nil)
+        end
+    end
+    return true
+end
+
+armLegacyTimer = function()
+    if legacyTimerArmed then return end
+    legacyTimerArmed = true
+    if not pcall(LoopAsync, LEGACY_GRACE_MS, drainLegacySignals) then
+        legacyTimerArmed = false
+        legacyPending = {}
+    end
+end
+
+local function queueLegacySignal(kind)
+    local suppressUntil = legacySuppress[kind]
+    legacySuppress[kind] = nil
+    if suppressUntil and suppressUntil >= os.clock() then
+        return
+    end
+    legacyPending[#legacyPending + 1] = {
+        kind = kind,
+        generation = clientGeneration,
+    }
+    armLegacyTimer()
+end
+
+local function claimLegacyMirror(kind)
+    for i, pending in ipairs(legacyPending) do
+        if pending.generation == clientGeneration and pending.kind == kind then
+            table.remove(legacyPending, i)
+            return
+        end
+    end
+    -- A mirror is sent next to its v3 phase. Expiring this claim prevents a
+    -- lost legacy packet from suppressing an unrelated legacy-only sequence
+    -- much later on the same connection.
+    legacySuppress[kind] = os.clock() + 2
+end
+
+local function phaseState(seq)
+    local stateForSeq = phaseStates[seq]
+    if stateForSeq then return stateForSeq end
+    stateForSeq = { seq = seq, generation = clientGeneration }
+    phaseStates[seq] = stateForSeq
+    phaseOrder[#phaseOrder + 1] = seq
+    while #phaseOrder > MAX_PHASE_STATES do
+        local old = table.remove(phaseOrder, 1)
+        phaseStates[old] = nil
+    end
+    return stateForSeq
+end
+
+local function receiveV3Phase(text)
+    if text:sub(1, #PHASE_PREFIX) ~= PHASE_PREFIX then return false end
+
+    -- start2 is tried first: it is the same frame with the prestige stage
+    -- appended, and both are sent for one presentation.
+    local stageText
+    local seqText, mode, fromId, toId, stone
+    seqText, mode, fromId, toId, stone, stageText =
+        text:match("^PVLV3|phase|(%d+)|start2|([^|]+)|([^|]+)|([^|]+)|([^|]+)|([^|]+)$")
+    if not seqText then
+        seqText, mode, fromId, toId, stone =
+            text:match("^PVLV3|phase|(%d+)|start|([^|]+)|([^|]+)|([^|]+)|([^|]+)$")
+    end
+    if seqText then
+        local seq = tonumber(seqText)
+        if not seq or seq < 1 or seq > 0x7FFFFFFF or seq % 1 ~= 0 then return true end
+        local stateForSeq = phaseState(seq)
+        if stateForSeq.startReceived then return true end
+        stateForSeq.startReceived = true
+        stateForSeq.info = {
+            seq = seq, mode = mode, from = fromId, to = toId, stone = stone,
+            stage = tonumber(stageText),
+            generation = clientGeneration,
+        }
+        claimLegacyMirror("start")
+        stateForSeq.startQueued = true
+        queueClientCallback("start", stateForSeq.info, nil)
+        if stateForSeq.revealReceived and not stateForSeq.revealQueued then
+            stateForSeq.revealQueued = true
+            queueClientCallback("reveal", stateForSeq.info, nil)
+        end
+        return true
+    end
+
+    seqText = text:match("^PVLV3|phase|(%d+)|reveal$")
+    if seqText then
+        local seq = tonumber(seqText)
+        if not seq or seq < 1 or seq > 0x7FFFFFFF or seq % 1 ~= 0 then return true end
+        local stateForSeq = phaseState(seq)
+        if stateForSeq.revealReceived then return true end
+        stateForSeq.revealReceived = true
+        claimLegacyMirror("reveal")
+        if stateForSeq.startReceived and not stateForSeq.revealQueued then
+            stateForSeq.revealQueued = true
+            queueClientCallback("reveal", stateForSeq.info, nil)
+        end
+        return true
+    end
+    return true
+end
+
+function NetChannel.beginGeneration(gen)
+    gen = math.floor(tonumber(gen) or 0)
+    if gen == clientGeneration then return end
+    clientGeneration = gen
+    phaseStates = {}
+    phaseOrder = {}
+    legacyPending = {}
+    legacySuppress = { start = nil, reveal = nil }
+end
+
+local function drainTreeFrames()
+    treeDrainScheduled = false
+    local okSync, sync = pcall(require, "treesync")
+    if not (okSync and sync and sync.applyFrame) then
+        local dropped = #treeFrameQueue
+        treeFrameQueue = {}
+        Log(string.format("[ERROR] dropped %d queued tree frame%s: treesync unavailable (%s)",
+            dropped, dropped == 1 and "" or "s", tostring(sync)))
+        return
+    end
+    while #treeFrameQueue > 0 do
+        local frame = treeFrameQueue[1]
+        local okApply, applied = pcall(sync.applyFrame, frame)
+        table.remove(treeFrameQueue, 1)
+        if not okApply then
+            Log(string.format("[ERROR] tree frame application threw and the frame was dropped: %s",
+                tostring(applied)))
+        elseif not applied then
+            Log("[WARN] rejected tree frame was deliberately dropped")
+        else
+            Log(string.format("[INFO] applied queued tree frame; %d remain", #treeFrameQueue))
+        end
+    end
+end
+
+local function queueTreeFrame(frame)
+    treeFrameQueue[#treeFrameQueue + 1] = frame
+    if treeDrainScheduled then
+        Log(string.format("[INFO] queued tree frame behind the scheduled drain; %d waiting",
+            #treeFrameQueue))
+        return
+    end
+    treeDrainScheduled = true
+    local okSchedule, scheduleErr = pcall(ExecuteInGameThread, drainTreeFrames)
+    if not okSchedule then
+        treeDrainScheduled = false
+        Log(string.format("[ERROR] tree-frame drain scheduling failed; %d frame%s kept for the next scheduling attempt: %s",
+            #treeFrameQueue, #treeFrameQueue == 1 and "" or "s", tostring(scheduleErr)))
+    else
+        Log(string.format("[INFO] tree-frame drain scheduled with %d frame%s queued",
+            #treeFrameQueue, #treeFrameQueue == 1 and "" or "s"))
+    end
+end
+
+local function readMessageText(Message)
+    return Message:get():ToString()
+end
+
+local function handleClientMessage(_, Message)
+    local okText, text = pcall(readMessageText, Message)
+    if not okText or type(text) ~= "string" then return end
+
+    if text:sub(1, 11) == "PVLV2|tree|" or text:sub(1, 11) == "PVLV3|tree|" then
+        queueTreeFrame(text)
+        return
+    end
+    if receiveV3Phase(text) then return end
+
+    local xnet = text:match("^PVLV1|xnet|(.*)$")
+    if xnet then
+        local seq, size = xnet:match("^xnet|(%d+)|(%d+)|")
+        local fill = xnet:match("^xnet|%d+|%d+|(.-)|%d+|end$")
+        local claimed = xnet:match("|(%d+)|end$")
+        local sum = 0
+        if fill then
+            for i = 1, #fill do sum = (sum * 31 + fill:byte(i)) % 1000000007 end
+        end
+        Log(string.format("[probe-xnet] recv seq=%s size=%s arrived=%d tail=%s sum=%s",
+            tostring(seq), tostring(size), #xnet,
+            xnet:sub(-4) == "|end" and "ok" or "MISSING",
+            (claimed and tonumber(claimed) == sum) and "ok" or "BAD"))
+        return
+    end
+    if text:sub(1, #SIGNAL_PREFIX) ~= SIGNAL_PREFIX then return end
+    local kind = text:sub(#SIGNAL_PREFIX + 1)
+    local pong = kind:match("^pong|(.*)$")
+    if pong ~= nil then
+        queueClientCallback(nil, nil, pong)
+    elseif kind == "start" or kind == "reveal" then
+        queueLegacySignal(kind)
+    else
+        queueClientCallback(kind, nil, nil)
+    end
+end
+
+local function clientMessageHook(self, Message)
+    local ok, err = pcall(handleClientMessage, self, Message)
+    if not ok then Log("Network message parse failed: " .. tostring(err)) end
+end
+
+-- Client side: v3 phases are keyed by sequence before they reach the
+-- presentation callback. Duplicate starts/reveals are discarded, an early
+-- reveal waits for its start, and the unsequenced legacy mirror gets a short
+-- grace window in which the matching v3 phase can claim it.
 function NetChannel.initClient(onSignal, onPong)
+    signalHandler = onSignal
+    pongHandler = onPong
     pcall(function()
         RegisterHook("/Script/Pal.PalPlayerController:SendScreenLogToClient",
-            function(self, Message)
-                pcall(function()
-                    local text = ""
-                    pcall(function() text = Message:get():ToString() end)
-                    -- Measurement line from the payload probe. Logged where it
-                    -- lands, because the sender's log only proves what was sent:
-                    -- what a comparison needs is the length that ARRIVED, and
-                    -- whether the tail and the checksum survived the trip.
-                    if text and text:sub(1, 11) == "PVLV2|tree|" then
-                        local okSync, sync = pcall(require, "treesync")
-                        if okSync and sync and sync.applyFrame then
-                            -- off the hook: applying swaps the map and drops
-                            -- the view caches, which is not work for the frame
-                            -- a network message arrives on
-                            local frame = text
-                            ExecuteInGameThread(function()
-                                pcall(sync.applyFrame, frame)
-                            end)
-                        end
-                        return
-                    end
-
-                    local xnet = text and text:match("^PVLV1|xnet|(.*)$")
-                    if xnet then
-                        local seq, size = xnet:match("^xnet|(%d+)|(%d+)|")
-                        local fill = xnet:match("^xnet|%d+|%d+|(.-)|%d+|end$")
-                        local claimed = xnet:match("|(%d+)|end$")
-                        local sum = 0
-                        if fill then
-                            for i = 1, #fill do sum = (sum * 31 + fill:byte(i)) % 1000000007 end
-                        end
-                        Log(string.format("[probe-xnet] recv seq=%s size=%s arrived=%d tail=%s sum=%s",
-                            tostring(seq), tostring(size), #xnet,
-                            xnet:sub(-4) == "|end" and "ok" or "MISSING",
-                            (claimed and tonumber(claimed) == sum) and "ok" or "BAD"))
-                        return
-                    end
-                    if text and text:sub(1, #SIGNAL_PREFIX) == SIGNAL_PREFIX then
-                        local kind = text:sub(#SIGNAL_PREFIX + 1)
-                        local pong = kind:match("^pong|(.*)$")
-                        if pong ~= nil then
-                            if onPong then ExecuteInGameThread(function() pcall(onPong, pong) end) end
-                        else
-                            ExecuteInGameThread(function() pcall(onSignal, kind) end)
-                        end
-                    end
-                end)
-            end)
-        Log("Network channel active (client): phase signals hooked")
+            clientMessageHook)
+        Log("Network channel active (client): v3 phases and legacy signals hooked")
     end)
 end
 

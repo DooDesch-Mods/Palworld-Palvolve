@@ -1,14 +1,16 @@
 -- Palvolve configuration: evolution map and settings.
 -- Categories: "evolution" (small -> big form), "funchain" (across family lines),
--- "adaptation" (element variant). stone: "evolution" | "adaptation" - item costs
--- only apply while requireStone is true.
+-- "adaptation" (element variant), "prestige" (authored override of a derived
+-- chain-end reset). stone: "evolution" | "adaptation" - item costs only apply
+-- while requireStone is true.
 --
 -- Optional per-pair field `conditions = { "night", "knowsMove:Dragon", ... }`:
 -- every listed condition must hold at evolve time (AND). An either/or split is
 -- two pairs with the same from/to and different conditions - the gates try all
 -- same-target candidates. Vocabulary and colon syntax ("knowsMove:<Element>",
 -- "inParty:<CharacterID>") live in conditions.lua; unknown ids are dropped at
--- load with a log line.
+-- load with a log line, and the affected pair stays blocked because silently
+-- weakening a newer author's rule would evolve the wrong Pal.
 --
 -- Map basis: DT_PalMonsterParameter row names (buildid 24088745). findPair
 -- returns the FIRST enabled match: evolutions are therefore listed BEFORE
@@ -19,6 +21,10 @@ local Conditions = require("conditions")
 -- role.lua requires nothing itself, so pulling it in this early cannot loop
 -- back into config
 local Role = require("role")
+-- i18n only requires its generated catalog, so it cannot loop back here either.
+-- The load notice needs it: a hardcoded English string reaches every player in
+-- every language.
+local I18n = require("i18n")
 
 local Config = {
     -- Dev mode: enables the diagnostic key bindings (probes.lua) and the
@@ -31,12 +37,27 @@ local Config = {
 
     -- Mod version, reported to connected clients by the host handshake. Keep in
     -- sync with Info.json (the release flow checks this).
-    modVersion = "1.8.4",
+    modVersion = "1.9.0",
 
     -- Unlock the catch-gated technologies (saddle, Pal gear) of the target species when a
     -- pal evolves, the same way capturing one would. Needs the native companion in
     -- dlls/main.dll; without it this is skipped and evolution works as before.
     unlockCatchTech = true,
+
+    -- A skin is authored for one species. Keeping its old species guid beside
+    -- a new CharacterID leaves the save parameter internally inconsistent.
+    clearIncompatibleSkins = true,
+
+    -- The fourth move slot an evolved or prestiged Pal gains, filled with its
+    -- strongest known move. Off unless a server owner turns it on, because it
+    -- moves balance. Passive slots 5 and 6 are Palvolve's own two rewards; 7 and
+    -- 8 stay the player's, so there is no passive mode here.
+    evolutionBonusSlot = "off",
+    prestigeBonusSlot = "off",
+
+    -- Re-teach both saved move lists after a species swap. Unique-prefixed
+    -- moves are species-bound and are deliberately left behind.
+    moveInheritance = "known",
 
     -- Player level at which the Pal Alchemy Workbench becomes buildable in the
     -- technology tree. The stage lives in PalSchema data, not in Lua, so this is
@@ -100,6 +121,24 @@ local Config = {
     -- silence reads as a broken mod.
     chatMessages = "all",
 
+    -- Automatic evolution needs permission at both levels. This master switch
+    -- only enables the watcher; every pair still opts in with autoEvolve=true.
+    autoEvolve = false,
+
+    -- Prestige is offered only at the end of a configured chain. The global
+    -- depth and level gates apply to every derived or authored connection.
+    prestigeMinEvolutions = 1,
+    prestigeMinLevel = 80,
+
+    -- Selected keeps the explicit target wheel. Conditioned resolves the
+    -- strongest passing rule deterministically and puts only that target on it.
+    evolutionMode = "selected",
+
+    -- One server-authored disclosure level feeds every in-game surface. The
+    -- condition engine owns the wording and guarantees that hint/hidden never
+    -- fall back to an exact label.
+    conditionDisclosure = "exact",
+
     -- Two-stage confirm: first press checks and announces, second press confirms.
     -- Off by default since 1.6.4, because a mod that claims a function key on
     -- every install collides with the rest of a player's setup for a path the
@@ -122,8 +161,14 @@ local Config = {
     -- Item costs (stones exist via PalSchema; false = free mode)
     requireStone = true,
     stoneCount = 1,
+    -- Prestige has its own price. The stone it takes is crafted FROM an
+    -- evolution stone, so charging both would be two evolution stones per
+    -- prestige.
+    prestigeStoneCount = 1,
     stoneItemIds = {
         evolution = "Palvolve_EvolutionStone",
+        -- crafted from an Evolution Stone + Nightstar Sand (item id NightStone)
+        prestige = "Palvolve_PrestigeStone",
         -- per-element adaptation stones (crafted from Evolution Stone +
         -- MeteorDrop + the matching element essence)
         adaptation = {
@@ -143,7 +188,8 @@ local Config = {
     },
     stoneNames = {
         evolution = "Evolution Stone",
-        adaptation = "Adaptation Stone"
+        adaptation = "Adaptation Stone",
+        prestige = "Prestige Stone"
     },
 
     -- Material costs on top of the stone. Materials derive from drop tables
@@ -169,9 +215,10 @@ local Config = {
         enabled = false,
     },
 
-    -- Map schema version; 5 = negatable conditions ("!" prefix), 4 = per-pair
+    -- Map schema version; 6 = per-pair materials override and automatic-evolution
+    -- opt-in, 5 = negatable conditions ("!" prefix), 4 = per-pair
     -- conditions
-    schemaVersion = 5,
+    schemaVersion = 6,
 
     -- How the author arranged their tree, when their config carries it. Purely
     -- presentational: nothing here decides whether an evolution happens, and a
@@ -1399,8 +1446,90 @@ local Config = {
         stone = "adaptation",
         enabled = true
     }, -- Wumpo -> Wumpo Botan
+
+    -- ==================== Community curation (1.9.0) ====================
+    -- These links extend the published tree without replacing any shipped
+    -- connection. Their gates deliberately cover every 1.9 condition family,
+    -- so a server author can encounter each syntax in a working example.
+    {
+        from = "SheepBall",
+        to = "WoolFox",
+        category = "evolution",
+        minLevel = 18,
+        stone = "evolution",
+        conditions = { "knowsWaza:AirCanon" },
+        enabled = true
+    }, -- Lamball -> Cremis
+    {
+        from = "WoolFox",
+        to = "FluffyBird",
+        category = "evolution",
+        minLevel = 28,
+        stone = "evolution",
+        conditions = { "hasPassive:Rare" },
+        enabled = true
+    }, -- Cremis -> Muffly
+    {
+        from = "FluffyBird",
+        to = "SnowPeafowl",
+        category = "evolution",
+        minLevel = 36,
+        stone = "evolution",
+        conditions = { "hasItem:Money:5000" },
+        enabled = true
+    }, -- Muffly -> Frostplume
+    {
+        from = "CuteFox",
+        to = "NightFox",
+        category = "evolution",
+        minLevel = 30,
+        stone = "evolution",
+        conditions = {
+            "condenserRank:4", "soulHP:10", "soulAttack:10",
+            "soulDefense:10", "soulCraftSpeed:10"
+        },
+        enabled = true
+    }, -- Vixy -> Nox
+    {
+        from = "NightFox",
+        to = "FoxExorcist",
+        category = "evolution",
+        minLevel = 42,
+        stone = "evolution",
+        conditions = { "fedFood:Baked_Berries" },
+        enabled = true
+    }, -- Nox -> Flaracle
+    {
+        from = "GhostRabbit",
+        to = "GhostBlackCat",
+        category = "funchain",
+        minLevel = 28,
+        stone = "evolution",
+        enabled = true
+    }, -- Nitemary -> Wispaw
+    {
+        from = "TentacleTurtle",
+        to = "CubeTurtle",
+        category = "funchain",
+        minLevel = 42,
+        stone = "evolution",
+        enabled = true
+    }, -- Turtacle -> Tetroise
+    {
+        from = "ElecSnail_Fire",
+        to = "Monkey_Ice",
+        category = "funchain",
+        minLevel = 10,
+        stone = "evolution",
+        enabled = true
+    }, -- Snock Ignis -> Tanzee Cryst
     },
 }
+
+-- The prestige roster includes paldex-hidden species referenced by the shipped
+-- tree. Keep that immutable source even when a user config or a server sync
+-- replaces Config.map later in the session.
+Config.builtinMap = Config.map
 
 -- An FName compares without regard to case but remembers the spelling it was
 -- first registered with, and that is what ToString hands back. Palworld's own
@@ -1566,9 +1695,23 @@ function Config.treeHash(map)
                 table.sort(sorted)
                 conds = table.concat(sorted, ",")
             end
-            table.insert(lines, string.format("%s>%s|%s|%d|%s|%s",
+            local materials = "-"
+            if type(p.materials) == "table" then
+                materials = "0"
+                if #p.materials > 0 then
+                    local encoded = {}
+                    for _, item in ipairs(p.materials) do
+                        encoded[#encoded + 1] = string.format("%s:%d",
+                            tostring(item.id or ""), tonumber(item.count) or 0)
+                    end
+                    table.sort(encoded)
+                    materials = table.concat(encoded, ",")
+                end
+            end
+            table.insert(lines, string.format("%s>%s|%s|%d|%s|%s|%s|%s",
                 tostring(p.from), tostring(p.to), tostring(p.category or ""),
-                tonumber(p.minLevel) or 0, tostring(p.stone or ""), conds))
+                tonumber(p.minLevel) or 0, tostring(p.stone or ""), conds,
+                p.autoEvolve == true and "1" or "0", materials))
         end
     end
     table.sort(lines)
@@ -1601,7 +1744,7 @@ function Config.findPairs(characterId)
     characterId = Config.canonicalId(characterId)
     local result = {}
     for _, pair in ipairs(Config.map) do
-        if pair.enabled and pair.from == characterId then
+        if pair.enabled and pair.category ~= "prestige" and pair.from == characterId then
             table.insert(result, pair)
         end
     end
@@ -1793,8 +1936,8 @@ local function installSavedDir()
     local palDir = src:match("^@?(.*)[/\\][Bb]inaries[/\\]")
     if not palDir then
         -- Some loaders hand out a chunk name rather than a path. The module
-        -- search knows where this file really came from, and it answers with an
-        -- absolute path on every layout tested.
+        -- search knows where this file really came from, and answers with an
+        -- absolute path.
         local found = nil
         pcall(function() found = package.searchpath("config", package.path) end)
         if found then palDir = found:match("^(.*)[/\\][Bb]inaries[/\\]") end
@@ -1839,7 +1982,7 @@ local function ensureDir(dir)
     if writable() then return true end
     pcall(os.execute, 'mkdir "' .. dir .. '" >nul 2>nul')
     if writable() then return true end
-    print(string.format("[Palvolve] could not create %s - create the folder by hand "
+    print(string.format("[Palvolve] [ERROR] could not create %s - create the folder by hand "
         .. "and put config_user.lua in it\n", dir))
     return false
 end
@@ -1847,15 +1990,38 @@ end
 --- Copies a file byte for byte. Binary mode on both ends, because a config is
 --- UTF-8 and text mode would rewrite its line endings on the way through.
 local function copyFile(from, to)
-    local src = io.open(from, "rb")
-    if not src then return false, "cannot read " .. from end
-    local data = src:read("*a")
-    src:close()
-    if not data then return false, "read nothing from " .. from end
-    local dst = io.open(to, "wb")
-    if not dst then return false, "cannot write " .. to end
-    dst:write(data)
-    dst:close()
+    local src, openErr = io.open(from, "rb")
+    if not src then return false, "cannot read " .. from .. ": " .. tostring(openErr) end
+    local data, readErr = src:read("*a")
+    local srcClosed, srcCloseErr = src:close()
+    if not data and not srcClosed then
+        return false, "read and close failed for " .. from .. ": "
+            .. tostring(readErr) .. "; " .. tostring(srcCloseErr)
+    end
+    if not data then return false, "read failed for " .. from .. ": " .. tostring(readErr) end
+    if not srcClosed then return false, "close failed for " .. from .. ": " .. tostring(srcCloseErr) end
+    local dst, dstOpenErr = io.open(to, "wb")
+    if not dst then return false, "cannot write " .. to .. ": " .. tostring(dstOpenErr) end
+    local wrote, writeErr = dst:write(data)
+    local dstClosed, dstCloseErr = dst:close()
+    if not wrote and not dstClosed then
+        return false, "write and close failed for " .. to .. ": "
+            .. tostring(writeErr) .. "; " .. tostring(dstCloseErr)
+    end
+    if not wrote then return false, "write failed for " .. to .. ": " .. tostring(writeErr) end
+    if not dstClosed then return false, "close failed for " .. to .. ": " .. tostring(dstCloseErr) end
+
+    local check, checkOpenErr = io.open(to, "rb")
+    if not check then return false, "cannot verify " .. to .. ": " .. tostring(checkOpenErr) end
+    local verify, verifyReadErr = check:read("*a")
+    local checkClosed, checkCloseErr = check:close()
+    if not verify and not checkClosed then
+        return false, "verification read and close failed for " .. to .. ": "
+            .. tostring(verifyReadErr) .. "; " .. tostring(checkCloseErr)
+    end
+    if not verify then return false, "verification read failed for " .. to .. ": " .. tostring(verifyReadErr) end
+    if not checkClosed then return false, "verification close failed for " .. to .. ": " .. tostring(checkCloseErr) end
+    if verify ~= data then return false, "verification mismatch for " .. to end
     return true
 end
 
@@ -1879,18 +2045,52 @@ local function listFiles(dir, prefix)
     -- os.tmpname returns a bare name on Windows, which lands in the working
     -- directory - the game's, not ours. Anchor it next to the file instead.
     if not temp:find("[/\\]") then temp = dir .. "\\" .. temp end
-    local ok = pcall(os.execute,
+    local function cleanupTemp()
+        local removed, removeErr, removeCode = os.remove(temp)
+        if removed then
+            print(string.format("[Palvolve] [INFO] temporary backup list removed from %s\n", temp))
+        elseif removeCode == 2 then
+            print(string.format("[Palvolve] [INFO] temporary backup list cleanup skipped at %s: file absent\n",
+                temp))
+        else
+            print(string.format("[Palvolve] [WARN] temporary backup list cleanup failed at %s: %s\n",
+                temp, tostring(removeErr)))
+        end
+    end
+    local called, result, resultKind, resultCode = pcall(os.execute,
         string.format('dir /b "%s\\%s*" > "%s" 2>nul', dir, prefix, temp))
-    if not ok then return nil end
-    local handle = io.open(temp, "r")
-    if not handle then return nil end
+    if not called then
+        print(string.format("[Palvolve] [ERROR] backup listing command failed for %s: %s\n",
+            dir, tostring(result)))
+        cleanupTemp()
+        return nil
+    end
+    if not (result == true or result == 0) then
+        print(string.format("[Palvolve] [ERROR] backup listing command failed for %s: %s %s\n",
+            dir, tostring(resultKind), tostring(resultCode)))
+        cleanupTemp()
+        return nil
+    end
+    local handle, openErr = io.open(temp, "r")
+    if not handle then
+        print(string.format("[Palvolve] [ERROR] temporary backup list could not be read at %s: %s\n",
+            temp, tostring(openErr)))
+        cleanupTemp()
+        return nil
+    end
     local names = {}
     for line in handle:lines() do
         local name = line:gsub("%s+$", "")
         if name ~= "" then table.insert(names, name) end
     end
-    handle:close()
-    os.remove(temp)
+    local closed, closeErr = handle:close()
+    if not closed then
+        print(string.format("[Palvolve] [ERROR] temporary backup list close failed at %s: %s\n",
+            temp, tostring(closeErr)))
+        cleanupTemp()
+        return nil
+    end
+    cleanupTemp()
     return names
 end
 
@@ -1907,12 +2107,27 @@ local function backupExisting(target)
     local stamp = os.date("%Y-%m-%d_%H%M%S")
     local path = string.format("%s.%s.bak", target, stamp)
     local ok, err = copyFile(target, path)
-    if not ok then return nil, err end
+    if not ok then
+        local removed, removeErr, removeCode = os.remove(path)
+        if removed then
+            print(string.format("[Palvolve] [INFO] failed backup copy removed from %s\n", path))
+        elseif removeCode == 2 then
+            print(string.format("[Palvolve] [INFO] failed backup cleanup skipped at %s: file absent\n", path))
+        else
+            print(string.format("[Palvolve] [WARN] failed backup copy could not be removed from %s: %s\n",
+                path, tostring(removeErr)))
+        end
+        return nil, err
+    end
 
     local dir, file = target:match("^(.*)[/\\]([^/\\]+)$")
     if not dir then return path end
     local names = listFiles(dir, file .. ".")
-    if not names then return path end
+    if not names then
+        print(string.format("[Palvolve] [WARN] backup written to %s, but old backups could not be listed and were kept\n",
+            path))
+        return path
+    end
 
     local backups = {}
     for _, name in ipairs(names) do
@@ -1923,7 +2138,12 @@ local function backupExisting(target)
     if #backups <= BACKUP_KEEP then return path end
     table.sort(backups) -- oldest first
     for i = 1, #backups - BACKUP_KEEP do
-        os.remove(dir .. "\\" .. backups[i])
+        local oldPath = dir .. "\\" .. backups[i]
+        local removed, removeErr = os.remove(oldPath)
+        if not removed then
+            print(string.format("[Palvolve] [WARN] old backup cleanup failed at %s: %s\n",
+                oldPath, tostring(removeErr)))
+        end
     end
     return path
 end
@@ -1948,48 +2168,93 @@ end
 --- place to be than the one they started in.
 local function migrateScriptsConfig(targetDir)
     local source = scriptsConfigPath()
-    if not source or not targetDir then return end
+    if not source then
+        print("[Palvolve] [INFO] no config migration needed: no config_user.lua is in the mod folder\n")
+        return
+    end
+    if not targetDir then
+        print(string.format("[Palvolve] [ERROR] config migration not attempted for %s: target folder is unavailable\n",
+            source))
+        return
+    end
     local target = targetDir .. "\\config_user.lua"
-    if source:lower() == target:lower() then return end
+    if source:lower() == target:lower() then
+        print(string.format("[Palvolve] [INFO] config migration skipped: %s is already the durable location\n",
+            target))
+        return
+    end
 
     if not readConfigAt(source) then
-        print(string.format("[Palvolve] %s is not a usable config, so it was left where it is\n",
+        print(string.format("[Palvolve] [WARN] %s is not a usable config, so it was left where it is\n",
             source))
         return
     end
     if not ensureDir(targetDir) then return end
 
     local backupPath = nil
-    local existing = io.open(target, "rb")
+    local existing, existingOpenErr, existingOpenCode = io.open(target, "rb")
     if existing then
-        existing:close()
+        local existingClosed, existingCloseErr = existing:close()
+        if not existingClosed then
+            print(string.format("[Palvolve] [ERROR] could not close the config already at %s (%s) - leaving both files alone\n",
+                target, tostring(existingCloseErr)))
+            return
+        end
         local bakErr
         backupPath, bakErr = backupExisting(target)
         if not backupPath then
-            print(string.format("[Palvolve] could not back up the config already at %s (%s) "
+            print(string.format("[Palvolve] [ERROR] could not back up the config already at %s (%s) "
                 .. "- leaving both files alone\n", target, tostring(bakErr)))
             return
         end
+        print(string.format("[Palvolve] [INFO] existing config backed up to %s\n", backupPath))
+    elseif existingOpenCode == 2 then
+        print(string.format("[Palvolve] [INFO] no existing config at %s needed a backup\n", target))
+    else
+        print(string.format("[Palvolve] [ERROR] could not inspect the config target at %s (%s) - leaving the source where it is\n",
+            target, tostring(existingOpenErr)))
+        return
     end
 
     local okCopy, copyErr = copyFile(source, target)
     if not okCopy then
-        print(string.format("[Palvolve] could not move the config out of the mod folder (%s) "
+        print(string.format("[Palvolve] [ERROR] could not move the config out of the mod folder (%s) "
             .. "- it still loads from %s, but the next mod update deletes it\n",
             tostring(copyErr), source))
+        local removedTarget, removeTargetErr, removeTargetCode = os.remove(target)
+        if removedTarget then
+            print(string.format("[Palvolve] [INFO] failed migration copy removed from %s\n", target))
+        elseif removeTargetCode == 2 then
+            print(string.format("[Palvolve] [INFO] failed migration cleanup skipped at %s: file absent\n",
+                target))
+        else
+            print(string.format("[Palvolve] [ERROR] failed migration copy could not be removed from %s: %s\n",
+                target, tostring(removeTargetErr)))
+            return
+        end
+        if backupPath then
+            local restored, restoreErr = copyFile(backupPath, target)
+            if restored then
+                print(string.format("[Palvolve] [WARN] previous config restored to %s after migration failed\n",
+                    target))
+            else
+                print(string.format("[Palvolve] [ERROR] previous config could not be restored to %s (%s); its backup remains at %s\n",
+                    target, tostring(restoreErr), backupPath))
+            end
+        end
         return
     end
 
     -- Only now is the original expendable: the copy is on disk and readable.
-    local removed = os.remove(source)
+    local removed, removeErr = os.remove(source)
     -- package.loaded would otherwise hand the moved-away file back to a later
     -- require, from a path that no longer exists.
     package.loaded["config_user"] = nil
 
     local noticePath = source:gsub("[^/\\]+$", "") .. MOVED_NOTICE
-    local notice = io.open(noticePath, "w")
+    local notice, noticeOpenErr = io.open(noticePath, "w")
     if notice then
-        notice:write(
+        local noticeWrote, noticeWriteErr = notice:write(
             "Your config_user.lua was moved.\n\n"
             .. "It is now at:\n    " .. target .. "\n\n"
             .. "Palvolve reads it from there, and that folder survives a mod update.\n"
@@ -2001,7 +2266,19 @@ local function migrateScriptsConfig(targetDir)
             .. "moved the same way on the next start.\n\n"
             .. "You can delete this note.\n"
         )
-        notice:close()
+        local noticeClosed, noticeCloseErr = notice:close()
+        if not noticeWrote then
+            print(string.format("[Palvolve] [WARN] config moved, but the notice at %s could not be written: %s\n",
+                noticePath, tostring(noticeWriteErr)))
+        elseif not noticeClosed then
+            print(string.format("[Palvolve] [WARN] config moved, but the notice at %s could not be closed: %s\n",
+                noticePath, tostring(noticeCloseErr)))
+        else
+            print(string.format("[Palvolve] [INFO] config migration notice written to %s\n", noticePath))
+        end
+    else
+        print(string.format("[Palvolve] [WARN] config moved, but the notice at %s could not be opened: %s\n",
+            noticePath, tostring(noticeOpenErr)))
     end
 
     if removed then
@@ -2009,8 +2286,8 @@ local function migrateScriptsConfig(targetDir)
             .. "(that one survives a mod update)", target))
     else
         Role.announce(string.format("config copied to %s, but the one at %s could not be deleted "
-            .. "- remove it by hand or it comes back on the next start",
-            target, source), "warning")
+            .. "(%s) - remove it by hand or it comes back on the next start",
+            target, source, tostring(removeErr)), "error")
     end
 end
 
@@ -2111,17 +2388,27 @@ end
 --   enum  one of `values`, case-insensitively, or the shipped value stands
 local USER_KEYS = {
     -- gameplay
+    { path = "autoEvolve", kind = "bool" },
+    { path = "prestigeMinEvolutions", kind = "int", min = 0, max = 5 },
+    { path = "prestigeMinLevel", kind = "int", min = 1, max = 80 },
+    { path = "evolutionMode", kind = "enum", values = { "selected", "conditioned" } },
+    { path = "conditionDisclosure", kind = "enum", values = { "exact", "partial", "hidden" } },
     { path = "eggFilter.enabled", kind = "bool" },
     { path = "requireStone", kind = "bool" },
     -- written into the PalSchema building file, where a junk level breaks the
     -- technology entry
     { path = "techLevelCap", kind = "int", min = 1, max = 100 },
     { path = "unlockCatchTech", kind = "bool" },
+    { path = "clearIncompatibleSkins", kind = "bool" },
+    { path = "evolutionBonusSlot", kind = "enum", values = { "off", "active" } },
+    { path = "prestigeBonusSlot", kind = "enum", values = { "off", "active" } },
+    { path = "moveInheritance", kind = "enum", values = { "off", "equipped", "known" } },
     { path = "ivBonusPerStage", kind = "int", min = 0, max = 100 },
     { path = "ivCap", kind = "int", min = 0, max = 100 },
 
     -- costs
     { path = "stoneCount", kind = "int", min = 1, max = 99 },
+    { path = "prestigeStoneCount", kind = "int", min = 1, max = 99 },
     { path = "costs.enabled", kind = "bool" },
     { path = "costs.slots", kind = "int", min = 0, max = 10000 },
     { path = "costs.minRate", kind = "num", min = 0, max = 10000 },
@@ -2191,6 +2478,56 @@ end
 --- point of a config file is that the author believes it took effect, and a typo
 --- that produces no line in the log is a support thread that starts from
 --- nothing.
+--- Settings that were renamed, and how to read the old one.
+---
+--- A key that is no longer in USER_KEYS is simply not read, which is fine for a
+--- typo and wrong for a rename: the author made a choice, the choice still
+--- exists under another name, and nothing tells them it stopped applying.
+--- `inheritNonUniqueMoves = false` meant "do not carry moves over"; dropping it
+--- silently turns that into the new default, which carries them.
+local RENAMED_KEYS = {
+    {
+        old = "inheritNonUniqueMoves",
+        new = "moveInheritance",
+        -- true was "carry the equipped ones", which `known` supersedes and
+        -- `equipped` reproduces exactly. The narrower reading is the honest one:
+        -- it is what the file actually asked for.
+        translate = function(raw)
+            if type(raw) ~= "boolean" then return nil end
+            return raw and "equipped" or "off"
+        end,
+    },
+}
+
+--- Carries renamed settings over and says so. Returns how many were found.
+local function applyRenamedKeys(user)
+    local carried = 0
+    for _, entry in ipairs(RENAMED_KEYS) do
+        local raw = readPath(user, entry.old)
+        if raw ~= nil then
+            carried = carried + 1
+            local value = entry.translate(raw)
+            if value == nil then
+                print(string.format(
+                    "[Palvolve] %s was renamed to %s, and '%s' does not map to any of its values - set %s yourself\n",
+                    entry.old, entry.new, tostring(raw), entry.new))
+            elseif readPath(user, entry.new) ~= nil then
+                -- Both in one file: the new one wins, because it is the one the
+                -- author can see documented. Saying so beats picking silently.
+                print(string.format(
+                    "[Palvolve] %s and %s are both set; %s was renamed to %s, so the old one is ignored\n",
+                    entry.old, entry.new, entry.old, entry.new))
+            else
+                writePath(Config, entry.new, value)
+                print(string.format(
+                    "[Palvolve] %s was renamed to %s; reading your %s as %s = \"%s\"\n",
+                    entry.old, entry.new, tostring(raw), entry.new, value))
+            end
+        end
+    end
+    return carried
+end
+
 local function applyUserKeys(user)
     for _, entry in ipairs(USER_KEYS) do
         local raw = readPath(user, entry.path)
@@ -2256,6 +2593,7 @@ local user, userSource, userChecked = loadUserConfig()
 if user then
     if type(user.map) == "table" then
         local cleaned = {}
+        local unknownPairCount = 0
         for _, p in ipairs(user.map) do
             if type(p) == "table" and type(p.from) == "string" and type(p.to) == "string" then
                 p.category = p.category or "evolution"
@@ -2263,12 +2601,15 @@ if user then
                 p.stone = p.stone or (p.category == "adaptation" and "adaptation" or "evolution")
                 if p.enabled == nil then p.enabled = true end
                 if p.conditions ~= nil then
-                    -- unknown ids are dropped (fail open: a config written for
-                    -- a newer vocabulary must not brick this pair entirely);
-                    -- runtime failures of KNOWN ids fail closed in conditions.lua
-                    local clean, dropped = Conditions.sanitize(p.conditions)
+                    -- Keep the clean subset for ordinary evaluation, but retain
+                    -- the sanitizer metadata on this runtime-only table. Unknown
+                    -- ids block the whole pair, including negated ids, so an old
+                    -- binary cannot silently weaken a newer author's rule.
+                    local clean, dropped, metadata = Conditions.sanitize(p.conditions)
                     p.conditions = (#clean > 0) and clean or nil
+                    p.conditionMetadata = metadata
                     if #dropped > 0 then
+                        unknownPairCount = unknownPairCount + 1
                         print(string.format("[Palvolve] %s -> %s: dropped unknown conditions: %s\n",
                             p.from, p.to, table.concat(dropped, ", ")))
                     end
@@ -2288,7 +2629,13 @@ if user then
             -- a user map may name species the shipped list does not
             Config.resetCanonical()
         end
+        if unknownPairCount > 0 then
+            Role.announce(I18n.msg("unknownConditionsLoad", unknownPairCount), "warning")
+        end
     end
+    -- Renames first, so a file that sets both is decided by applyUserKeys and
+    -- not by whichever ran last.
+    applyRenamedKeys(user)
     applyUserKeys(user)
     Config.loadArrangement(user)
     -- Separators normalised for the line an admin reads: the install root comes

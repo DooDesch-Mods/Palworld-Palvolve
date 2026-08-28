@@ -70,6 +70,7 @@ end
 
 function ServerCheck.getStatus() return state end
 function ServerCheck.getServerVersion() return serverVersion end
+function ServerCheck.getGeneration() return generation end
 
 -- Features are disabled ONLY once we positively know the host lacks Palvolve.
 -- Single-player, listen host and the short resolving window stay enabled (the
@@ -79,6 +80,24 @@ function ServerCheck.blocked() return state == ST.ABSENT end
 -- True only on a confirmed Palvolve host - the gate for transmitting an
 -- evolve request over the net channel (never send a carrier to a vanilla host).
 function ServerCheck.remoteReady() return state == ST.REMOTE end
+
+-- Prestige and opcode 9 require more than a matching version string. Only the
+-- atomic v3 tree received for this connection generation proves that the
+-- client and host are indexing the same target lists.
+function ServerCheck.remoteV3Ready()
+    if state ~= ST.REMOTE then return false end
+    local okSync, sync = pcall(require, "treesync")
+    return okSync and sync and sync.hasV3ForGeneration
+        and sync.hasV3ForGeneration(generation) or false
+end
+
+local function beginProtocolGeneration(gen)
+    if NetChannel.beginGeneration then pcall(NetChannel.beginGeneration, gen) end
+    local okSync, sync = pcall(require, "treesync")
+    if okSync and sync and sync.beginGeneration then
+        pcall(sync.beginGeneration, gen)
+    end
+end
 
 -- FText from a Lua string. UE4SS resolves the engine converter behind FText()
 -- once per session; if that first lookup ran before init it stays broken, so
@@ -264,6 +283,7 @@ function ServerCheck.onEnterWorld(wc)
     if not (Config.serverCheck and Config.serverCheck.enabled) then return end
     generation = generation + 1
     local gen = generation
+    beginProtocolGeneration(gen)
     serverVersion = nil
     local buffered = earlyPong
     earlyPong = nil
@@ -273,7 +293,8 @@ function ServerCheck.onEnterWorld(wc)
         return
     end
     state = ST.RESOLVING -- connected client: wait for the host's greet
-    if buffered and (os.clock() - buffered.at) <= EARLY_PONG_MAX_AGE_S then
+    if buffered and buffered.generation == gen
+        and (os.clock() - buffered.at) <= EARLY_PONG_MAX_AGE_S then
         settleRemote(buffered.ver) -- the greet already arrived during the join
         return
     end
@@ -290,7 +311,12 @@ function ServerCheck.onPong(ver)
     -- is lost, the re-baselined session finds no greet and times out to a false
     -- "server does not run Palvolve". Buffering lets the imminent onEnterWorld
     -- consume it (the EARLY_PONG_MAX_AGE_S guard drops stale ones).
-    earlyPong = { ver = ver, at = os.clock() }
+    local pongGeneration = generation
+    if state ~= ST.RESOLVING and state ~= ST.ABSENT then
+        pongGeneration = generation + 1
+        beginProtocolGeneration(pongGeneration)
+    end
+    earlyPong = { ver = ver, at = os.clock(), generation = pongGeneration }
     if state == ST.IDLE then return end
     settleRemote(ver)
 end

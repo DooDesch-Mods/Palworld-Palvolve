@@ -1,0 +1,34 @@
+{
+    "DT_SkillNameText": {
+        "PASSIVE_Palvolve_Prestige_1": "Prestiż I",
+        "PASSIVE_Palvolve_Prestige_2": "Prestiż II",
+        "PASSIVE_Palvolve_Prestige_3": "Prestiż III",
+        "PASSIVE_Palvolve_Prestige_4": "Prestiż IV",
+        "PASSIVE_Palvolve_Prestige_5": "Prestiż V: Wywyższenie",
+        "PASSIVE_Palvolve_Prestige_6": "Prestiż VI",
+        "PASSIVE_Palvolve_Prestige_7": "Prestiż VII",
+        "PASSIVE_Palvolve_Prestige_8": "Prestiż VIII: Naznaczenie krwią",
+        "PASSIVE_Palvolve_Prestige_9": "Prestiż IX",
+        "PASSIVE_Palvolve_Prestige_10": "Prestiż X: Więzy krwi",
+        "PASSIVE_Palvolve_Evolved_1": "Ewolucja I",
+        "PASSIVE_Palvolve_Evolved_2": "Ewolucja II",
+        "PASSIVE_Palvolve_Evolved_3": "Ewolucja III",
+        "PASSIVE_Palvolve_Evolved_4": "Ewolucja IV"
+    },
+    "DT_SkillDescText": {
+        "PASSIVE_Palvolve_Prestige_1": "Rozpoczyna się wywyższenie.\r\nAtak +{EffectValue1}%\r\nObrona +{EffectValue2}%\r\nSzybkość pracy +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_2": "Nowa siła nabiera mocy.\r\nAtak +{EffectValue1}%\r\nObrona +{EffectValue2}%\r\nSzybkość pracy +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_3": "Walka i rzemiosło doskonalą się razem.\r\nAtak +{EffectValue1}%\r\nObrona +{EffectValue2}%\r\nSzybkość pracy +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_4": "Złote wywyższenie dobiegło końca.\r\nAtak +{EffectValue1}%\r\nObrona +{EffectValue2}%\r\nSzybkość pracy +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_5": "Moc wywyższenia przełamuje dawną granicę.\r\nAtak +{EffectValue1}%\r\nObrona +{EffectValue2}%\r\nSzybkość pracy +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_6": "Moc wywyższenia umacnia się jeszcze bardziej.\r\nAtak +{EffectValue1}%\r\nObrona +{EffectValue2}%\r\nSzybkość pracy +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_7": "Walka i rzemiosło zbliżają się do szczytu.\r\nAtak +{EffectValue1}%\r\nObrona +{EffectValue2}%\r\nSzybkość pracy +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_8": "Krwawy znak się budzi.\r\nAtak +{EffectValue1}%\r\nObrona +{EffectValue2}%\r\nSzybkość pracy +{EffectValue3}%\r\nKradzież życia +{EffectValue4}% leczy tego Pala.",
+        "PASSIVE_Palvolve_Prestige_9": "Krwawy znak rośnie w siłę.\r\nAtak +{EffectValue1}%\r\nObrona +{EffectValue2}%\r\nSzybkość pracy +{EffectValue3}%\r\nKradzież życia +{EffectValue4}% leczy tego Pala.",
+        "PASSIVE_Palvolve_Prestige_10": "Moc więzów krwi osiąga szczyt.\r\nAtak +{EffectValue1}%\r\nObrona +{EffectValue2}%\r\nSzybkość pracy +{EffectValue3}%\r\nKradzież życia +{EffectValue4}% leczy Pala i trenera.",
+        "PASSIVE_Palvolve_Evolved_1": "Maks. PŻ +{EffectValue1}%\nPrędkość ruchu +{EffectValue2}%\nSzybkość pracy +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_2": "Maks. PŻ +{EffectValue1}%\nPrędkość ruchu +{EffectValue2}%\nSzybkość pracy +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_3": "Maks. PŻ +{EffectValue1}%\nPrędkość ruchu +{EffectValue2}%\nSzybkość pracy +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_4": "Maks. PŻ +{EffectValue1}%\nPrędkość ruchu +{EffectValue2}%\nSzybkość pracy +{EffectValue3}%"
+    }
+}

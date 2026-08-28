@@ -1,0 +1,34 @@
+{
+    "DT_SkillNameText": {
+        "PASSIVE_Palvolve_Prestige_1": "Prestise I",
+        "PASSIVE_Palvolve_Prestige_2": "Prestise II",
+        "PASSIVE_Palvolve_Prestige_3": "Prestise III",
+        "PASSIVE_Palvolve_Prestige_4": "Prestise IV",
+        "PASSIVE_Palvolve_Prestige_5": "Prestise V: Teragung",
+        "PASSIVE_Palvolve_Prestige_6": "Prestise VI",
+        "PASSIVE_Palvolve_Prestige_7": "Prestise VII",
+        "PASSIVE_Palvolve_Prestige_8": "Prestise VIII: Bertanda Darah",
+        "PASSIVE_Palvolve_Prestige_9": "Prestise IX",
+        "PASSIVE_Palvolve_Prestige_10": "Prestise X: Terikat Darah",
+        "PASSIVE_Palvolve_Evolved_1": "Berevolusi I",
+        "PASSIVE_Palvolve_Evolved_2": "Berevolusi II",
+        "PASSIVE_Palvolve_Evolved_3": "Berevolusi III",
+        "PASSIVE_Palvolve_Evolved_4": "Berevolusi IV"
+    },
+    "DT_SkillDescText": {
+        "PASSIVE_Palvolve_Prestige_1": "Pendakian dimulai.\r\nSerangan +{EffectValue1}%\r\nPertahanan +{EffectValue2}%\r\nKecepatan kerja +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_2": "Kekuatan baru mulai mengakar.\r\nSerangan +{EffectValue1}%\r\nPertahanan +{EffectValue2}%\r\nKecepatan kerja +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_3": "Tempur dan keterampilan terasah bersama.\r\nSerangan +{EffectValue1}%\r\nPertahanan +{EffectValue2}%\r\nKecepatan kerja +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_4": "Pendakian emas telah sempurna.\r\nSerangan +{EffectValue1}%\r\nPertahanan +{EffectValue2}%\r\nKecepatan kerja +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_5": "Kekuatan agung menembus batas lama.\r\nSerangan +{EffectValue1}%\r\nPertahanan +{EffectValue2}%\r\nKecepatan kerja +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_6": "Kekuatan agung semakin mengakar.\r\nSerangan +{EffectValue1}%\r\nPertahanan +{EffectValue2}%\r\nKecepatan kerja +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_7": "Tempur dan keterampilan mendekati puncaknya.\r\nSerangan +{EffectValue1}%\r\nPertahanan +{EffectValue2}%\r\nKecepatan kerja +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_8": "Tanda Darah terbangun.\r\nSerangan +{EffectValue1}%\r\nPertahanan +{EffectValue2}%\r\nKecepatan kerja +{EffectValue3}%\r\nCuri nyawa +{EffectValue4}% memulihkan Pal ini.",
+        "PASSIVE_Palvolve_Prestige_9": "Tanda Darah semakin kuat.\r\nSerangan +{EffectValue1}%\r\nPertahanan +{EffectValue2}%\r\nKecepatan kerja +{EffectValue3}%\r\nCuri nyawa +{EffectValue4}% memulihkan Pal ini.",
+        "PASSIVE_Palvolve_Prestige_10": "Kekuatan terikat darah mencapai puncaknya.\r\nSerangan +{EffectValue1}%\r\nPertahanan +{EffectValue2}%\r\nKecepatan kerja +{EffectValue3}%\r\nCuri nyawa +{EffectValue4}% memulihkan Pal dan pelatih.",
+        "PASSIVE_Palvolve_Evolved_1": "HP Maks +{EffectValue1}%\nKecepatan bergerak +{EffectValue2}%\nKecepatan kerja +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_2": "HP Maks +{EffectValue1}%\nKecepatan bergerak +{EffectValue2}%\nKecepatan kerja +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_3": "HP Maks +{EffectValue1}%\nKecepatan bergerak +{EffectValue2}%\nKecepatan kerja +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_4": "HP Maks +{EffectValue1}%\nKecepatan bergerak +{EffectValue2}%\nKecepatan kerja +{EffectValue3}%"
+    }
+}
