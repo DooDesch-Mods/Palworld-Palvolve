@@ -364,8 +364,18 @@ end
 -- component-side mute were written here before that was established; all of
 -- them were reaching for something that does not exist.
 --
+-- There IS a lever, and it is the wrong one to pull. The interface carries an
+-- AkEvent pointer (Pal.hpp:30496) that could be cleared. Measured in the running
+-- game: of 186 live sound interfaces, ZERO belong to a spawned component. Every
+-- one of them hangs on the system asset itself, for instance
+-- NS_CoopSkill_StackBuff:SystemSpawnScript.PalNiagaraDataInterfaceSoundPlayer_13.
+-- Clearing that pointer silences the asset for the whole game, so the electric
+-- shock status and the coop skill would go mute for the player everywhere. A
+-- cosmetic does not get to do that.
+--
 -- The only reliable way to a silent marker is a silent ASSET. NS_PalSoul_* and
--- NS_AwakeningAura carry no event; the rest do, and wear their sound.
+-- NS_AwakeningAura carry no event, which is why five of the ten rungs use them;
+-- the rest do, and wear their sound.
 
 --- Attaches ONE named system to the Pal's mesh. Returns the component or nil.
 local function attachOne(actor, mesh, name)
