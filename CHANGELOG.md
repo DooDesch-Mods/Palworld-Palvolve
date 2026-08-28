@@ -10,7 +10,7 @@
 - **Prestige needs a Prestige Stone.** Craft it at the Pal Alchemy Workbench from one Evolution Stone and one Nightstar Sand. `prestigeStoneCount` sets how many a prestige costs.
 - **Two settings decide who may prestige.** `prestigeMinEvolutions` is how long the chain behind a Pal has to be, `prestigeMinLevel` the level it has to reach. On the shipped tree, 0 opens prestige to 174 connections and 4 narrows it to 3. Both travel with the tree, so a server decides for everyone on it.
 - **Prestige has its own show, and it gets bigger every time.** Ten stages, 13.5 seconds at the first and 20 at the tenth, against 12.5 for an evolution.
-- **A prestiged Pal shimmers from then on.** Ten looks, one per stage, and everyone who can see the Pal sees it. Nothing is written to your save.
+- **A prestiged Pal shimmers from then on.** Ten looks, one per stage, and everyone who can see the Pal sees it. It is silent: the game's own sound for those effects is turned down on the marker alone, so the Pal keeps its voice. Nothing is written to your save.
 - **An evolved Pal keeps every move it knew.** The pool it can pick from carries over, so the choice grows with each evolution instead of being traded in. Exclusive moves are still dropped: they belong to the old form and break the new one.
 - **New setting `moveInheritance`:** `off`, `equipped` or `known`. It replaces `inheritNonUniqueMoves`, and a config that still sets the old one is read as `equipped` or `off` to match what it asked for.
 - **Six new condition types.** A named move, a named passive, an item or an amount of gold in the inventory, condenser rank, condenser souls, and the last food you fed the Pal by hand. All six can be flipped to mean the opposite, and none of them consume what they check.

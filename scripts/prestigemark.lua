@@ -85,18 +85,19 @@ local GLOW_CHOICES = {
 --
 -- The top three are the enhanced-mode auras a raid boss wears after its own
 -- transformation, because awaken was the ceiling and the ceiling had to move.
--- Checked against the shipped assets: NS_PalSoul_* and NS_AwakeningAura carry no
--- Wwise event at all, the rest do. The silent ones therefore take as many rungs
--- as they can, and the noisy ones are muted through their AkComponent.
+--
+-- Sound cannot be turned off per marker, so it is chosen away: measured asset by
+-- asset in the running game, only fish and lucky still carry a Wwise event, and
+-- they hold the two rungs where nothing silent looked right yet.
 local STAGE_GLOW = {
     "soulblue",    -- I    silent
-    "fish",        -- II
+    "fish",        -- II   carries a sound
     "soulgold",    -- III  silent
     "soulpink",    -- IV   silent
-    "lucky",       -- V
-    "bossbody",    -- VI
-    "bossbody",    -- VII
-    "bossbodyp",   -- VIII
+    "lucky",       -- V    carries a sound
+    "bossbody",    -- VI   silent
+    "bossbody",    -- VII  silent
+    "bossbodyp",   -- VIII silent
     "awaken",      -- IX   silent
     "awaken",      -- X    silent
 }
@@ -115,6 +116,11 @@ local stageOverride = nil
 --
 -- This is what makes the ladder read as accumulation rather than as ten
 -- unrelated looks: a stage 10 Pal wears everything the stages before it earned.
+-- Both were chosen for how they look and both carry a Wwise event, which made
+-- every rung audible, including the five that use silent assets on purpose.
+-- Measured in the running game, asset by asset: statusup, crystal, goddess,
+-- ghost, awaken, the three PalSoul lights and the BossAura bodies carry no
+-- event; stackbuff, shock, lucky and the two fish glows do.
 local PERSISTENT = {
     { name = "stackbuff", from = 1 },
     { name = "shock",     from = 8 },
@@ -453,6 +459,59 @@ local function destroyComp(comp)
     pcall(destroyCompNow, comp)
 end
 
+--- Silences the sound OUR systems post, and nothing else the Pal owns.
+---
+--- The sound does not come from a component we create. UPalNiagaraDataInterface
+--- SoundPlayer posts it, and the engine hangs a PalAkComponent off the Niagara
+--- component that is playing. Measured on a marked Pal:
+---
+---   PalAkComponent attachedTo=CharacterMesh0        the Pal's own voice
+---   PalAkComponent attachedTo=CollisionCylinder     the Pal's own
+---   PalAkComponent attachedTo=NiagaraComponent_...  ours
+---
+--- So the attach parent is the whole test, and it is exact. Silencing by actor
+--- instead would mute the Pal itself, and clearing the AkEvent on the data
+--- interface would mute the asset for the entire game, coop skill and electric
+--- shock status included: all 186 of those interfaces live on the asset, none on
+--- an instance.
+---
+--- GetAttachChildren cannot be read from Lua here, it returns a TArray by value,
+--- so the search runs the other way round: over the AkComponents, asking each
+--- for its parent.
+local function readAttachParent(comp) return comp:GetAttachParent() end
+local function muteComp(comp) comp:SetOutputBusVolume(0.0) end
+local function allAkComponents() return FindAllOf("AkComponent") or {} end
+
+local function hushMarkerSounds(entries)
+    local mine, any = {}, false
+    for _, entry in ipairs(entries) do
+        for _, comp in ipairs(entry.comps or {}) do
+            if isLive(comp) then
+                mine[comp:GetFullName()] = true
+                any = true
+            end
+        end
+    end
+    if not any then return 0 end
+
+    local okAll, all = pcall(allAkComponents)
+    if not okAll then
+        Log("prestige marker: could not enumerate audio components, marker stays audible")
+        return 0
+    end
+
+    local hushed = 0
+    for _, ak in ipairs(all) do
+        if isLive(ak) then
+            local okParent, parent = pcall(readAttachParent, ak)
+            if okParent and isLive(parent) and mine[parent:GetFullName()] then
+                if pcall(muteComp, ak) then hushed = hushed + 1 end
+            end
+        end
+    end
+    return hushed
+end
+
 --- Takes the layers off. The ENTRY stays: the Pal is still prestiged, and
 --- dropping it here is what made the cycle key stop working after one failed
 --- spawn - nothing was left to re-mark.
@@ -463,6 +522,26 @@ local function removeGlow(actor)
     if not entry then return end
     for _, comp in ipairs(entry.comps or {}) do destroyComp(comp) end
     entry.comps = nil
+end
+
+--- Drops a Pal from the table entirely, layers and all.
+local function forget(actor)
+    local key = keyOf(actor)
+    if not key then return end
+    local entry = marked[key]
+    if not entry then return end
+    for _, comp in ipairs(entry.comps or {}) do destroyComp(comp) end
+    marked[key] = nil
+end
+
+--- True when this Pal is remembered at a different stage than the one it now
+--- reads. The layers belong to the old stage and have to go.
+local function stageChanged(actor, stage)
+    local key = keyOf(actor)
+    if not key then return false end
+    local entry = marked[key]
+    if not (entry and entry.stage) then return false end
+    return entry.stage ~= stage
 end
 
 --- Records a prestige Pal without attaching anything, so the caretaker loop
@@ -505,6 +584,10 @@ function PrestigeMark.reconcile(actor)
         -- moment without an entry, it was never looked at again and stayed dark
         -- for the session. With an entry, the caretaker loop below picks it up
         -- the moment it is actually out.
+        -- A stage that moved has to redraw. alreadyMarked only asks whether
+        -- ANY layer is still alive, so without this a Pal that prestiged from
+        -- IX to X kept the ninth look while the table said ten.
+        if stageChanged(actor, stage) then removeGlow(actor) end
         remember(actor, stage)
         if not isVisibleActor(actor) then
             removeGlow(actor)
@@ -512,13 +595,19 @@ function PrestigeMark.reconcile(actor)
         end
         if alreadyMarked(actor) then return end
         if spawnGlow(actor, stage) then
+            local key = keyOf(actor)
+            if key and marked[key] then marked[key].hushed = nil end
             Log(string.format("prestige marker: %s shimmer on, stage %d", id, stage))
         else
             Log(string.format("prestige marker: %s stage %d but the shimmer could not be attached", id, stage))
         end
         return
     end
-    removeGlow(actor)
+    -- Stage zero means this Pal wears nothing, so the entry goes too. Keeping it
+    -- would leave a positive stage in the table that the caretaker below revives
+    -- on its next tick, which is how a debug cycle put markers back on Pals that
+    -- had never prestiged.
+    forget(actor)
 end
 
 --- Re-marks every visible Pal as if it were at `stage`. nil restores the real
@@ -634,28 +723,44 @@ function PrestigeMark.init()
 
     local pending = {}
 
-    local okNotify, errNotify = pcall(function()
-        NotifyOnNewObject("/Script/Pal.PalCharacter", function(object)
-            pending[#pending + 1] = { actor = object, tries = 0 }
-            trace(string.format("queued a pal (%d waiting)", #pending))
-        end)
-    end)
+    -- Every callback below is a NAMED function, and the same object is handed to
+    -- UE4SS every time. An anonymous one here is not a style question: this file
+    -- used `ExecuteInGameThread(function() ... end)` inside the loop, so a fresh
+    -- closure was registered on every tick that had work. UE4SS' callback
+    -- collector eventually freed them, and it took the loop's own callback with
+    -- it: the log then shows `[FCallbackGarbageCollector] Freed invalid
+    -- callbacks!`, object notification keeps queueing Pals, and not one of them
+    -- is ever processed again. Seen in the wild as "the shimmer is gone", with
+    -- eighteen Pals queued and none drained.
+    --
+    -- The batch travels through an upvalue rather than through a capture,
+    -- because the point is that the function object never changes.
+    local drainBatch = nil
+
+    local function queuePal(object)
+        pending[#pending + 1] = { actor = object, tries = 0 }
+        trace(string.format("queued a pal (%d waiting)", #pending))
+    end
+
+    local function registerNotify()
+        NotifyOnNewObject("/Script/Pal.PalCharacter", queuePal)
+    end
+
+    local okNotify, errNotify = pcall(registerNotify)
     if not okNotify then
         Log("prestige marker: object notification failed: " .. tostring(errNotify))
         return false
     end
 
-    -- One loop for every pending Pal. It goes idle when the queue is empty and
-    -- only enters the game thread when there is work: every ExecuteInGameThread
-    -- registers a transient callback ref, and idle ticks must stay ref-free.
-    LoopAsync(500, function()
-        local hasNew = #pending > 0
-        local hasMarked = next(marked) ~= nil
-        if not (hasNew or hasMarked) then return false end
-
-        local batch = pending
-        pending = {}
-        ExecuteInGameThread(function()
+    local function drainOnGameThread()
+            local batch = drainBatch
+            drainBatch = nil
+            if not batch then return end
+            -- The slot is APPENDED to, never replaced, because a tick can fire
+            -- again before the game thread has run this one. Overwriting it
+            -- dropped a whole batch, and during a world-load stall that is every
+            -- Pal in the base: the queue filled, nothing was ever drawn, and the
+            -- only symptom was a Pal with no shimmer.
             for _, entry in ipairs(batch) do
                 -- pcall(namedFn, arg), not a closure per entry: this runs once
                 -- per queued Pal per tick, which on world load is the busiest
@@ -682,16 +787,23 @@ function PrestigeMark.init()
             -- notification fires once per NEW Pal, so a Pal stripped while it
             -- sat in the party stayed dark for the rest of the session no
             -- matter how often it was summoned again.
+            -- A table of components is not proof of a visible marker: they can
+            -- be destroyed with the entry left behind, and a layered marker can
+            -- lose one layer and keep another. alreadyMarked answers the real
+            -- question and clears an all-dead table on the way.
             local stale, revive = {}, {}
             for key, entry in pairs(marked) do
                 local live = isLive(entry.actor)
                 if not (live and isVisibleActor(entry.actor)) then
                     stale[#stale + 1] = { key = key, entry = entry }
-                elseif entry.comps == nil and entry.stage then
+                elseif entry.stage and not alreadyMarked(entry.actor)
+                    and (entry.reviveFails or 0) <= MAX_TRIES then
                     revive[#revive + 1] = entry
                 end
             end
             for _, item in ipairs(stale) do
+                -- Parked or gone: the next summon starts with a clean slate.
+                item.entry.reviveFails = nil
                 if item.entry.comps then
                     Log("prestige marker: marker off, pal parked or gone")
                 end
@@ -701,17 +813,73 @@ function PrestigeMark.init()
                 -- entry so the marker returns when it is summoned again
                 if not isLive(item.entry.actor) then marked[item.key] = nil end
             end
+            -- Bounded, because this runs every 500 ms forever. An asset that
+            -- cannot spawn would otherwise retry and log twice a second for the
+            -- rest of the session.
             for _, entry in ipairs(revive) do
                 local ok, back = pcall(spawnGlow, entry.actor, entry.stage)
                 if ok and back then
+                    entry.reviveFails = nil
+                    entry.hushed = nil
                     Log(string.format("prestige marker: marker back on, stage %d", entry.stage))
                 else
-                    Log("prestige marker: a summoned pal did not get its marker back")
+                    entry.reviveFails = (entry.reviveFails or 0) + 1
+                    if entry.reviveFails <= MAX_TRIES then
+                        Log(string.format("prestige marker: a summoned pal did not get its marker back (%d/%d)",
+                            entry.reviveFails, MAX_TRIES))
+                    elseif entry.reviveFails == MAX_TRIES + 1 then
+                        Log("prestige marker: giving up on this pal's marker until it is summoned again")
+                    end
                 end
             end
-        end)
+
+            -- The engine creates the sound component when the system first
+            -- plays, which is after the attach, so this cannot run once at
+            -- attach time. It runs here until it has silenced a Pal, and the
+            -- flag keeps it from scanning every audio component twice a second
+            -- for the rest of the session.
+            local unhushed = {}
+            for _, entry in pairs(marked) do
+                if entry.comps and not entry.hushed and isLive(entry.actor) then
+                    unhushed[#unhushed + 1] = entry
+                end
+            end
+            if #unhushed > 0 then
+                local hushed = hushMarkerSounds(unhushed)
+                if hushed > 0 then
+                    for _, entry in ipairs(unhushed) do entry.hushed = true end
+                    Log(string.format("prestige marker: silenced %d marker sound(s)", hushed))
+                end
+            end
+    end
+
+    -- One loop for every pending Pal. It goes idle when the queue is empty and
+    -- only enters the game thread when there is work.
+    local function drainTick()
+        local hasNew = #pending > 0
+        local hasMarked = next(marked) ~= nil
+        if not (hasNew or hasMarked) then return false end
+
+        local batch = pending
+        pending = {}
+        if drainBatch then
+            for _, entry in ipairs(batch) do drainBatch[#drainBatch + 1] = entry end
+        else
+            drainBatch = batch
+        end
+
+        local ok, err = pcall(ExecuteInGameThread, drainOnGameThread)
+        if not ok then
+            -- The batch is detached from `pending` at this point, so handing it
+            -- back is the difference between a retry and a silent loss.
+            for _, entry in ipairs(drainBatch or {}) do pending[#pending + 1] = entry end
+            drainBatch = nil
+            Log("prestige marker: drain could not reach the game thread: " .. tostring(err))
+        end
         return false
-    end)
+    end
+
+    LoopAsync(500, drainTick)
 
     -- THE Palvolve debug key. One key, re-pointed at whatever is being tested;
     -- it currently cycles the prestige shimmer. Client side and deliberately so:
