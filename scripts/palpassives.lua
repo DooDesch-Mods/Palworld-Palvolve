@@ -130,6 +130,14 @@ local function resolveNames(names)
     }
 end
 
+--- The top rung of a ladder. Callers need it to refuse work that cannot change
+--- anything: a Pal already at the last prestige rank gains nothing from another
+--- prestige, and would pay a stone and all of its levels for it.
+function PalPassives.maxStage(ladderName)
+    local ladder = LADDERS[ladderName]
+    return ladder and ladder.maxStage or 0
+end
+
 function PalPassives.resolve(param)
     local names, err = PalPassives.capture(param)
     if not names then return nil, err end

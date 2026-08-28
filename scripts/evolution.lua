@@ -869,6 +869,21 @@ end
 -- Normal connections always win. A Pal with anything still ahead of it is not
 -- allowed to use prestige as a shortcut around that connection, even while its
 -- level or conditions are not met yet.
+--- True when this Pal already wears the last prestige rank.
+---
+--- Without this a Pal at the top can prestige again: the rank is clamped at the
+--- ceiling (palpassives.lua, grant), so the Pal pays a Prestige Stone and every
+--- level it had for a rank it already carries. The ladder is asked for its own
+--- ceiling rather than the number being repeated here.
+local function prestigeAtMax(param)
+    if not param then return false end
+    local okStages, stages = pcall(PalPassives.resolve, param)
+    if not okStages or type(stages) ~= "table" then return false end
+    local current = stages.prestige and tonumber(stages.prestige.stage) or 0
+    local ceiling = tonumber(PalPassives.maxStage("prestige")) or 0
+    return ceiling > 0 and current >= ceiling
+end
+
 local function optionPairsFor(characterId)
     local ordinary = Config.findPairs(characterId)
     if ordinary and #ordinary > 0 then return ordinary, false end
@@ -1108,6 +1123,9 @@ local function findEligibleFor(playerCtx)
     -- conditions), so a branched species whose first target is blocked
     -- still reaches its other options
     local pairList, isPrestige, prestigeErr = optionPairsFor(id)
+    if isPrestige and prestigeAtMax(param) then
+        return nil, I18n.msg("prestigeAtMax", palDisplayName(id))
+    end
     if not pairList or #pairList == 0 then
         if prestigeErr then Log("Prestige targets unavailable: " .. tostring(prestigeErr)) end
         if isPrestige then return nil, I18n.msg("hasNoPrestige", palDisplayName(id)) end
@@ -1138,8 +1156,9 @@ local function findEligibleFor(playerCtx)
         elseif isAlpha and not swapTargetId(cand, true) then
             alphaBlockedTo = alphaBlockedTo or cand.to
         elseif level < requiredLevelFor(cand) then
-            firstReason = firstReason or I18n.msg("needsLevel", palDisplayName(id),
-                requiredLevelFor(cand), level)
+            firstReason = firstReason or I18n.msg(
+                isPrestige and "needsLevelPrestige" or "needsLevel",
+                palDisplayName(id), requiredLevelFor(cand), level)
         else
             local condOk, unmet = Conditions.evaluate(cand, condCtx)
             if condOk then
@@ -2578,6 +2597,10 @@ function Evolution.canOffer()
                 I18n.msg("greyNotYours")
         end
         local pairList, isPrestige, prestigeErr = optionPairsFor(id)
+        if isPrestige and prestigeAtMax(param) then
+            return string.format("pal '%s' is already at the last prestige rank", id),
+                I18n.msg("prestigeAtMax", palDisplayName(id))
+        end
         local n = #pairList
         if n == 0 then
             if prestigeErr then Log("Prestige targets unavailable: " .. tostring(prestigeErr)) end
@@ -2898,6 +2921,9 @@ function Evolution.listOptions()
     if not (param and isOwnedBy(param, playerCtx and playerCtx.playerUId)) then return nil, I18n.msg("noPalSummoned") end
     local id, isAlpha = baseCharacterId(param:GetCharacterID():ToString())
     local pairList, isPrestige, prestigeErr = optionPairsFor(id)
+    if isPrestige and prestigeAtMax(param) then
+        return nil, I18n.msg("prestigeAtMax", palDisplayName(id))
+    end
     if not pairList or #pairList == 0 then
         if prestigeErr then Log("Prestige targets unavailable: " .. tostring(prestigeErr)) end
         if isPrestige then return nil, I18n.msg("hasNoPrestige", palDisplayName(id)) end
@@ -3058,8 +3084,9 @@ return false, I18n.msg("selectionOutdated", palDisplayName(id), palDisplayName(f
         elseif isAlpha and not swapTargetId(cand, true) then
             failReason = failReason or I18n.msg("noAlphaForm", palDisplayName(cand.to))
         elseif level < requiredLevelFor(cand) then
-            failReason = failReason or I18n.msg("needsLevel", palDisplayName(id),
-                requiredLevelFor(cand), level)
+            failReason = failReason or I18n.msg(
+                prestigeRequest and "needsLevelPrestige" or "needsLevel",
+                palDisplayName(id), requiredLevelFor(cand), level)
         else
             local condOk, unmet = Conditions.evaluate(cand, condCtx)
             if condOk then
