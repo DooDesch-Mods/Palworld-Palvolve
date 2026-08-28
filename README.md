@@ -14,7 +14,7 @@
 - **143 curated transformations** as the starting point: evolution chains like Pengullet to Penking, fun chains like Sweepa to Snugloo, and 87 element adaptations.
 - **Evolve when you want to:** hold 4, pick Evolve, and your Pal transforms in front of you with a finale built from its target elements. F2 does the same without the menu once you switch it on (`confirmKeyEnabled = true`).
 - **Keeps identity and progress:** every learned move carries over, even ones the new form could never learn on its own, and level, nickname, gender, passives, IVs, souls and condenser rank all stay. Alphas evolve into Alpha forms, Luckys stay Lucky.
-- **Prestige at the end of a line:** a Pal with nowhere left to evolve can start over. Level goes back to 1, everything it earned stays, and each prestige adds a rank of the Prestige passive up to X. The presentation grows with the rank, and a prestiged Pal shimmers from then on.
+- **Prestige at the end of a line:** a Pal with nowhere left to evolve can start over. Level goes back to 1, everything it earned stays, and each prestige adds a rank of the Prestige passive up to 10. The presentation grows with the rank, and a prestiged Pal shimmers from then on.
 - **Conditional evolutions:** a pair can require day or night, water, a status effect, a location, a party member, a known move or passive, an item or an amount of gold, a condenser rank, the last thing the Pal was fed, or a trainer-level, trust-rank or IV threshold. Every one of them can be inverted. Greyed options name exactly what is still missing, in your game language.
 - **Evolutions that fire on their own:** switch a pair to automatic and it triggers the moment its conditions are true, taking the same costs and leaving the same rollback as a manual one.
 - **Evolution tree in the Palpedia:** a third tab, "Evolutions", shows what the selected Pal evolves from and into, with the level, the stone and the conditions each step needs. Click a Pal inside the tree to make it the new centre and walk a whole line without leaving the screen.
@@ -147,7 +147,7 @@ Evolution turns a Pal into a different Pal (Pengullet to Penking). Adaptation ch
 Build the Pal Alchemy Workbench (unlocks at level 10, adjustable), forge an Evolution Stone from skill-fruit essences, then hold 4 and pick Evolve. `!palvolve rollback` undoes it.
 
 **How do I prestige a Pal?**
-Take a Pal to the end of its evolution line and to the level `prestigeMinLevel` asks for, then hold 4: the entry reads Prestige instead of Evolve. It costs a stone like an evolution does. On a server both settings come from the host, so what qualifies is the host's decision.
+Take a Pal to the end of its evolution line and to the level `prestigeMinLevel` asks for, then hold 4: the entry reads Prestige instead of Evolve. It costs a Prestige Stone, crafted at the Pal Alchemy Workbench from an Evolution Stone and Nightstar Sand. On a server both settings come from the host, so what qualifies is the host's decision.
 
 **Why does a Pal I expected to prestige only offer Evolve?**
 It still has an evolution ahead of it, and those come first. A Pal that appears in no pair at all can prestige straight away when `prestigeMinEvolutions` is 0.

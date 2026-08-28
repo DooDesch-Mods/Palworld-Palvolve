@@ -1077,7 +1077,10 @@ local function restorePrestigeState(param, state)
         tostring(speciesErr), tostring(levelErr), tostring(passiveErr))
 end
 
-local function applyPrestigeMutation(param, targetId)
+--- playerCtx is a PARAMETER, not an upvalue. It used to read an undeclared
+--- global here, so PalSlots.grantPrestige always got nil and the fourth move
+--- slot a prestige is supposed to hand out was never granted to anybody.
+local function applyPrestigeMutation(param, targetId, playerCtx)
     local okSpecies, speciesErr = pcall(writeSpeciesUnsafe, param, targetId)
     local idNow = nil
     local okId, readId = pcall(characterIdUnsafe, param)
@@ -1607,7 +1610,7 @@ local function performEvolution(p)
         end
 
         if isPrestige then
-            local mutationOk, passiveResult = applyPrestigeMutation(param, targetId)
+            local mutationOk, passiveResult = applyPrestigeMutation(param, targetId, playerCtx)
             if not mutationOk then
                 restoreFailedMutation(passiveResult)
                 return
