@@ -25,26 +25,37 @@ local function Log(msg)
     print(string.format("[Palvolve] %s\n", msg))
 end
 
+--- Named body, called once per build object. See the note on getSelf below:
+--- an anonymous closure here is allocated for every object in the base.
+local function readIsOurBench(actor)
+    if not (actor and actor:IsValid()) then return false end
+    local direct = actor.BuildObjectId
+    if direct and direct.ToString and direct:ToString() == ROW_ID then
+        return true
+    end
+    local model = actor:GetModel()
+    if model and model:IsValid() then
+        local master = model.MapObjectMasterDataId
+        local build = model.BuildObjectId
+        if (master and master.ToString and master:ToString() == ROW_ID)
+            or (build and build.ToString and build:ToString() == ROW_ID) then
+            return true
+        end
+    end
+    return false
+end
+
+local function readMasterId(actor)
+    local model = actor:GetModel()
+    if not (model and model:IsValid()) then return nil end
+    local master = model.MapObjectMasterDataId
+    if master and master.ToString then return master:ToString() end
+    return nil
+end
+
 local function isOurBench(actor)
-    local found = false
-    pcall(function()
-        if not (actor and actor:IsValid()) then return end
-        local direct = actor.BuildObjectId
-        if direct and direct.ToString and direct:ToString() == ROW_ID then
-            found = true
-            return
-        end
-        local model = actor:GetModel()
-        if model and model:IsValid() then
-            local master = model.MapObjectMasterDataId
-            local build = model.BuildObjectId
-            if (master and master.ToString and master:ToString() == ROW_ID)
-                or (build and build.ToString and build:ToString() == ROW_ID) then
-                found = true
-            end
-        end
-    end)
-    return found
+    local ok, found = pcall(readIsOurBench, actor)
+    return ok and found == true
 end
 
 -- TArrays returned from UFunctions hand out RemoteUnrealParam wrappers on
@@ -104,28 +115,25 @@ local function tintActor(actor)
                             -- static slot: create a MID from the constant
                             -- instance and assign it immediately (unassigned
                             -- MIDs are garbage collected within a minute)
-                            local okMid = pcall(function()
-                                local mid = kismet:CreateDynamicMaterialInstance(actor, mat, FName(""), 0)
-                                if mid and mid:IsValid() then
-                                    mesh:SetMaterial(m - 1, mid)
-                                    mat = mid
-                                    isMid = true
-                                end
-                            end)
+                            local okMid, made = pcall(makeMid, kismet, actor, mat, mesh, m - 1)
+                            if okMid and made then
+                                mat = made
+                                isMid = true
+                            end
                             if not okMid and (PROBE or Config.devMode) then
                                 Log(string.format("bench tint: MID creation failed for slot %d", m - 1))
                             end
                         end
                         if isMid then
+                            -- Named, and it matters here more than anywhere: this
+                            -- is per object, per mesh, per material slot, per
+                            -- parameter. A base full of benches used to allocate
+                            -- thousands of closures while the world streamed in.
                             for _, param in ipairs(VECTOR_PARAMS) do
-                                pcall(function()
-                                    mat:SetVectorParameterValue(FName(param), TINT)
-                                end)
+                                pcall(setVectorParam, mat, param)
                             end
                             for param, value in pairs(SCALAR_PARAMS) do
-                                pcall(function()
-                                    mat:SetScalarParameterValue(FName(param), value)
-                                end)
+                                pcall(setScalarParam, mat, param, value)
                             end
                             if PROBE or Config.devMode then
                                 Log(string.format("bench tint: set on slot %d (%s)",
@@ -153,14 +161,8 @@ local MAX_TRIES = 8
 -- the actor's row id is not readable yet and the entry should be retried
 local function handleActor(actor)
     if not (actor and actor:IsValid()) then return true end
-    local id = nil
-    pcall(function()
-        local model = actor:GetModel()
-        if model and model:IsValid() then
-            local master = model.MapObjectMasterDataId
-            if master and master.ToString then id = master:ToString() end
-        end
-    end)
+    local okId, id = pcall(readMasterId, actor)
+    if not okId then id = nil end
     if id == nil or id == "" or id == "None" then return false end
     -- host has no Palvolve: skip the tint (the extractor bench is not a real thing
     -- this session, so leave the shared vanilla bench untouched)
@@ -170,6 +172,19 @@ local function handleActor(actor)
     end
     return true
 end
+
+-- Named, because it is called from a hook body that runs per build object.
+local function getSelf(selfParam) return selfParam:get() end
+
+local function makeMid(kismet, actor, mat, mesh, slot)
+    local mid = kismet:CreateDynamicMaterialInstance(actor, mat, FName(""), 0)
+    if not (mid and mid:IsValid()) then return nil end
+    mesh:SetMaterial(slot, mid)
+    return mid
+end
+
+local function setVectorParam(mat, param) mat:SetVectorParameterValue(FName(param), TINT) end
+local function setScalarParam(mat, param, value) mat:SetScalarParameterValue(FName(param), value) end
 
 function BenchVisual.init()
     local pending = {}
@@ -192,17 +207,30 @@ function BenchVisual.init()
             pending[#pending + 1] = { actor = actor, tries = 0, delay = 3 }
         end
     end
+
+    -- ONE hook body, named, shared by all three paths.
+    --
+    -- It used to be a fresh closure per hook wrapping a second closure per call,
+    -- which is the allocation UE4SS-LESSONS.md rule 2 forbids in anything that
+    -- runs per spawn. Every build object in a base flips state while a world
+    -- loads, so this is one of the busiest dispatch sites in the mod.
+    local function onBuildComplete(selfParam)
+        local ok, actor = pcall(getSelf, selfParam)
+        if ok then queueRetint(actor) end
+    end
+
+    -- Which of these fire depends on the role, and a LISTEN HOST is the one case
+    -- where all three do: it is the authority and the drawing client at once. A
+    -- dedicated server never runs the multicast, a remote client never runs the
+    -- server-internal finish. Singleplayer runs the lot, so it sees three times
+    -- the dispatch of anything that was ever tested against a server.
     local COMPLETION_HOOKS = {
         "/Script/Pal.PalBuildObject:PlayBuildCompleteFX_ToALL",
         "/Script/Pal.PalBuildObject:OnRep_CurrentState",
         "/Script/Pal.PalBuildObject:OnFinishBuildWork_ServerInternal",
     }
     for _, path in ipairs(COMPLETION_HOOKS) do
-        local ok = pcall(RegisterHook, path, function(selfParam)
-            pcall(function()
-                queueRetint(selfParam:get())
-            end)
-        end)
+        local ok = pcall(RegisterHook, path, onBuildComplete)
         if not ok and Config.devMode then
             Log(string.format("bench tint: completion hook failed: %s", path))
         end
@@ -233,9 +261,12 @@ function BenchVisual.init()
                         entry.delay = entry.delay - 1
                         pending[#pending + 1] = entry
                     else
-                        local done = true
-                        pcall(function() done = handleActor(entry.actor) end)
-                        if not done then
+                        -- pcall(namedFn, arg): one per queued object per tick,
+                        -- and the initial sweep queues every build object in the
+                        -- base at once.
+                        local ok, done = pcall(handleActor, entry.actor)
+                        if ok and done == nil then done = true end
+                        if not (ok and done) then
                             entry.tries = entry.tries + 1
                             if entry.tries < MAX_TRIES then
                                 pending[#pending + 1] = entry

@@ -27,6 +27,12 @@
 
 local Role = require("role")
 local PalPassives = require("palpassives")
+local Config = require("config")
+-- CharacterID -> paldex number, for every species the game ships. Used here as
+-- the answer to "is this actually a Pal": the notification fires for every
+-- PalCharacter, and the humans walking around a base are PalCharacters too.
+local okPaldex, PALDEX = pcall(require, "paldex_static")
+if not okPaldex then PALDEX = nil end
 
 local PrestigeMark = {}
 
@@ -151,23 +157,100 @@ end
 --- A recalled Pal is not destroyed, it is HIDDEN and parked at the player. Its
 --- attached systems keep drawing and keep making noise, which is what put an
 --- effect over the player's head that stayed after the Pal was called back.
+-- NAMED readers, not `pcall(function() ... end)`.
+--
+-- UE4SS-LESSONS.md rule 2, the 18.07 hardening: an anonymous closure allocated
+-- per tick or per spawn feeds the callback collector, and when it frees a ref
+-- that is still scheduled the process dies with an access violation. This file
+-- ran forty Pals through ten such closures each on world load and ended every
+-- time on `[FCallbackGarbageCollector] Freed invalid callbacks!`.
+--
+-- The header of this file already claimed the loop shape avoided that. It did;
+-- the reads inside it did not.
+local function readHidden(actor) return actor.bHidden end
+local function readClassName(actor) return actor:GetClass():GetFullName() end
+local function readIsPlayer(param) return param.SaveParameter.IsPlayer end
+local function readCharacterId(param) return param:GetCharacterID():ToString() end
+local function readAddress(actor) return actor:GetAddress() end
+local function readFullName(actor) return actor:GetFullName() end
+local function readMainMesh(actor) return actor:GetMainMesh() end
+
+local function hideComp(comp) comp:SetVisibility(false, true) end
+local function deactivateComp(comp) comp:SetActive(false, true) end
+local function stopComp(comp) comp:Deactivate() end
+local function destroyCompNow(comp) comp:K2_DestroyComponent(comp) end
+
+local function readIndividualParameter(actor)
+    local component = actor:GetCharacterParameterComponent()
+    if not isLive(component) then return nil end
+    return component:GetIndividualParameter()
+end
+
+local function readCapsuleHalf(actor)
+    local spc = actor.StaticCharacterParameterComponent
+    if not isLive(spc) then return nil end
+    return spc.MeshCapsuleHalfHeight
+end
+
+local NIAGARA_LIB = "/Script/Niagara.Default__NiagaraFunctionLibrary"
+
+--- SnapToTarget (2) for a system authored around a body, KeepRelativeOffset (0)
+--- for one authored around a point, which is then lifted to the middle of the Pal
+--- instead of sitting at its feet.
+---
+--- It was KeepWorldPosition (1) once, which with a zero location put the system
+--- at the world origin: attached, reported as success, kilometres away. Two
+--- assets were blamed for that before the argument was.
+local function spawnAttached(system, mesh, mid, half)
+    local lib = StaticFindObject(NIAGARA_LIB)
+    if not isLive(lib) then return nil end
+    local locationType = mid and 0 or 2
+    local offset = mid and { X = 0, Y = 0, Z = half } or { X = 0, Y = 0, Z = 0 }
+    return lib:SpawnSystemAttached(system, mesh, FName("None"),
+        offset, { Pitch = 0, Yaw = 0, Roll = 0 },
+        locationType, false, true, 0, false)
+end
+
+local function applyScale(comp, half)
+    local scale = math.max(0.4, math.min(half / 90, 1.6))
+    comp:SetRelativeScale3D({ X = scale, Y = scale, Z = scale })
+end
+
 local function isVisibleActor(actor)
-    local hidden = nil
-    pcall(function() hidden = actor.bHidden end)
-    if hidden == true or hidden == 1 then return false end
+    local ok, hidden = pcall(readHidden, actor)
+    if ok and (hidden == true or hidden == 1) then return false end
     return true
 end
 
 local function isPlayerActor(actor, param)
-    local className = ""
-    pcall(function() className = actor:GetClass():GetFullName() end)
-    if type(className) == "string" and className:find("PlayerCharacter", 1, true) then
+    local okName, className = pcall(readClassName, actor)
+    if okName and type(className) == "string" and className:find("PlayerCharacter", 1, true) then
         return true
     end
     if not isLive(param) then return false end
-    local flag = nil
-    pcall(function() flag = param.SaveParameter.IsPlayer end)
-    return flag == true
+    local okFlag, flag = pcall(readIsPlayer, param)
+    return okFlag and flag == true
+end
+
+--- True only for a species the game ships as a Pal.
+---
+--- NotifyOnNewObject fires for every PalCharacter, and the NPCs are PalCharacters:
+--- soldiers, merchants, villagers. Marking them was never wanted, and reaching
+--- into forty of them on world load is forty chances to touch an actor that is
+--- still being built. The last line before both crash dumps was one of them
+--- (Female_Soldier01), which is what put this gate here.
+---
+--- Without the roster the gate opens rather than closes: a missing generated
+--- file must not silently switch the marker off for everyone.
+local function isPalSpecies(param)
+    if not PALDEX then return true end
+    local okId, id = pcall(readCharacterId, param)
+    if not okId or type(id) ~= "string" or id == "" then return false end
+    local canonical = Config.canonicalId(id)
+    if PALDEX[canonical] then return true end
+    -- Alphas carry a BOSS_ prefix that the paldex index does not.
+    local base = tostring(canonical):match("^[Bb][Oo][Ss][Ss]_(.+)$")
+    return base ~= nil and PALDEX[Config.canonicalId(base)] ~= nil
 end
 
 local function prestigeStageOf(param)
@@ -188,11 +271,10 @@ end
 local marked = {}
 
 local function keyOf(actor)
-    local key = nil
-    pcall(function() key = actor:GetAddress() end)
-    if key ~= nil then return tostring(key) end
-    pcall(function() key = actor:GetFullName() end)
-    return key and tostring(key) or nil
+    local ok, key = pcall(readAddress, actor)
+    if ok and key ~= nil then return tostring(key) end
+    ok, key = pcall(readFullName, actor)
+    return (ok and key) and tostring(key) or nil
 end
 
 local function countChoices()
@@ -228,14 +310,9 @@ local function alreadyMarked(actor)
 end
 
 local function bodyHalf(actor)
-    local half = 50
-    pcall(function()
-        local spc = actor.StaticCharacterParameterComponent
-        if isLive(spc) and spc.MeshCapsuleHalfHeight > 0 then
-            half = spc.MeshCapsuleHalfHeight
-        end
-    end)
-    return half
+    local ok, value = pcall(readCapsuleHalf, actor)
+    if ok and type(value) == "number" and value > 0 then return value end
+    return 50
 end
 
 -- No attempt is made to silence these.
@@ -267,30 +344,11 @@ local function attachOne(actor, mesh, name)
     end
 
     local half = bodyHalf(actor)
-    local comp = nil
-    pcall(function()
-        local lib = StaticFindObject("/Script/Niagara.Default__NiagaraFunctionLibrary")
-        if not isLive(lib) then return end
-        -- SnapToTarget (2) for a system authored around a body, KeepRelativeOffset
-        -- (0) for one authored around a point, which then gets lifted to the
-        -- middle of the Pal instead of sitting at its feet.
-        --
-        -- It was KeepWorldPosition (1) once, which with a zero location put the
-        -- system at the world origin: attached, reported as success, kilometres
-        -- away. Two assets were blamed for that before the argument was.
-        local locationType = mid and 0 or 2
-        local offset = mid and { X = 0, Y = 0, Z = half } or { X = 0, Y = 0, Z = 0 }
-        comp = lib:SpawnSystemAttached(system, mesh, FName("None"),
-            offset, { Pitch = 0, Yaw = 0, Roll = 0 },
-            locationType, false, true, 0, false)
-    end)
-    if not isLive(comp) then return nil end
+    local okSpawn, comp = pcall(spawnAttached, system, mesh, mid, half)
+    if not okSpawn or not isLive(comp) then return nil end
 
     -- Authored for bosses and for objects, so everything is scaled to the body.
-    pcall(function()
-        local scale = math.max(0.4, math.min(half / 90, 1.6))
-        comp:SetRelativeScale3D({ X = scale, Y = scale, Z = scale })
-    end)
+    pcall(applyScale, comp, half)
 
     return comp
 end
@@ -298,9 +356,8 @@ end
 --- The base layer plus whatever this stage adds. A stage that repeats the base
 --- gets one layer, not two.
 local function spawnGlow(actor, stage)
-    local mesh = nil
-    pcall(function() mesh = actor:GetMainMesh() end)
-    if not isLive(mesh) then return false end
+    local okMesh, mesh = pcall(readMainMesh, actor)
+    if not okMesh or not isLive(mesh) then return false end
 
     local wanted, seen = {}, {}
     local function want(name)
@@ -339,10 +396,10 @@ local function destroyComp(comp)
     -- that order: the destroy is the one that matters and the other two make the
     -- frame in between look right. K2_DestroyComponent is the reflected name -
     -- DestroyComponent is not a UFunction on this build.
-    pcall(function() comp:SetVisibility(false, true) end)
-    pcall(function() comp:SetActive(false, true) end)
-    pcall(function() comp:Deactivate() end)
-    pcall(function() comp:K2_DestroyComponent(comp) end)
+    pcall(hideComp, comp)
+    pcall(deactivateComp, comp)
+    pcall(stopComp, comp)
+    pcall(destroyCompNow, comp)
 end
 
 --- Takes the layers off. The ENTRY stays: the Pal is still prestiged, and
@@ -361,14 +418,11 @@ end
 function PrestigeMark.reconcile(actor)
     if not isLive(actor) then return end
 
-    local param = nil
-    pcall(function()
-        local component = actor:GetCharacterParameterComponent()
-        if isLive(component) then param = component:GetIndividualParameter() end
-    end)
-    if not isLive(param) then return end
+    local okParam, param = pcall(readIndividualParameter, actor)
+    if not okParam or not isLive(param) then return end
 
     if isPlayerActor(actor, param) then return end
+    if not isPalSpecies(param) then return end
     -- A parked pal keeps its marker drawing and sounding at the player's feet,
     -- so it loses it here rather than at the next summon.
     if not isVisibleActor(actor) then
@@ -380,7 +434,8 @@ function PrestigeMark.reconcile(actor)
     -- it has earned. Without it, its own stage decides as usual.
     local stage = stageOverride or prestigeStageOf(param)
     local id = "?"
-    pcall(function() id = param:GetCharacterID():ToString() end)
+    local okId; okId, id = pcall(readCharacterId, param)
+    if not okId then id = "?" end
     trace(string.format("%s reads stage %d", id, stage))
     if stage > 0 then
         if alreadyMarked(actor) then return end
@@ -473,21 +528,26 @@ end
 
 --- true when the Pal is settled enough to answer, false to try again later.
 local function tryReconcile(actor)
+    -- Checked before EVERY reach into the actor, not once at the top. An actor
+    -- is announced at construction and this runs up to MAX_TRIES ticks later, so
+    -- it can be gone between two lines of this function. A pcall does not help
+    -- there: reading through a destroyed UObject faults in native code and takes
+    -- the process with it, which is what the two 0xffffffffffffffff dumps were.
     if not isLive(actor) then return true end
 
-    local param = nil
-    pcall(function()
-        local component = actor:GetCharacterParameterComponent()
-        if isLive(component) then param = component:GetIndividualParameter() end
-    end)
-    if not isLive(param) then return false end
+    local okParam, param = pcall(readIndividualParameter, actor)
+    if not okParam or not isLive(param) then return false end
 
     if isPlayerActor(actor, param) then return true end
+    -- Settled, and deliberately not a retry: an NPC never becomes a Pal, so
+    -- retrying it would keep it in the queue for MAX_TRIES ticks for nothing.
+    if not isPalSpecies(param) then return true end
 
-    local mesh = nil
-    pcall(function() mesh = actor:GetMainMesh() end)
-    if not isLive(mesh) then return false end
+    if not isLive(actor) then return true end
+    local okMesh, mesh = pcall(readMainMesh, actor)
+    if not okMesh or not isLive(mesh) then return false end
 
+    if not isLive(actor) then return true end
     PrestigeMark.reconcile(actor)
     return true
 end
@@ -525,8 +585,10 @@ function PrestigeMark.init()
         pending = {}
         ExecuteInGameThread(function()
             for _, entry in ipairs(batch) do
-                local settled = false
-                local ok = pcall(function() settled = tryReconcile(entry.actor) end)
+                -- pcall(namedFn, arg), not a closure per entry: this runs once
+                -- per queued Pal per tick, which on world load is the busiest
+                -- allocation site in the file.
+                local ok, settled = pcall(tryReconcile, entry.actor)
                 if not (ok and settled) then
                     entry.tries = entry.tries + 1
                     if entry.tries < MAX_TRIES then
