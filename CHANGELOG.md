@@ -7,33 +7,32 @@
 ### Added
 
 - **A Pal at the end of its line can prestige and start over.** Level goes back to 1 and everything it earned stays: name, IVs, soul ranks, moves, other passives. Each prestige adds a rank of the Prestige passive, up to 10. A Pal that still has an evolution ahead of it evolves first.
-- **Prestige costs its own stone.** The Prestige Stone is crafted at the Pal Alchemy Workbench from one Evolution Stone and one Nightstar Sand, and `prestigeStoneCount` sets how many a prestige takes. A prestige no longer spends a plain Evolution Stone.
+- **Prestige needs a Prestige Stone.** Craft it at the Pal Alchemy Workbench from one Evolution Stone and one Nightstar Sand. `prestigeStoneCount` sets how many a prestige costs.
 - **Two settings decide who may prestige.** `prestigeMinEvolutions` is how long the chain behind a Pal has to be, `prestigeMinLevel` the level it has to reach. On the shipped tree, 0 opens prestige to 174 connections and 4 narrows it to 3. Both travel with the tree, so a server decides for everyone on it.
-- **Prestige has its own presentation, and it grows every time.** Ten stages, 13.5 seconds at the first and 20 at the tenth, against 12.5 for an evolution.
+- **Prestige has its own show, and it gets bigger every time.** Ten stages, 13.5 seconds at the first and 20 at the tenth, against 12.5 for an evolution.
 - **A prestiged Pal shimmers from then on.** Ten looks, one per stage, and everyone who can see the Pal sees it. Nothing is written to your save.
 - **An evolved Pal keeps every move it knew.** The pool it can pick from carries over, so the choice grows with each evolution instead of being traded in. Exclusive moves are still dropped: they belong to the old form and break the new one.
 - **New setting `moveInheritance`:** `off`, `equipped` or `known`. It replaces `inheritNonUniqueMoves`, and a config that still sets the old one is read as `equipped` or `off` to match what it asked for.
-- **Six new condition types.** A named move, a named passive, an item or an amount of gold in the inventory, condenser rank, condenser souls, and the last thing the Pal was fed. All six can be negated, and none of them take anything away.
-- **A pair can evolve on its own.** The watcher follows your summoned Pal and checks more often as more of that pair's conditions come true. It runs the same path a manual evolution runs, so it cannot skip a cost or a rollback.
-- **A pair can carry its own material cost**, instead of the one the global settings work out.
+- **Six new condition types.** A named move, a named passive, an item or an amount of gold in the inventory, condenser rank, condenser souls, and the last food you fed the Pal by hand. All six can be flipped to mean the opposite, and none of them consume what they check.
+- **An evolution can happen on its own.** Summon the Pal and play; when it meets everything that evolution asks for, it evolves. The mod watches your summoned Pal and looks more often the closer it gets. It costs the same and rolls back the same as if you had used the wheel.
+- **A single evolution can charge its own materials**, instead of the price the global settings work out.
 - **Two ways to offer an evolution.** `evolutionMode` stays on `selected`, where the wheel lists every target you configured. On `conditioned` it works out the strongest rule that passes and offers only that one.
-- **You decide how much a condition gives away.** `conditionDisclosure` is `exact`, `hint` or `hidden`, and one server setting feeds every screen the mod draws.
+- **You decide how much a condition gives away.** `conditionDisclosure` is `exact`, `hint` or `hidden`, and the one setting covers every screen the mod draws.
 - **An evolution or a prestige can hand out a fourth move slot.** `evolutionBonusSlot` and `prestigeBonusSlot`, both off until you turn them on.
 - **Evolved I to IV.** A passive that gains a rank with every evolution, next to the +5 IV each stage already gives.
 
 ### Fixed
 
-- **Evolution stones came back to the Pal Alchemy Workbench next to other PalSchema mods.** Palvolve claimed the last slot of the bench filter, and a second mod adding its own item type pushed it out. Reported by Shas Hakomairos.
-- **A single player world stopped loading.** The tracker that remembers what a Pal last ate hooked the party-bag meal, and a single player is the one role that both owns the world and plays in it. Partway through restoring a base, that hook took the game down. It is off now. It also never did anything: it looked for the inventory under a name the game does not use, so eating from the party bag has never once counted as fed. Hand feeding still counts, and always did.
+- **Evolution stones show up at the Pal Alchemy Workbench again when you run other mods that add items.** Palvolve took the last slot the bench had for a custom item type, so the next mod to ask for one pushed the stones out. Reported by Shas Hakomairos.
 - **Feeding a Pal by hand could take a dedicated server down when someone joined.**
-- **A dedicated server could go down while a wild Pal was being destroyed.** The work suitability fix reads through every Pal the base camp asks about, and the only check in front of those reads was for a class default. A Pal already marked for destruction still passed it, and a sweep that collected Pals a moment earlier read through them afterwards. Every one of those reads now asks the engine whether the object is still there, and a Pal on its way out is answered from the game instead of from us. Reported by BlakeLiam, whose server went down whenever Selyne or Bellanoir landed a beam on a wild Pal.
+- **A dedicated server could go down when a wild Pal died.** Palvolve reads a Pal's work suitability whenever the base camp asks for it, and it kept reading Pals that the game had already thrown away. Every one of those reads now checks with the game first. Reported by BlakeLiam, whose server went down whenever Selyne or Bellanoir landed a beam on a wild Pal.
 - **Evolving a Pal that wore a skin broke the mod for that Pal.** The skin still pointed at the old species afterwards, and the entry disappeared from the wheel until the mod was reinstalled. An incompatible skin is now removed at the species change, and a rollback brings it back. `clearIncompatibleSkins` turns that off if you would rather keep the skin and the risk.
 - **An exclusive move carried into a new form broke the Pal.** Those moves belong to one species and are dropped now.
-- **A tree with conditions this version does not know refuses those pairs and says how many.** It used to unlock them instead, which is the wrong direction for a condition nobody can check.
+- **A config built with a newer version than the mod locks the evolutions it cannot read, and tells you how many.** It used to offer them instead, which meant an evolution whose condition nobody could check came for free.
 - **Picking one variant of a pair could evolve the other.** The price of whichever variant resolved first was also quoted for both.
 - **The wheel unlocked before the evolution had finished playing.**
 - **The config-loaded notice was English for everyone.** The sentence already existed in all 17 languages.
-- **A failed step looked exactly like a step that never ran.** Costs, config migration, server tree transport, private chat and the workbench and survival guide edits now name the action, the item and the file in the log, and a rollback that could not finish says where the original is.
+- **When something went wrong, the log stayed silent about it.** A step that failed read exactly like a step that never ran, which is the worst thing a log can do to whoever is trying to help you. Costs, config loading, the tree a server sends its players, chat replies and the workbench and survival guide entries now say what was attempted and on what, and a rollback that could not finish tells you where your original is.
 
 ## [1.8.4] - 2026-08-16
 
