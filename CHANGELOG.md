@@ -6,7 +6,8 @@
 
 ### Added
 
-- **A Pal at the end of its line can prestige and start over.** Level goes back to 1 and everything it earned stays: name, IVs, soul ranks, moves, other passives. Each prestige adds a rank of the Prestige passive, up to X. A Pal that still has an evolution ahead of it evolves first.
+- **A Pal at the end of its line can prestige and start over.** Level goes back to 1 and everything it earned stays: name, IVs, soul ranks, moves, other passives. Each prestige adds a rank of the Prestige passive, up to 10. A Pal that still has an evolution ahead of it evolves first.
+- **Prestige costs its own stone.** The Prestige Stone is crafted at the Pal Alchemy Workbench from one Evolution Stone and one Nightstar Sand, and `prestigeStoneCount` sets how many a prestige takes. A prestige no longer spends a plain Evolution Stone.
 - **Two settings decide who may prestige.** `prestigeMinEvolutions` is how long the chain behind a Pal has to be, `prestigeMinLevel` the level it has to reach. On the shipped tree, 0 opens prestige to 174 connections and 4 narrows it to 3. Both travel with the tree, so a server decides for everyone on it.
 - **Prestige has its own presentation, and it grows every time.** Ten stages, 13.5 seconds at the first and 20 at the tenth, against 12.5 for an evolution.
 - **A prestiged Pal shimmers from then on.** Ten looks, one per stage, and everyone who can see the Pal sees it. Nothing is written to your save.
@@ -23,6 +24,7 @@
 ### Fixed
 
 - **Evolution stones came back to the Pal Alchemy Workbench next to other PalSchema mods.** Palvolve claimed the last slot of the bench filter, and a second mod adding its own item type pushed it out. Reported by Shas Hakomairos.
+- **A single player world stopped loading.** The tracker that remembers what a Pal last ate hooked the party-bag meal, and a single player is the one role that both owns the world and plays in it. Partway through restoring a base, that hook took the game down. It is off now. It also never did anything: it looked for the inventory under a name the game does not use, so eating from the party bag has never once counted as fed. Hand feeding still counts, and always did.
 - **Feeding a Pal by hand could take a dedicated server down when someone joined.**
 - **A dedicated server could go down while a wild Pal was being destroyed.** The work suitability fix reads through every Pal the base camp asks about, and the only check in front of those reads was for a class default. A Pal already marked for destruction still passed it, and a sweep that collected Pals a moment earlier read through them afterwards. Every one of those reads now asks the engine whether the object is still there, and a Pal on its way out is answered from the game instead of from us. Reported by BlakeLiam, whose server went down whenever Selyne or Bellanoir landed a beam on a wild Pal.
 - **Evolving a Pal that wore a skin broke the mod for that Pal.** The skin still pointed at the old species afterwards, and the entry disappeared from the wheel until the mod was reinstalled. An incompatible skin is now removed at the species change, and a rollback brings it back. `clearIncompatibleSkins` turns that off if you would rather keep the skin and the risk.
