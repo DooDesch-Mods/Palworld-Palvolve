@@ -1,0 +1,34 @@
+{
+    "DT_SkillNameText": {
+        "PASSIVE_Palvolve_Prestige_1": "Prestigio I",
+        "PASSIVE_Palvolve_Prestige_2": "Prestigio II",
+        "PASSIVE_Palvolve_Prestige_3": "Prestigio III",
+        "PASSIVE_Palvolve_Prestige_4": "Prestigio IV",
+        "PASSIVE_Palvolve_Prestige_5": "Prestigio V: Asceso",
+        "PASSIVE_Palvolve_Prestige_6": "Prestigio VI",
+        "PASSIVE_Palvolve_Prestige_7": "Prestigio VII",
+        "PASSIVE_Palvolve_Prestige_8": "Prestigio VIII: Marchiato dal sangue",
+        "PASSIVE_Palvolve_Prestige_9": "Prestigio IX",
+        "PASSIVE_Palvolve_Prestige_10": "Prestigio X: Legato al sangue",
+        "PASSIVE_Palvolve_Evolved_1": "Evoluto I",
+        "PASSIVE_Palvolve_Evolved_2": "Evoluto II",
+        "PASSIVE_Palvolve_Evolved_3": "Evoluto III",
+        "PASSIVE_Palvolve_Evolved_4": "Evoluto IV"
+    },
+    "DT_SkillDescText": {
+        "PASSIVE_Palvolve_Prestige_1": "L'ascesa ha inizio.\r\nAttacco +{EffectValue1}%\r\nDifesa +{EffectValue2}%\r\nVelocità di lavoro +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_2": "Una nuova forza si consolida.\r\nAttacco +{EffectValue1}%\r\nDifesa +{EffectValue2}%\r\nVelocità di lavoro +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_3": "Combattimento e lavoro migliorano insieme.\r\nAttacco +{EffectValue1}%\r\nDifesa +{EffectValue2}%\r\nVelocità di lavoro +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_4": "L'ascesa dorata è completa.\r\nAttacco +{EffectValue1}%\r\nDifesa +{EffectValue2}%\r\nVelocità di lavoro +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_5": "Il potere asceso infrange il vecchio limite.\r\nAttacco +{EffectValue1}%\r\nDifesa +{EffectValue2}%\r\nVelocità di lavoro +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_6": "Il potere asceso si consolida ancora.\r\nAttacco +{EffectValue1}%\r\nDifesa +{EffectValue2}%\r\nVelocità di lavoro +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_7": "Combattimento e lavoro si avvicinano all'apice.\r\nAttacco +{EffectValue1}%\r\nDifesa +{EffectValue2}%\r\nVelocità di lavoro +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_8": "Il Marchio di Sangue si risveglia.\r\nAttacco +{EffectValue1}%\r\nDifesa +{EffectValue2}%\r\nVelocità di lavoro +{EffectValue3}%\r\nFurto di vita +{EffectValue4}% cura questo Pal.",
+        "PASSIVE_Palvolve_Prestige_9": "Il Marchio di Sangue si rafforza.\r\nAttacco +{EffectValue1}%\r\nDifesa +{EffectValue2}%\r\nVelocità di lavoro +{EffectValue3}%\r\nFurto di vita +{EffectValue4}% cura questo Pal.",
+        "PASSIVE_Palvolve_Prestige_10": "Il potere legato al sangue raggiunge l'apice.\r\nAttacco +{EffectValue1}%\r\nDifesa +{EffectValue2}%\r\nVelocità di lavoro +{EffectValue3}%\r\nFurto di vita +{EffectValue4}% cura il Pal e l'allenatore.",
+        "PASSIVE_Palvolve_Evolved_1": "PS max +{EffectValue1}%\nVelocità di movimento +{EffectValue2}%\nVelocità di lavoro +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_2": "PS max +{EffectValue1}%\nVelocità di movimento +{EffectValue2}%\nVelocità di lavoro +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_3": "PS max +{EffectValue1}%\nVelocità di movimento +{EffectValue2}%\nVelocità di lavoro +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_4": "PS max +{EffectValue1}%\nVelocità di movimento +{EffectValue2}%\nVelocità di lavoro +{EffectValue3}%"
+    }
+}

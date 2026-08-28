@@ -1,0 +1,34 @@
+{
+    "DT_SkillNameText": {
+        "PASSIVE_Palvolve_Prestige_1": "轉生 I",
+        "PASSIVE_Palvolve_Prestige_2": "轉生 II",
+        "PASSIVE_Palvolve_Prestige_3": "轉生 III",
+        "PASSIVE_Palvolve_Prestige_4": "轉生 IV",
+        "PASSIVE_Palvolve_Prestige_5": "轉生 V：飛昇",
+        "PASSIVE_Palvolve_Prestige_6": "轉生 VI",
+        "PASSIVE_Palvolve_Prestige_7": "轉生 VII",
+        "PASSIVE_Palvolve_Prestige_8": "轉生 VIII：血印",
+        "PASSIVE_Palvolve_Prestige_9": "轉生 IX",
+        "PASSIVE_Palvolve_Prestige_10": "轉生 X：血契",
+        "PASSIVE_Palvolve_Evolved_1": "進化 I",
+        "PASSIVE_Palvolve_Evolved_2": "進化 II",
+        "PASSIVE_Palvolve_Evolved_3": "進化 III",
+        "PASSIVE_Palvolve_Evolved_4": "進化 IV"
+    },
+    "DT_SkillDescText": {
+        "PASSIVE_Palvolve_Prestige_1": "飛昇開始。\r\n攻擊 +{EffectValue1}%\r\n防禦 +{EffectValue2}%\r\n工作速度 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_2": "新的力量逐漸穩固。\r\n攻擊 +{EffectValue1}%\r\n防禦 +{EffectValue2}%\r\n工作速度 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_3": "戰鬥與技藝一同精進。\r\n攻擊 +{EffectValue1}%\r\n防禦 +{EffectValue2}%\r\n工作速度 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_4": "黃金飛昇已經完成。\r\n攻擊 +{EffectValue1}%\r\n防禦 +{EffectValue2}%\r\n工作速度 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_5": "飛昇之力打破舊日極限。\r\n攻擊 +{EffectValue1}%\r\n防禦 +{EffectValue2}%\r\n工作速度 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_6": "飛昇之力愈發穩固。\r\n攻擊 +{EffectValue1}%\r\n防禦 +{EffectValue2}%\r\n工作速度 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_7": "戰鬥與技藝接近巔峰。\r\n攻擊 +{EffectValue1}%\r\n防禦 +{EffectValue2}%\r\n工作速度 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_8": "血印覺醒。\r\n攻擊 +{EffectValue1}%\r\n防禦 +{EffectValue2}%\r\n工作速度 +{EffectValue3}%\r\n生命竊取 +{EffectValue4}%可治療此帕魯。",
+        "PASSIVE_Palvolve_Prestige_9": "血印變得更強。\r\n攻擊 +{EffectValue1}%\r\n防禦 +{EffectValue2}%\r\n工作速度 +{EffectValue3}%\r\n生命竊取 +{EffectValue4}%可治療此帕魯。",
+        "PASSIVE_Palvolve_Prestige_10": "血契之力達到巔峰。\r\n攻擊 +{EffectValue1}%\r\n防禦 +{EffectValue2}%\r\n工作速度 +{EffectValue3}%\r\n生命竊取 +{EffectValue4}%可治療帕魯和訓練師。",
+        "PASSIVE_Palvolve_Evolved_1": "最大生命值 +{EffectValue1}%\n移動速度 +{EffectValue2}%\n工作速度 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_2": "最大生命值 +{EffectValue1}%\n移動速度 +{EffectValue2}%\n工作速度 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_3": "最大生命值 +{EffectValue1}%\n移動速度 +{EffectValue2}%\n工作速度 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_4": "最大生命值 +{EffectValue1}%\n移動速度 +{EffectValue2}%\n工作速度 +{EffectValue3}%"
+    }
+}

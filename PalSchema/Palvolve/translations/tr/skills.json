@@ -1,0 +1,34 @@
+{
+    "DT_SkillNameText": {
+        "PASSIVE_Palvolve_Prestige_1": "Prestij I",
+        "PASSIVE_Palvolve_Prestige_2": "Prestij II",
+        "PASSIVE_Palvolve_Prestige_3": "Prestij III",
+        "PASSIVE_Palvolve_Prestige_4": "Prestij IV",
+        "PASSIVE_Palvolve_Prestige_5": "Prestij V: Yücelmiş",
+        "PASSIVE_Palvolve_Prestige_6": "Prestij VI",
+        "PASSIVE_Palvolve_Prestige_7": "Prestij VII",
+        "PASSIVE_Palvolve_Prestige_8": "Prestij VIII: Kan Damgalı",
+        "PASSIVE_Palvolve_Prestige_9": "Prestij IX",
+        "PASSIVE_Palvolve_Prestige_10": "Prestij X: Kana Bağlı",
+        "PASSIVE_Palvolve_Evolved_1": "Evrilmiş I",
+        "PASSIVE_Palvolve_Evolved_2": "Evrilmiş II",
+        "PASSIVE_Palvolve_Evolved_3": "Evrilmiş III",
+        "PASSIVE_Palvolve_Evolved_4": "Evrilmiş IV"
+    },
+    "DT_SkillDescText": {
+        "PASSIVE_Palvolve_Prestige_1": "Yükseliş başlıyor.\r\nSaldırı +{EffectValue1}%\r\nSavunma +{EffectValue2}%\r\nÇalışma hızı +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_2": "Yeni bir güç kök salıyor.\r\nSaldırı +{EffectValue1}%\r\nSavunma +{EffectValue2}%\r\nÇalışma hızı +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_3": "Savaş ve zanaat birlikte keskinleşiyor.\r\nSaldırı +{EffectValue1}%\r\nSavunma +{EffectValue2}%\r\nÇalışma hızı +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_4": "Altın yükseliş tamamlandı.\r\nSaldırı +{EffectValue1}%\r\nSavunma +{EffectValue2}%\r\nÇalışma hızı +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_5": "Yücelmiş güç eski sınırı aşıyor.\r\nSaldırı +{EffectValue1}%\r\nSavunma +{EffectValue2}%\r\nÇalışma hızı +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_6": "Yücelmiş güç daha da sağlamlaşıyor.\r\nSaldırı +{EffectValue1}%\r\nSavunma +{EffectValue2}%\r\nÇalışma hızı +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_7": "Savaş ve zanaat zirveye yaklaşıyor.\r\nSaldırı +{EffectValue1}%\r\nSavunma +{EffectValue2}%\r\nÇalışma hızı +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_8": "Kan Damgası uyanıyor.\r\nSaldırı +{EffectValue1}%\r\nSavunma +{EffectValue2}%\r\nÇalışma hızı +{EffectValue3}%\r\nCan çalma +{EffectValue4}% bu Pal'ı iyileştirir.",
+        "PASSIVE_Palvolve_Prestige_9": "Kan Damgası güçleniyor.\r\nSaldırı +{EffectValue1}%\r\nSavunma +{EffectValue2}%\r\nÇalışma hızı +{EffectValue3}%\r\nCan çalma +{EffectValue4}% bu Pal'ı iyileştirir.",
+        "PASSIVE_Palvolve_Prestige_10": "Kana bağlı güç zirveye ulaşıyor.\r\nSaldırı +{EffectValue1}%\r\nSavunma +{EffectValue2}%\r\nÇalışma hızı +{EffectValue3}%\r\nCan çalma +{EffectValue4}% Pal'ı ve eğitmeni iyileştirir.",
+        "PASSIVE_Palvolve_Evolved_1": "Maks. Can +{EffectValue1}%\nHareket hızı +{EffectValue2}%\nÇalışma hızı +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_2": "Maks. Can +{EffectValue1}%\nHareket hızı +{EffectValue2}%\nÇalışma hızı +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_3": "Maks. Can +{EffectValue1}%\nHareket hızı +{EffectValue2}%\nÇalışma hızı +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_4": "Maks. Can +{EffectValue1}%\nHareket hızı +{EffectValue2}%\nÇalışma hızı +{EffectValue3}%"
+    }
+}

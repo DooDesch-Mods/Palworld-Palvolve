@@ -26,9 +26,9 @@
         "PASSIVE_Palvolve_Prestige_8": "Das Blutzeichen erwacht.\r\nAngriff +{EffectValue1}%\r\nVerteidigung +{EffectValue2}%\r\nArbeitstempo +{EffectValue3}%\r\nLebensraub +{EffectValue4}% heilt diesen Pal.",
         "PASSIVE_Palvolve_Prestige_9": "Das Blutzeichen wird stärker.\r\nAngriff +{EffectValue1}%\r\nVerteidigung +{EffectValue2}%\r\nArbeitstempo +{EffectValue3}%\r\nLebensraub +{EffectValue4}% heilt diesen Pal.",
         "PASSIVE_Palvolve_Prestige_10": "Blutgebundene Kraft erreicht ihren Gipfel.\r\nAngriff +{EffectValue1}%\r\nVerteidigung +{EffectValue2}%\r\nArbeitstempo +{EffectValue3}%\r\nLebensraub +{EffectValue4}% heilt Pal und Trainer.",
-        "PASSIVE_Palvolve_Evolved_1": "Die Entwicklung beginnt.\r\nMax. LP +{EffectValue1}%\r\nAngriff +{EffectValue2}%\r\nVerteidigung +{EffectValue3}%\r\nArbeitstempo +{EffectValue4}%",
-        "PASSIVE_Palvolve_Evolved_2": "Die entwickelte Form wird stärker.\r\nMax. LP +{EffectValue1}%\r\nAngriff +{EffectValue2}%\r\nVerteidigung +{EffectValue3}%\r\nArbeitstempo +{EffectValue4}%",
-        "PASSIVE_Palvolve_Evolved_3": "Körper und Angriff werden gemeinsam gestählt.\r\nMax. LP +{EffectValue1}%\r\nAngriff +{EffectValue2}%\r\nVerteidigung +{EffectValue3}%\r\nArbeitstempo +{EffectValue4}%",
-        "PASSIVE_Palvolve_Evolved_4": "Die Entwicklung erreicht ihre Endform.\r\nMax. LP +{EffectValue1}%\r\nAngriff +{EffectValue2}%\r\nVerteidigung +{EffectValue3}%\r\nArbeitstempo +{EffectValue4}%"
+        "PASSIVE_Palvolve_Evolved_1": "Max. LP +{EffectValue1}%\nBewegungstempo +{EffectValue2}%\nArbeitstempo +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_2": "Max. LP +{EffectValue1}%\nBewegungstempo +{EffectValue2}%\nArbeitstempo +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_3": "Max. LP +{EffectValue1}%\nBewegungstempo +{EffectValue2}%\nArbeitstempo +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_4": "Max. LP +{EffectValue1}%\nBewegungstempo +{EffectValue2}%\nArbeitstempo +{EffectValue3}%"
     }
 }

@@ -1,0 +1,34 @@
+{
+    "DT_SkillNameText": {
+        "PASSIVE_Palvolve_Prestige_1": "เพรสทีจ I",
+        "PASSIVE_Palvolve_Prestige_2": "เพรสทีจ II",
+        "PASSIVE_Palvolve_Prestige_3": "เพรสทีจ III",
+        "PASSIVE_Palvolve_Prestige_4": "เพรสทีจ IV",
+        "PASSIVE_Palvolve_Prestige_5": "เพรสทีจ V: ยกระดับ",
+        "PASSIVE_Palvolve_Prestige_6": "เพรสทีจ VI",
+        "PASSIVE_Palvolve_Prestige_7": "เพรสทีจ VII",
+        "PASSIVE_Palvolve_Prestige_8": "เพรสทีจ VIII: ตราประทับโลหิต",
+        "PASSIVE_Palvolve_Prestige_9": "เพรสทีจ IX",
+        "PASSIVE_Palvolve_Prestige_10": "เพรสทีจ X: พันธะโลหิต",
+        "PASSIVE_Palvolve_Evolved_1": "วิวัฒน์ I",
+        "PASSIVE_Palvolve_Evolved_2": "วิวัฒน์ II",
+        "PASSIVE_Palvolve_Evolved_3": "วิวัฒน์ III",
+        "PASSIVE_Palvolve_Evolved_4": "วิวัฒน์ IV"
+    },
+    "DT_SkillDescText": {
+        "PASSIVE_Palvolve_Prestige_1": "การยกระดับเริ่มต้นขึ้น\r\nพลังโจมตี +{EffectValue1}%\r\nพลังป้องกัน +{EffectValue2}%\r\nความเร็วในการทำงาน +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_2": "พลังใหม่เริ่มหยั่งราก\r\nพลังโจมตี +{EffectValue1}%\r\nพลังป้องกัน +{EffectValue2}%\r\nความเร็วในการทำงาน +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_3": "การต่อสู้และฝีมือพัฒนาขึ้นพร้อมกัน\r\nพลังโจมตี +{EffectValue1}%\r\nพลังป้องกัน +{EffectValue2}%\r\nความเร็วในการทำงาน +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_4": "การยกระดับสีทองเสร็จสมบูรณ์\r\nพลังโจมตี +{EffectValue1}%\r\nพลังป้องกัน +{EffectValue2}%\r\nความเร็วในการทำงาน +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_5": "พลังยกระดับทำลายขีดจำกัดเดิม\r\nพลังโจมตี +{EffectValue1}%\r\nพลังป้องกัน +{EffectValue2}%\r\nความเร็วในการทำงาน +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_6": "พลังยกระดับหยั่งรากมั่นคงยิ่งขึ้น\r\nพลังโจมตี +{EffectValue1}%\r\nพลังป้องกัน +{EffectValue2}%\r\nความเร็วในการทำงาน +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_7": "การต่อสู้และฝีมือเข้าใกล้จุดสูงสุด\r\nพลังโจมตี +{EffectValue1}%\r\nพลังป้องกัน +{EffectValue2}%\r\nความเร็วในการทำงาน +{EffectValue3}%",
+        "PASSIVE_Palvolve_Prestige_8": "ตราประทับโลหิตตื่นขึ้น\r\nพลังโจมตี +{EffectValue1}%\r\nพลังป้องกัน +{EffectValue2}%\r\nความเร็วในการทำงาน +{EffectValue3}%\r\nดูดพลังชีวิต +{EffectValue4}% ฟื้นฟูพาลตัวนี้",
+        "PASSIVE_Palvolve_Prestige_9": "ตราประทับโลหิตแข็งแกร่งขึ้น\r\nพลังโจมตี +{EffectValue1}%\r\nพลังป้องกัน +{EffectValue2}%\r\nความเร็วในการทำงาน +{EffectValue3}%\r\nดูดพลังชีวิต +{EffectValue4}% ฟื้นฟูพาลตัวนี้",
+        "PASSIVE_Palvolve_Prestige_10": "พลังพันธะโลหิตถึงจุดสูงสุด\r\nพลังโจมตี +{EffectValue1}%\r\nพลังป้องกัน +{EffectValue2}%\r\nความเร็วในการทำงาน +{EffectValue3}%\r\nดูดพลังชีวิต +{EffectValue4}% ฟื้นฟูพาลและผู้ฝึก",
+        "PASSIVE_Palvolve_Evolved_1": "พลังชีวิตสูงสุด +{EffectValue1}%\nความเร็วเคลื่อนที่ +{EffectValue2}%\nความเร็วในการทำงาน +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_2": "พลังชีวิตสูงสุด +{EffectValue1}%\nความเร็วเคลื่อนที่ +{EffectValue2}%\nความเร็วในการทำงาน +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_3": "พลังชีวิตสูงสุด +{EffectValue1}%\nความเร็วเคลื่อนที่ +{EffectValue2}%\nความเร็วในการทำงาน +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_4": "พลังชีวิตสูงสุด +{EffectValue1}%\nความเร็วเคลื่อนที่ +{EffectValue2}%\nความเร็วในการทำงาน +{EffectValue3}%"
+    }
+}

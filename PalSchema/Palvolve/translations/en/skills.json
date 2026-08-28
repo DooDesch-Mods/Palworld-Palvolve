@@ -26,9 +26,9 @@
         "PASSIVE_Palvolve_Prestige_8": "The Bloodmark awakens.\r\nAttack +{EffectValue1}%\r\nDefense +{EffectValue2}%\r\nWork speed +{EffectValue3}%\r\nLife steal +{EffectValue4}% heals this Pal.",
         "PASSIVE_Palvolve_Prestige_9": "The Bloodmark grows stronger.\r\nAttack +{EffectValue1}%\r\nDefense +{EffectValue2}%\r\nWork speed +{EffectValue3}%\r\nLife steal +{EffectValue4}% heals this Pal.",
         "PASSIVE_Palvolve_Prestige_10": "Bloodbound power reaches its peak.\r\nAttack +{EffectValue1}%\r\nDefense +{EffectValue2}%\r\nWork speed +{EffectValue3}%\r\nLife steal +{EffectValue4}% heals Pal and trainer.",
-        "PASSIVE_Palvolve_Evolved_1": "Evolution begins.\r\nMax HP +{EffectValue1}%\r\nAttack +{EffectValue2}%\r\nDefense +{EffectValue3}%\r\nWork speed +{EffectValue4}%",
-        "PASSIVE_Palvolve_Evolved_2": "The evolved form grows stronger.\r\nMax HP +{EffectValue1}%\r\nAttack +{EffectValue2}%\r\nDefense +{EffectValue3}%\r\nWork speed +{EffectValue4}%",
-        "PASSIVE_Palvolve_Evolved_3": "Body and offense harden together.\r\nMax HP +{EffectValue1}%\r\nAttack +{EffectValue2}%\r\nDefense +{EffectValue3}%\r\nWork speed +{EffectValue4}%",
-        "PASSIVE_Palvolve_Evolved_4": "Evolution reaches its final form.\r\nMax HP +{EffectValue1}%\r\nAttack +{EffectValue2}%\r\nDefense +{EffectValue3}%\r\nWork speed +{EffectValue4}%"
+        "PASSIVE_Palvolve_Evolved_1": "Max HP +{EffectValue1}%\nMovement speed +{EffectValue2}%\nWork speed +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_2": "Max HP +{EffectValue1}%\nMovement speed +{EffectValue2}%\nWork speed +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_3": "Max HP +{EffectValue1}%\nMovement speed +{EffectValue2}%\nWork speed +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_4": "Max HP +{EffectValue1}%\nMovement speed +{EffectValue2}%\nWork speed +{EffectValue3}%"
     }
 }

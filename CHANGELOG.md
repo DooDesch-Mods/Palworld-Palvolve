@@ -6,7 +6,7 @@
 
 ### Added
 
-- **A Pal at the end of its line can prestige and start over.** Level goes back to 1 and everything it earned stays: name, IVs, soul ranks, moves, other passives. Each prestige adds a rank of the Prestige passive, up to 10. A Pal that still has an evolution ahead of it evolves first.
+- **A Pal at the end of its line can prestige and start over.** Level goes back to 1 and everything it earned stays: name, IVs, soul ranks, moves, other passives. Each prestige adds a rank of the Prestige passive, up to 10, and a Pal that has reached the tenth cannot prestige again. A Pal that still has an evolution ahead of it evolves first.
 - **Prestige needs a Prestige Stone.** Craft it at the Pal Alchemy Workbench from one Evolution Stone and one Nightstar Sand. `prestigeStoneCount` sets how many a prestige costs.
 - **Two settings decide who may prestige.** `prestigeMinEvolutions` is how long the chain behind a Pal has to be, `prestigeMinLevel` the level it has to reach. On the shipped tree, 0 opens prestige to 174 connections and 4 narrows it to 3. Both travel with the tree, so a server decides for everyone on it.
 - **Prestige has its own show, and it gets bigger every time.** Ten stages, 13.5 seconds at the first and 20 at the tenth, against 12.5 for an evolution.
@@ -19,7 +19,7 @@
 - **Two ways to offer an evolution.** `evolutionMode` stays on `selected`, where the wheel lists every target you configured. On `conditioned` it works out the strongest rule that passes and offers only that one.
 - **You decide how much a condition gives away.** `conditionDisclosure` is `exact`, `hint` or `hidden`, and the one setting covers every screen the mod draws.
 - **An evolution or a prestige can hand out a fourth move slot.** `evolutionBonusSlot` and `prestigeBonusSlot`, both off until you turn them on.
-- **Evolved I to IV.** A passive that gains a rank with every evolution, next to the +5 IV each stage already gives.
+- **Evolved I to IV.** A passive that gains a rank with every evolution, next to the +5 IV each stage already gives. Each rank adds max HP, movement speed and work speed, so an evolved Pal is also a faster mount.
 
 ### Fixed
 
