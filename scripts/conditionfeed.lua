@@ -15,12 +15,50 @@ local HAND_FEED_FN =
 local lastFoodByIndividual = {}
 local pendingParty = {}
 local pendingHand = {}
+local hooksArmed = false
 local nativeHookRegistered = false
 local blueprintHookRegistered = false
-local blueprintPollStarted = false
+local pollStarted = false
 local stablePlayerPolls = 0
-local blueprintRegistrationFailures = 0
-local MAX_BLUEPRINT_REGISTRATION_FAILURES = 12
+local registrationFailures = 0
+local MAX_REGISTRATION_FAILURES = 12
+local ARM_POLL_MS = 5000
+local ARM_STABLE_POLLS = 2
+
+--- The party-bag half of the tracker is off, and the reason is a crash, not a
+--- preference.
+---
+--- A listen host dies with an access violation on 0xffffffffffffffff while a
+--- singleplayer world loads, and the only thing that reliably decides it is
+--- whether PartyPalMealInventoryFood carries this module's hook: registered, the
+--- process dies partway through the restore; not registered, the world finishes.
+--- A dedicated server never registers it and a remote client never runs the
+--- authoritative feeding, which is why only singleplayer showed it.
+---
+--- Two guesses at the mechanism did not hold. Rejecting an unresolved owner uid
+--- changed nothing. Passing a real WorldContextObject to
+--- GetInventoryDataByPlayerUID and GetItemContainerManager - which the header at
+--- Pal.hpp:38031 and Pal.hpp:38027 does ask for, and which this file used to get
+--- wrong - bought 1.4 seconds and 22 more restored pals, then died anyway. So
+--- the wrong context was real and was not the whole story. What kills it is
+--- still unknown, which is exactly why the hook stays off rather than guarded
+--- again: a pcall cannot catch a native access violation, so a wrong guess here
+--- costs the player their world, not a log line.
+---
+--- The cost of leaving it off is nothing, because this half never worked. The
+--- container lookup read inv.InventoryInfo, and the member is MyInventoryInfo
+--- (Pal.hpp:31774). An unknown reflected member yields an invalid wrapper, the
+--- enclosing pcall swallowed it, and pendingParty was therefore never filled:
+--- party-bag eating has never once marked fedFood. Hand feeding does, through
+--- the Blueprint hook below, which survived every run that this one killed.
+---
+--- Before turning it back on, run the probe that separates our code from the
+--- framework: register this same hook with two named no-op callbacks and load a
+--- singleplayer world. If that still dies, the fault is in UE4SS hook dispatch,
+--- not in anything guarding can reach - this build is c838a8ac, whose LoopAsync
+--- runs Lua on a worker thread against the same lua_State the hook dispatch uses
+--- (UE4SS issues #1345 and #1372).
+local PARTY_HOOK_ENABLED = false
 
 local function Log(msg)
     print(string.format("[Palvolve] %s\n", msg))
@@ -89,13 +127,64 @@ local function playerUtility()
     return nil
 end
 
+--- True once the owner uid is a real guid rather than a zeroed one.
+---
+--- A pal whose owner has not resolved yet carries all-zero. Handing that to
+--- GetInventoryDataByPlayerUID is the call this file already documents as fatal:
+--- it dies reading 0xffffffffffffffff, and the pcall around it catches nothing,
+--- because a native access violation is not a Lua error.
+---
+--- The join case was known. The one that was not: a LISTEN HOST builds its own
+--- local player while the world streams in, so every singleplayer load walks
+--- through the same unresolved window - and a listen host is the only role that
+--- both registers this hook and owns the authoritative party feeding, which is
+--- why a dedicated server and a remote client never showed it.
+local function ownerResolved(param)
+    local ok, resolved = pcall(function()
+        local g = param.SaveParameter.OwnerPlayerUId
+        return g ~= nil and (g.A ~= 0 or g.B ~= 0 or g.C ~= 0 or g.D ~= 0)
+    end)
+    return ok and resolved == true
+end
+
+--- A live object that can resolve a world, cached but never trusted.
+---
+--- Both utility calls below take a WorldContextObject:
+---   Pal.hpp:38031  GetInventoryDataByPlayerUID(const UObject* WorldContextObject, FGuid)
+---   Pal.hpp:38027  GetItemContainerManager(const UObject* WorldContextObject)
+---
+--- This file used to hand them the individual parameter itself. That is a plain
+--- UObject whose outer chain does not reach a world, so the engine resolved a
+--- null world and dereferenced it, dying on 0xffffffffffffffff. The hand-feeding
+--- path never crashed because it passes the action object, which does resolve.
+---
+--- The handle is revalidated on every use rather than kept, because a pointer
+--- that was good last tick says nothing about this one, and a pcall does not
+--- catch an access violation through a dead UObject.
+local worldContext = nil
+
+local function worldContextUnsafe()
+    if objectIsValidUnsafe(worldContext) then return worldContext end
+    worldContext = FindFirstOf("PalPlayerCharacter")
+    if objectIsValidUnsafe(worldContext) then return worldContext end
+    worldContext = nil
+    return nil
+end
+
 local function foodContainerUnsafe(param, util)
+    if not ownerResolved(param) then return nil end
+    local context = worldContextUnsafe()
+    if context == nil then return nil end
     local owner = param.SaveParameter.OwnerPlayerUId
-    local inv = util:GetInventoryDataByPlayerUID(param, owner)
+    local inv = util:GetInventoryDataByPlayerUID(context, owner)
     if not objectIsValidUnsafe(inv) then return nil end
-    local manager = util:GetItemContainerManager(param)
+    local manager = util:GetItemContainerManager(context)
     if not objectIsValidUnsafe(manager) then return nil end
-    return manager:GetContainer(inv.InventoryInfo.FoodEquipContainerId)
+    -- MyInventoryInfo, not InventoryInfo: Pal.hpp:31774 declares the member at
+    -- offset 0x100 under that name, and uninstall.lua:249 already reads it
+    -- correctly. Unreachable while PARTY_HOOK_ENABLED is false, and corrected
+    -- so that a future attempt starts from working code rather than this.
+    return manager:GetContainer(inv.MyInventoryInfo.FoodEquipContainerId)
 end
 
 local function foodContainer(param)
@@ -205,10 +294,12 @@ local function confirmPartyUnsafe(hookParam)
 end
 
 local function onPartyPre(self)
+    if not hooksArmed then return end
     pcall(capturePartyUnsafe, self)
 end
 
 local function onPartyPost(self)
+    if not hooksArmed then return end
     pcall(confirmPartyUnsafe, self)
 end
 
@@ -276,10 +367,12 @@ local function confirmHandUnsafe(hookParam)
 end
 
 local function onHandPre(self)
+    if not hooksArmed then return end
     pcall(captureHandUnsafe, self)
 end
 
 local function onHandPost(self)
+    if not hooksArmed then return end
     pcall(confirmHandUnsafe, self)
 end
 
@@ -287,45 +380,96 @@ local function registerNativeUnsafe()
     RegisterHook(PARTY_MEAL_FN, onPartyPre, onPartyPost)
 end
 
-local function registerNative()
-    if nativeHookRegistered then return true end
-    local ok = pcall(registerNativeUnsafe)
-    nativeHookRegistered = ok
-    return ok
+local function registerBlueprintUnsafe()
+    RegisterHook(HAND_FEED_FN, onHandPre, onHandPost)
 end
 
-local function registerBlueprintUnsafe()
-    if blueprintHookRegistered then return end
-    local player = FindFirstOf("PalPlayerCharacter")
-    if not objectIsValidUnsafe(player) then
-        stablePlayerPolls = 0
+local function localPlayerPresentUnsafe()
+    return objectIsValidUnsafe(FindFirstOf("PalPlayerCharacter"))
+end
+
+--- True while a local player character exists, which is this module's proxy for
+--- "the world is finished, not still streaming in".
+local function localPlayerPresent()
+    local ok, present = pcall(localPlayerPresentUnsafe)
+    if not ok then
+        Log("feeding tracker: local player probe failed, staying disarmed")
+        return false
+    end
+    return present == true
+end
+
+local function disarm(reason)
+    stablePlayerPolls = 0
+    if not hooksArmed then return end
+    hooksArmed = false
+    pendingParty = {}
+    pendingHand = {}
+    worldContext = nil
+    Log("feeding tracker disarmed: " .. reason)
+end
+
+--- Arms both hooks once a local player has been present for two consecutive
+--- polls, and disarms them again the moment it disappears.
+---
+--- The gate exists because of a crash, not for tidiness. Restoring a base
+--- replays PartyPalMealInventoryFood for the pals it brings back, and the
+--- callback walks into GetInventoryDataByPlayerUID while the player inventory
+--- registry does not exist yet. That call dies reading 0xffffffffffffffff, and
+--- the pcall around it catches nothing, because a native access violation is
+--- not a Lua error.
+---
+--- Only a LISTEN HOST hits it: a dedicated server skips the module entirely,
+--- and a remote client never runs the authoritative party feeding. That is why
+--- three days of dedicated testing showed a healthy mod and every singleplayer
+--- load died. The flag has to be able to go back to false as well - a hook, once
+--- registered, survives leaving the world into the next load screen.
+local function armOnGameThread()
+    if not localPlayerPresent() then
+        disarm("no local player")
         return
     end
     stablePlayerPolls = stablePlayerPolls + 1
-    if stablePlayerPolls < 2 then return end
-    RegisterHook(HAND_FEED_FN, onHandPre, onHandPost)
-    blueprintHookRegistered = true
-end
-
-local function registerBlueprintOnGameThread()
-    local ok, err = pcall(registerBlueprintUnsafe)
-    if not ok then
-        blueprintRegistrationFailures = blueprintRegistrationFailures + 1
-        Log("feeding hook registration failed: " .. tostring(err))
+    if stablePlayerPolls < ARM_STABLE_POLLS then return end
+    if PARTY_HOOK_ENABLED and not nativeHookRegistered then
+        local ok, err = pcall(registerNativeUnsafe)
+        nativeHookRegistered = ok
+        if ok then
+            Log("party feeding hook registered")
+        else
+            registrationFailures = registrationFailures + 1
+            Log("party feeding hook registration failed: " .. tostring(err))
+        end
+    end
+    if not blueprintHookRegistered then
+        local ok, err = pcall(registerBlueprintUnsafe)
+        blueprintHookRegistered = ok
+        if ok then
+            Log("hand feeding hook registered")
+        else
+            registrationFailures = registrationFailures + 1
+            Log("hand feeding hook registration failed: " .. tostring(err))
+        end
+    end
+    if not hooksArmed and (nativeHookRegistered or blueprintHookRegistered) then
+        hooksArmed = true
+        Log("feeding tracker armed")
     end
 end
 
-local function queueBlueprintRegistration()
-    pcall(ExecuteInGameThread, registerBlueprintOnGameThread)
+local function queueArm()
+    local ok, err = pcall(ExecuteInGameThread, armOnGameThread)
+    if not ok then Log("feeding tracker: arm dispatch failed: " .. tostring(err)) end
 end
 
-local function blueprintRegistrationPoll()
-    if blueprintHookRegistered then return true end
-    if blueprintRegistrationFailures >= MAX_BLUEPRINT_REGISTRATION_FAILURES then
-        Log("feeding hook registration stopped after repeated failures")
+--- Never returns true. The poll has to keep running after both hooks are up,
+--- because it is also what disarms them when the world goes away.
+local function armPoll()
+    if registrationFailures >= MAX_REGISTRATION_FAILURES then
+        Log("feeding tracker stopped after repeated registration failures")
         return true
     end
-    queueBlueprintRegistration()
+    queueArm()
     return false
 end
 
@@ -345,20 +489,12 @@ function ConditionFeed.init()
         Log("feeding hooks skipped: dedicated server cannot resolve a joining player's inventory")
         return
     end
-    if not registerNative() then Log("party feeding hook registration failed") end
-    -- The hand-feed hook sits on a PLAYER action, and a dedicated server has no
-    -- player to run it. Registering it there killed the process the moment
-    -- somebody joined: the poll waits for a PalPlayerCharacter, the joining
-    -- client produced one, the hook went on a Blueprint that only exists for a
-    -- local player, and the server died reading 0xffffffffffffffff.
-    --
-    -- What a server loses by skipping it: hand-feeding does not register as
-    -- fedFood. A Pal eating on its own still does, through the native hook
-    -- above, which is the Pal's own parameter and belongs to the host.
-    if not blueprintHookRegistered and not blueprintPollStarted then
-        local ok = pcall(LoopAsync, 5000, blueprintRegistrationPoll)
-        blueprintPollStarted = ok
-    end
+    -- Neither hook is registered here. Both wait for armPoll, which needs a
+    -- local player first; see the comment there for the crash that bought this.
+    if pollStarted then return end
+    local ok, err = pcall(LoopAsync, ARM_POLL_MS, armPoll)
+    pollStarted = ok
+    if not ok then Log("feeding tracker poll failed to start: " .. tostring(err)) end
 end
 
 function ConditionFeed.lastFood(param)
