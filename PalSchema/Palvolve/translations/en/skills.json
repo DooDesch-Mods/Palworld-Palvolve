@@ -13,7 +13,12 @@
         "PASSIVE_Palvolve_Evolved_1": "Evolved I",
         "PASSIVE_Palvolve_Evolved_2": "Evolved II",
         "PASSIVE_Palvolve_Evolved_3": "Evolved III",
-        "PASSIVE_Palvolve_Evolved_4": "Evolved IV"
+        "PASSIVE_Palvolve_Evolved_4": "Evolved IV",
+        "PASSIVE_Palvolve_Evolved_1_Locked": "Evolved I, manual only",
+        "PASSIVE_Palvolve_Evolved_2_Locked": "Evolved II, manual only",
+        "PASSIVE_Palvolve_Evolved_3_Locked": "Evolved III, manual only",
+        "PASSIVE_Palvolve_Evolved_4_Locked": "Evolved IV, manual only",
+        "PASSIVE_Palvolve_NoAutoEvolve": "Manual only"
     },
     "DT_SkillDescText": {
         "PASSIVE_Palvolve_Prestige_1": "The ascent begins.\r\nAttack +{EffectValue1}%\r\nDefense +{EffectValue2}%\r\nWork speed +{EffectValue3}%",
@@ -29,6 +34,11 @@
         "PASSIVE_Palvolve_Evolved_1": "Max HP +{EffectValue1}%\nMovement speed +{EffectValue2}%\nWork speed +{EffectValue3}%",
         "PASSIVE_Palvolve_Evolved_2": "Max HP +{EffectValue1}%\nMovement speed +{EffectValue2}%\nWork speed +{EffectValue3}%",
         "PASSIVE_Palvolve_Evolved_3": "Max HP +{EffectValue1}%\nMovement speed +{EffectValue2}%\nWork speed +{EffectValue3}%",
-        "PASSIVE_Palvolve_Evolved_4": "Max HP +{EffectValue1}%\nMovement speed +{EffectValue2}%\nWork speed +{EffectValue3}%"
+        "PASSIVE_Palvolve_Evolved_4": "Max HP +{EffectValue1}%\nMovement speed +{EffectValue2}%\nWork speed +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_1_Locked": "Max HP +{EffectValue1}%\nMovement speed +{EffectValue2}%\nWork speed +{EffectValue3}%\nDoes not evolve on its own.",
+        "PASSIVE_Palvolve_Evolved_2_Locked": "Max HP +{EffectValue1}%\nMovement speed +{EffectValue2}%\nWork speed +{EffectValue3}%\nDoes not evolve on its own.",
+        "PASSIVE_Palvolve_Evolved_3_Locked": "Max HP +{EffectValue1}%\nMovement speed +{EffectValue2}%\nWork speed +{EffectValue3}%\nDoes not evolve on its own.",
+        "PASSIVE_Palvolve_Evolved_4_Locked": "Max HP +{EffectValue1}%\nMovement speed +{EffectValue2}%\nWork speed +{EffectValue3}%\nDoes not evolve on its own.",
+        "PASSIVE_Palvolve_NoAutoEvolve": "Does not evolve on its own."
     }
 }

@@ -13,7 +13,12 @@
         "PASSIVE_Palvolve_Evolved_1": "進化 I",
         "PASSIVE_Palvolve_Evolved_2": "進化 II",
         "PASSIVE_Palvolve_Evolved_3": "進化 III",
-        "PASSIVE_Palvolve_Evolved_4": "進化 IV"
+        "PASSIVE_Palvolve_Evolved_4": "進化 IV",
+        "PASSIVE_Palvolve_Evolved_1_Locked": "進化 I，僅手動",
+        "PASSIVE_Palvolve_Evolved_2_Locked": "進化 II，僅手動",
+        "PASSIVE_Palvolve_Evolved_3_Locked": "進化 III，僅手動",
+        "PASSIVE_Palvolve_Evolved_4_Locked": "進化 IV，僅手動",
+        "PASSIVE_Palvolve_NoAutoEvolve": "僅手動"
     },
     "DT_SkillDescText": {
         "PASSIVE_Palvolve_Prestige_1": "飛昇開始。\r\n攻擊 +{EffectValue1}%\r\n防禦 +{EffectValue2}%\r\n工作速度 +{EffectValue3}%",
@@ -29,6 +34,11 @@
         "PASSIVE_Palvolve_Evolved_1": "最大生命值 +{EffectValue1}%\n移動速度 +{EffectValue2}%\n工作速度 +{EffectValue3}%",
         "PASSIVE_Palvolve_Evolved_2": "最大生命值 +{EffectValue1}%\n移動速度 +{EffectValue2}%\n工作速度 +{EffectValue3}%",
         "PASSIVE_Palvolve_Evolved_3": "最大生命值 +{EffectValue1}%\n移動速度 +{EffectValue2}%\n工作速度 +{EffectValue3}%",
-        "PASSIVE_Palvolve_Evolved_4": "最大生命值 +{EffectValue1}%\n移動速度 +{EffectValue2}%\n工作速度 +{EffectValue3}%"
+        "PASSIVE_Palvolve_Evolved_4": "最大生命值 +{EffectValue1}%\n移動速度 +{EffectValue2}%\n工作速度 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_1_Locked": "最大生命值 +{EffectValue1}%\n移動速度 +{EffectValue2}%\n工作速度 +{EffectValue3}%\n不會自動進化。",
+        "PASSIVE_Palvolve_Evolved_2_Locked": "最大生命值 +{EffectValue1}%\n移動速度 +{EffectValue2}%\n工作速度 +{EffectValue3}%\n不會自動進化。",
+        "PASSIVE_Palvolve_Evolved_3_Locked": "最大生命值 +{EffectValue1}%\n移動速度 +{EffectValue2}%\n工作速度 +{EffectValue3}%\n不會自動進化。",
+        "PASSIVE_Palvolve_Evolved_4_Locked": "最大生命值 +{EffectValue1}%\n移動速度 +{EffectValue2}%\n工作速度 +{EffectValue3}%\n不會自動進化。",
+        "PASSIVE_Palvolve_NoAutoEvolve": "不會自動進化。"
     }
 }

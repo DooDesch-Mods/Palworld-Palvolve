@@ -13,7 +13,12 @@
         "PASSIVE_Palvolve_Evolved_1": "Evrilmiş I",
         "PASSIVE_Palvolve_Evolved_2": "Evrilmiş II",
         "PASSIVE_Palvolve_Evolved_3": "Evrilmiş III",
-        "PASSIVE_Palvolve_Evolved_4": "Evrilmiş IV"
+        "PASSIVE_Palvolve_Evolved_4": "Evrilmiş IV",
+        "PASSIVE_Palvolve_Evolved_1_Locked": "Evrilmiş I, yalnızca manuel",
+        "PASSIVE_Palvolve_Evolved_2_Locked": "Evrilmiş II, yalnızca manuel",
+        "PASSIVE_Palvolve_Evolved_3_Locked": "Evrilmiş III, yalnızca manuel",
+        "PASSIVE_Palvolve_Evolved_4_Locked": "Evrilmiş IV, yalnızca manuel",
+        "PASSIVE_Palvolve_NoAutoEvolve": "Yalnızca manuel"
     },
     "DT_SkillDescText": {
         "PASSIVE_Palvolve_Prestige_1": "Yükseliş başlıyor.\r\nSaldırı +{EffectValue1}%\r\nSavunma +{EffectValue2}%\r\nÇalışma hızı +{EffectValue3}%",
@@ -29,6 +34,11 @@
         "PASSIVE_Palvolve_Evolved_1": "Maks. Can +{EffectValue1}%\nHareket hızı +{EffectValue2}%\nÇalışma hızı +{EffectValue3}%",
         "PASSIVE_Palvolve_Evolved_2": "Maks. Can +{EffectValue1}%\nHareket hızı +{EffectValue2}%\nÇalışma hızı +{EffectValue3}%",
         "PASSIVE_Palvolve_Evolved_3": "Maks. Can +{EffectValue1}%\nHareket hızı +{EffectValue2}%\nÇalışma hızı +{EffectValue3}%",
-        "PASSIVE_Palvolve_Evolved_4": "Maks. Can +{EffectValue1}%\nHareket hızı +{EffectValue2}%\nÇalışma hızı +{EffectValue3}%"
+        "PASSIVE_Palvolve_Evolved_4": "Maks. Can +{EffectValue1}%\nHareket hızı +{EffectValue2}%\nÇalışma hızı +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_1_Locked": "Maks. Can +{EffectValue1}%\nHareket hızı +{EffectValue2}%\nÇalışma hızı +{EffectValue3}%\nKendiliğinden evrimleşmez.",
+        "PASSIVE_Palvolve_Evolved_2_Locked": "Maks. Can +{EffectValue1}%\nHareket hızı +{EffectValue2}%\nÇalışma hızı +{EffectValue3}%\nKendiliğinden evrimleşmez.",
+        "PASSIVE_Palvolve_Evolved_3_Locked": "Maks. Can +{EffectValue1}%\nHareket hızı +{EffectValue2}%\nÇalışma hızı +{EffectValue3}%\nKendiliğinden evrimleşmez.",
+        "PASSIVE_Palvolve_Evolved_4_Locked": "Maks. Can +{EffectValue1}%\nHareket hızı +{EffectValue2}%\nÇalışma hızı +{EffectValue3}%\nKendiliğinden evrimleşmez.",
+        "PASSIVE_Palvolve_NoAutoEvolve": "Kendiliğinden evrimleşmez."
     }
 }

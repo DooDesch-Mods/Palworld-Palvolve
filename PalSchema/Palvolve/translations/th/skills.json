@@ -13,7 +13,12 @@
         "PASSIVE_Palvolve_Evolved_1": "วิวัฒน์ I",
         "PASSIVE_Palvolve_Evolved_2": "วิวัฒน์ II",
         "PASSIVE_Palvolve_Evolved_3": "วิวัฒน์ III",
-        "PASSIVE_Palvolve_Evolved_4": "วิวัฒน์ IV"
+        "PASSIVE_Palvolve_Evolved_4": "วิวัฒน์ IV",
+        "PASSIVE_Palvolve_Evolved_1_Locked": "วิวัฒน์ I, สั่งเองเท่านั้น",
+        "PASSIVE_Palvolve_Evolved_2_Locked": "วิวัฒน์ II, สั่งเองเท่านั้น",
+        "PASSIVE_Palvolve_Evolved_3_Locked": "วิวัฒน์ III, สั่งเองเท่านั้น",
+        "PASSIVE_Palvolve_Evolved_4_Locked": "วิวัฒน์ IV, สั่งเองเท่านั้น",
+        "PASSIVE_Palvolve_NoAutoEvolve": "สั่งเองเท่านั้น"
     },
     "DT_SkillDescText": {
         "PASSIVE_Palvolve_Prestige_1": "การยกระดับเริ่มต้นขึ้น\r\nพลังโจมตี +{EffectValue1}%\r\nพลังป้องกัน +{EffectValue2}%\r\nความเร็วในการทำงาน +{EffectValue3}%",
@@ -29,6 +34,11 @@
         "PASSIVE_Palvolve_Evolved_1": "พลังชีวิตสูงสุด +{EffectValue1}%\nความเร็วเคลื่อนที่ +{EffectValue2}%\nความเร็วในการทำงาน +{EffectValue3}%",
         "PASSIVE_Palvolve_Evolved_2": "พลังชีวิตสูงสุด +{EffectValue1}%\nความเร็วเคลื่อนที่ +{EffectValue2}%\nความเร็วในการทำงาน +{EffectValue3}%",
         "PASSIVE_Palvolve_Evolved_3": "พลังชีวิตสูงสุด +{EffectValue1}%\nความเร็วเคลื่อนที่ +{EffectValue2}%\nความเร็วในการทำงาน +{EffectValue3}%",
-        "PASSIVE_Palvolve_Evolved_4": "พลังชีวิตสูงสุด +{EffectValue1}%\nความเร็วเคลื่อนที่ +{EffectValue2}%\nความเร็วในการทำงาน +{EffectValue3}%"
+        "PASSIVE_Palvolve_Evolved_4": "พลังชีวิตสูงสุด +{EffectValue1}%\nความเร็วเคลื่อนที่ +{EffectValue2}%\nความเร็วในการทำงาน +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_1_Locked": "พลังชีวิตสูงสุด +{EffectValue1}%\nความเร็วเคลื่อนที่ +{EffectValue2}%\nความเร็วในการทำงาน +{EffectValue3}%\nไม่วิวัฒนาการเอง",
+        "PASSIVE_Palvolve_Evolved_2_Locked": "พลังชีวิตสูงสุด +{EffectValue1}%\nความเร็วเคลื่อนที่ +{EffectValue2}%\nความเร็วในการทำงาน +{EffectValue3}%\nไม่วิวัฒนาการเอง",
+        "PASSIVE_Palvolve_Evolved_3_Locked": "พลังชีวิตสูงสุด +{EffectValue1}%\nความเร็วเคลื่อนที่ +{EffectValue2}%\nความเร็วในการทำงาน +{EffectValue3}%\nไม่วิวัฒนาการเอง",
+        "PASSIVE_Palvolve_Evolved_4_Locked": "พลังชีวิตสูงสุด +{EffectValue1}%\nความเร็วเคลื่อนที่ +{EffectValue2}%\nความเร็วในการทำงาน +{EffectValue3}%\nไม่วิวัฒนาการเอง",
+        "PASSIVE_Palvolve_NoAutoEvolve": "ไม่วิวัฒนาการเอง"
     }
 }

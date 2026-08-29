@@ -13,7 +13,12 @@
         "PASSIVE_Palvolve_Evolved_1": "Entwickelt I",
         "PASSIVE_Palvolve_Evolved_2": "Entwickelt II",
         "PASSIVE_Palvolve_Evolved_3": "Entwickelt III",
-        "PASSIVE_Palvolve_Evolved_4": "Entwickelt IV"
+        "PASSIVE_Palvolve_Evolved_4": "Entwickelt IV",
+        "PASSIVE_Palvolve_Evolved_1_Locked": "Entwickelt I, nur manuell",
+        "PASSIVE_Palvolve_Evolved_2_Locked": "Entwickelt II, nur manuell",
+        "PASSIVE_Palvolve_Evolved_3_Locked": "Entwickelt III, nur manuell",
+        "PASSIVE_Palvolve_Evolved_4_Locked": "Entwickelt IV, nur manuell",
+        "PASSIVE_Palvolve_NoAutoEvolve": "Nur manuell"
     },
     "DT_SkillDescText": {
         "PASSIVE_Palvolve_Prestige_1": "Der Aufstieg beginnt.\r\nAngriff +{EffectValue1}%\r\nVerteidigung +{EffectValue2}%\r\nArbeitstempo +{EffectValue3}%",
@@ -29,6 +34,11 @@
         "PASSIVE_Palvolve_Evolved_1": "Max. LP +{EffectValue1}%\nBewegungstempo +{EffectValue2}%\nArbeitstempo +{EffectValue3}%",
         "PASSIVE_Palvolve_Evolved_2": "Max. LP +{EffectValue1}%\nBewegungstempo +{EffectValue2}%\nArbeitstempo +{EffectValue3}%",
         "PASSIVE_Palvolve_Evolved_3": "Max. LP +{EffectValue1}%\nBewegungstempo +{EffectValue2}%\nArbeitstempo +{EffectValue3}%",
-        "PASSIVE_Palvolve_Evolved_4": "Max. LP +{EffectValue1}%\nBewegungstempo +{EffectValue2}%\nArbeitstempo +{EffectValue3}%"
+        "PASSIVE_Palvolve_Evolved_4": "Max. LP +{EffectValue1}%\nBewegungstempo +{EffectValue2}%\nArbeitstempo +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_1_Locked": "Max. LP +{EffectValue1}%\nBewegungstempo +{EffectValue2}%\nArbeitstempo +{EffectValue3}%\nEntwickelt sich nicht von allein.",
+        "PASSIVE_Palvolve_Evolved_2_Locked": "Max. LP +{EffectValue1}%\nBewegungstempo +{EffectValue2}%\nArbeitstempo +{EffectValue3}%\nEntwickelt sich nicht von allein.",
+        "PASSIVE_Palvolve_Evolved_3_Locked": "Max. LP +{EffectValue1}%\nBewegungstempo +{EffectValue2}%\nArbeitstempo +{EffectValue3}%\nEntwickelt sich nicht von allein.",
+        "PASSIVE_Palvolve_Evolved_4_Locked": "Max. LP +{EffectValue1}%\nBewegungstempo +{EffectValue2}%\nArbeitstempo +{EffectValue3}%\nEntwickelt sich nicht von allein.",
+        "PASSIVE_Palvolve_NoAutoEvolve": "Entwickelt sich nicht von allein."
     }
 }

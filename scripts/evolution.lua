@@ -849,6 +849,90 @@ local function unknownConditionReason(pair)
     return nil
 end
 
+--- The player's own veto on a single Pal.
+---
+--- Two levels of protection exist and they answer different people: the tree
+--- author decides in the editor which CONNECTIONS may fire on their own, and
+--- this decides which PAL is left alone. Narayan's case is the second one - he
+--- keeps a particular Pal for its partner skill and does not want to lose it,
+--- which is nothing to do with the species.
+---
+--- The passive is the store, so it survives a restart and is visible in game.
+local AutoLock = {}
+
+function AutoLock.isLocked(param)
+    if not (param and param:IsValid()) then return false end
+    local ok, locked = pcall(PalPassives.isAutoLocked, param)
+    return ok and locked == true
+end
+
+--- Returns ok, locked. A failure is reported, never swallowed: this is a write
+--- to the Pal's passive list and a silent miss would read as "the button does
+--- nothing".
+function AutoLock.set(param, wanted)
+    if not (param and param:IsValid()) then return false, nil end
+    local ok, res = pcall(PalPassives.setAutoLock, param, wanted == true)
+    if not ok then
+        Log("auto-evolve lock failed: " .. tostring(res))
+        return false, nil
+    end
+    if res == false then
+        Log("auto-evolve lock could not be written")
+        return false, nil
+    end
+    return true, wanted == true
+end
+
+--- Which evolutions a Pal has already earned the right to, this session.
+---
+--- Keyed by the Pal's own instance id, valued by target species. It lives in
+--- memory ONLY and is gone when the game closes, which is the whole point: a
+--- passive would cost one of the player's four slots per unlocked target, and a
+--- passive cannot name a target anyway - it can say "ready", not "ready for
+--- what".
+---
+--- What it buys: of the mod's 67 conditions the majority are transient
+--- (electrified, raining, inCombat, hpLow, night, every region). Without this a
+--- player can only act on such a condition if they are standing at the wheel in
+--- the second it holds.
+local AutoUnlock = {}
+local autoUnlocked = {}
+
+local function unlockKeyUnsafe(param)
+    return guidString(param.IndividualId.InstanceId)
+end
+
+local function unlockKey(param)
+    if not (param and param:IsValid()) then return nil end
+    local ok, key = pcall(unlockKeyUnsafe, param)
+    if not ok or type(key) ~= "string" or key == "" then return nil end
+    return key
+end
+
+function AutoUnlock.remember(param, pair)
+    local key = unlockKey(param)
+    if not key or type(pair) ~= "table" or type(pair.to) ~= "string" then return end
+    local set = autoUnlocked[key]
+    if not set then set = {}; autoUnlocked[key] = set end
+    if set[pair.to] then return end
+    set[pair.to] = true
+    Log(string.format("auto-evolve: %s unlocked, several ways were open at once", pair.to))
+end
+
+--- True once this Pal has met that target's conditions at least once today.
+function AutoUnlock.has(param, targetId)
+    local key = unlockKey(param)
+    if not key or type(targetId) ~= "string" then return false end
+    local set = autoUnlocked[key]
+    return set ~= nil and set[targetId] == true
+end
+
+--- The species changed, so every target the old form had earned is meaningless.
+function AutoUnlock.forget(param)
+    local key = unlockKey(param)
+    if key then autoUnlocked[key] = nil end
+end
+
 local function conditionCount(pair)
     return type(pair and pair.conditions) == "table" and #pair.conditions or 0
 end
@@ -898,7 +982,15 @@ local function requiredLevelFor(pair)
     return tonumber(pair and pair.minLevel) or 0
 end
 
+--- The species is about to change, so every target the old form had earned is
+--- meaningless: they belong to a Pal that no longer exists. Called from the one
+--- place that writes the species, so no path can forget it.
+local function forgetUnlocksFor(param)
+    pcall(AutoUnlock.forget, param)
+end
+
 local function writeSpeciesUnsafe(param, characterId)
+    forgetUnlocksFor(param)
     param.SaveParameter.CharacterID = FName(characterId)
     param.SaveParameterMirror.CharacterID = FName(characterId)
 end
@@ -2955,6 +3047,11 @@ function Evolution.listOptions()
         -- an evolution costs was to try it and read the refusal.
         opt.requirement = requirementLine(pair, level, holder)
         local rulePasses = false
+        -- Marked further down once the unlock is known, because an entry that is
+        -- open only because the Pal earned it once looks identical to a normally
+        -- open one otherwise, and the player would read it as the mod ignoring
+        -- its own requirement.
+
         local unknownReason = unknownConditionReason(pair)
         if unknownReason then
             opt.blocked = unknownReason
@@ -2964,6 +3061,15 @@ function Evolution.listOptions()
             opt.blocked = I18n.msg("needsLevelShort", opt.label, requiredLevelFor(pair), level)
         else
             local condOk, unmet = Conditions.evaluate(pair, condCtx)
+            -- A target this Pal has already qualified for once stays reachable,
+            -- even now that the condition has passed. Most conditions are
+            -- transient, so without this "electrified" is only usable by a
+            -- player standing at the wheel in that exact second.
+            if not condOk and AutoUnlock.has(param, pair.to) then
+                condOk = true
+                opt.unlocked = true
+                opt.requirement = I18n.msg("unlockedShort", opt.label)
+            end
             if not condOk then
                 opt.blocked = I18n.msg("needsConditions", opt.label,
                     disclosedConditions(pair, unmet))
@@ -3190,6 +3296,12 @@ end
 -- confirmation. Only the pair names travel; the authority re-derives
 -- fresh handles and re-validates.
 function Evolution.executeOption(opt)
+    -- The lock entry is not an evolution and carries no pair, so it is answered
+    -- before the pair check that every other path relies on.
+    if opt and opt.autoLock then
+        Evolution.toggleAutoLock(Role.localPlayerCtx())
+        return
+    end
     if not (opt and opt.pair) then return end
     local playerCtx = Role.localPlayerCtx()
     -- The wheel is the path everyone has: F2 is off unless a player turns it
@@ -3496,6 +3608,56 @@ function Evolution.onNetSignal(kind, phaseInfo)
     end
 end
 
+--- Sets or clears the auto-evolve veto on the Pal the player has out.
+---
+--- Reached from the wheel and from chat, because one is how it gets found and
+--- the other is how somebody locks six Pals without opening a menu six times.
+--- Flips the veto on the summoned Pal and says which way it went.
+---
+--- The wheel entry cannot label itself with the current state, because the wheel
+--- is built without knowing which Pal is out. So the answer arrives in chat.
+function Evolution.toggleAutoLock(senderCtx)
+    local playerCtx = senderCtx or Role.localPlayerCtx()
+    local holder = findHolderFor(playerCtx, nil)
+    local actor = nil
+    if holder then pcall(function() actor = holder:TryGetSpawnedOtomo() end) end
+    if not (actor and actor:IsValid()) then
+        Role.ack(playerCtx, I18n.msg("noPalSummoned"))
+        return false
+    end
+    local param = paramOf(actor)
+    if not (param and isOwnedBy(param, playerCtx and playerCtx.playerUId)) then
+        Role.ack(playerCtx, I18n.msg("greyNotYours"))
+        return false
+    end
+    return Evolution.runAutoLockCommand(playerCtx, not AutoLock.isLocked(param))
+end
+
+function Evolution.runAutoLockCommand(senderCtx, wanted)
+    local playerCtx = senderCtx or Role.localPlayerCtx()
+    local holder = findHolderFor(playerCtx, nil)
+    local actor = nil
+    if holder then pcall(function() actor = holder:TryGetSpawnedOtomo() end) end
+    if not (actor and actor:IsValid()) then
+        Role.ack(playerCtx, I18n.msg("noPalSummoned"))
+        return false
+    end
+    local param = paramOf(actor)
+    if not (param and isOwnedBy(param, playerCtx and playerCtx.playerUId)) then
+        Role.ack(playerCtx, I18n.msg("greyNotYours"))
+        return false
+    end
+    local id = baseCharacterId(param:GetCharacterID():ToString())
+    local ok = AutoLock.set(param, wanted)
+    if not ok then
+        Role.ack(playerCtx, I18n.msg("autoLockFailed", palDisplayName(id)))
+        return false
+    end
+    Role.ack(playerCtx, I18n.msg(wanted and "autoLocked" or "autoUnlocked",
+        palDisplayName(id)))
+    return true
+end
+
 function Evolution.rollbackLast(playerCtx)
     -- Role.ack, not Role.chat: the EnterChat hook fires on the sender's client
     -- AND on the authority, so on a dedicated server this function runs twice.
@@ -3793,6 +3955,14 @@ local function scanAutoControllerUnsafe(pc)
     local nextDelay = AUTO_SLOW_S
     local condCtx = { actor = actor, param = param, playerCtx = playerCtx, holder = holder }
 
+    -- A Pal the player has locked is left alone entirely: no scan, no unlock.
+    if AutoLock.isLocked(param) then return AUTO_SLOW_S, false end
+
+    -- EVERY ready candidate is collected, not the first one. The old loop broke
+    -- out on the first match in `selected` mode, so which of several possible
+    -- evolutions fired came down to their order in the config - an order nobody
+    -- sets on purpose and the editor does not show.
+    local ready = {}
     for i, pair in ipairs(pairList) do
         if pair.autoEvolve == true and not unknownConditionReason(pair)
             and level >= requiredLevelFor(pair)
@@ -3803,16 +3973,28 @@ local function scanAutoControllerUnsafe(pc)
                 local okCost, affordable = pcall(autoCostPasses,
                     playerCtx, pair, level, holder)
                 if okCost and affordable then
-                    local count = conditionCount(pair)
-                    if Config.evolutionMode ~= "conditioned" or count > bestCount then
-                        bestIndex = isPrestige and pair.prestigeIndex or i
-                        bestCount = count
-                    end
-                    if Config.evolutionMode ~= "conditioned" then break end
+                    ready[#ready + 1] = {
+                        index = isPrestige and pair.prestigeIndex or i,
+                        pair = pair,
+                    }
                 end
             end
         end
     end
+
+    -- More than one way is open at this very moment, so nothing fires on its
+    -- own: picking for the player is how a Pal ends up as the form they did not
+    -- want. Each of them is unlocked instead, which makes it available from the
+    -- wheel from now on - the point being that most conditions are transient,
+    -- and "electrified" is otherwise only reachable if the player happens to be
+    -- at the wheel in that second.
+    if #ready > 1 then
+        for _, entry in ipairs(ready) do
+            AutoUnlock.remember(param, entry.pair)
+        end
+        return nextDelay, false
+    end
+    if #ready == 1 then bestIndex = ready[1].index end
 
     if bestIndex then
         local started
@@ -4048,6 +4230,10 @@ function Evolution.init()
         local ChatCommands = require("chatcommands")
         local okCmd = ChatCommands.init({
             rollback = function(senderCtx) Evolution.rollbackLast(senderCtx) end,
+            -- The player's veto on the summoned Pal. Also sits in the wheel;
+            -- this is the one that lets somebody lock several Pals quickly.
+            lock = function(senderCtx) Evolution.runAutoLockCommand(senderCtx, true) end,
+            unlock = function(senderCtx) Evolution.runAutoLockCommand(senderCtx, false) end,
             -- Same path the wheel takes, so it grants nothing the wheel would
             -- not. It only saves the trip through the menu while the
             -- presentation is being tuned.
@@ -4554,7 +4740,7 @@ function Evolution.init()
                 Role.ack(senderCtx, I18n.msg("helpUninstall"))
             end,
         })
-        if okCmd then Log("Chat commands active: !palvolve rollback") end
+        if okCmd then Log("Chat commands active: !palvolve rollback, !palvolve lock, !palvolve unlock") end
     end)
 
     -- The banner has to say what is actually bound: the key is off unless the

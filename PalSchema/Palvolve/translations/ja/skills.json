@@ -13,7 +13,12 @@
         "PASSIVE_Palvolve_Evolved_1": "進化 I",
         "PASSIVE_Palvolve_Evolved_2": "進化 II",
         "PASSIVE_Palvolve_Evolved_3": "進化 III",
-        "PASSIVE_Palvolve_Evolved_4": "進化 IV"
+        "PASSIVE_Palvolve_Evolved_4": "進化 IV",
+        "PASSIVE_Palvolve_Evolved_1_Locked": "進化 I、手動のみ",
+        "PASSIVE_Palvolve_Evolved_2_Locked": "進化 II、手動のみ",
+        "PASSIVE_Palvolve_Evolved_3_Locked": "進化 III、手動のみ",
+        "PASSIVE_Palvolve_Evolved_4_Locked": "進化 IV、手動のみ",
+        "PASSIVE_Palvolve_NoAutoEvolve": "手動のみ"
     },
     "DT_SkillDescText": {
         "PASSIVE_Palvolve_Prestige_1": "昇華が始まる。\r\n攻撃 +{EffectValue1}%\r\n防御 +{EffectValue2}%\r\n作業速度 +{EffectValue3}%",
@@ -29,6 +34,11 @@
         "PASSIVE_Palvolve_Evolved_1": "最大HP +{EffectValue1}%\n移動速度 +{EffectValue2}%\n作業速度 +{EffectValue3}%",
         "PASSIVE_Palvolve_Evolved_2": "最大HP +{EffectValue1}%\n移動速度 +{EffectValue2}%\n作業速度 +{EffectValue3}%",
         "PASSIVE_Palvolve_Evolved_3": "最大HP +{EffectValue1}%\n移動速度 +{EffectValue2}%\n作業速度 +{EffectValue3}%",
-        "PASSIVE_Palvolve_Evolved_4": "最大HP +{EffectValue1}%\n移動速度 +{EffectValue2}%\n作業速度 +{EffectValue3}%"
+        "PASSIVE_Palvolve_Evolved_4": "最大HP +{EffectValue1}%\n移動速度 +{EffectValue2}%\n作業速度 +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_1_Locked": "最大HP +{EffectValue1}%\n移動速度 +{EffectValue2}%\n作業速度 +{EffectValue3}%\n自動では進化しない。",
+        "PASSIVE_Palvolve_Evolved_2_Locked": "最大HP +{EffectValue1}%\n移動速度 +{EffectValue2}%\n作業速度 +{EffectValue3}%\n自動では進化しない。",
+        "PASSIVE_Palvolve_Evolved_3_Locked": "最大HP +{EffectValue1}%\n移動速度 +{EffectValue2}%\n作業速度 +{EffectValue3}%\n自動では進化しない。",
+        "PASSIVE_Palvolve_Evolved_4_Locked": "最大HP +{EffectValue1}%\n移動速度 +{EffectValue2}%\n作業速度 +{EffectValue3}%\n自動では進化しない。",
+        "PASSIVE_Palvolve_NoAutoEvolve": "自動では進化しない。"
     }
 }

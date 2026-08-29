@@ -13,7 +13,12 @@
         "PASSIVE_Palvolve_Evolved_1": "Berevolusi I",
         "PASSIVE_Palvolve_Evolved_2": "Berevolusi II",
         "PASSIVE_Palvolve_Evolved_3": "Berevolusi III",
-        "PASSIVE_Palvolve_Evolved_4": "Berevolusi IV"
+        "PASSIVE_Palvolve_Evolved_4": "Berevolusi IV",
+        "PASSIVE_Palvolve_Evolved_1_Locked": "Berevolusi I, hanya manual",
+        "PASSIVE_Palvolve_Evolved_2_Locked": "Berevolusi II, hanya manual",
+        "PASSIVE_Palvolve_Evolved_3_Locked": "Berevolusi III, hanya manual",
+        "PASSIVE_Palvolve_Evolved_4_Locked": "Berevolusi IV, hanya manual",
+        "PASSIVE_Palvolve_NoAutoEvolve": "Hanya manual"
     },
     "DT_SkillDescText": {
         "PASSIVE_Palvolve_Prestige_1": "Pendakian dimulai.\r\nSerangan +{EffectValue1}%\r\nPertahanan +{EffectValue2}%\r\nKecepatan kerja +{EffectValue3}%",
@@ -29,6 +34,11 @@
         "PASSIVE_Palvolve_Evolved_1": "HP Maks +{EffectValue1}%\nKecepatan bergerak +{EffectValue2}%\nKecepatan kerja +{EffectValue3}%",
         "PASSIVE_Palvolve_Evolved_2": "HP Maks +{EffectValue1}%\nKecepatan bergerak +{EffectValue2}%\nKecepatan kerja +{EffectValue3}%",
         "PASSIVE_Palvolve_Evolved_3": "HP Maks +{EffectValue1}%\nKecepatan bergerak +{EffectValue2}%\nKecepatan kerja +{EffectValue3}%",
-        "PASSIVE_Palvolve_Evolved_4": "HP Maks +{EffectValue1}%\nKecepatan bergerak +{EffectValue2}%\nKecepatan kerja +{EffectValue3}%"
+        "PASSIVE_Palvolve_Evolved_4": "HP Maks +{EffectValue1}%\nKecepatan bergerak +{EffectValue2}%\nKecepatan kerja +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_1_Locked": "HP Maks +{EffectValue1}%\nKecepatan bergerak +{EffectValue2}%\nKecepatan kerja +{EffectValue3}%\nTidak berevolusi sendiri.",
+        "PASSIVE_Palvolve_Evolved_2_Locked": "HP Maks +{EffectValue1}%\nKecepatan bergerak +{EffectValue2}%\nKecepatan kerja +{EffectValue3}%\nTidak berevolusi sendiri.",
+        "PASSIVE_Palvolve_Evolved_3_Locked": "HP Maks +{EffectValue1}%\nKecepatan bergerak +{EffectValue2}%\nKecepatan kerja +{EffectValue3}%\nTidak berevolusi sendiri.",
+        "PASSIVE_Palvolve_Evolved_4_Locked": "HP Maks +{EffectValue1}%\nKecepatan bergerak +{EffectValue2}%\nKecepatan kerja +{EffectValue3}%\nTidak berevolusi sendiri.",
+        "PASSIVE_Palvolve_NoAutoEvolve": "Tidak berevolusi sendiri."
     }
 }

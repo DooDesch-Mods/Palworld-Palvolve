@@ -13,7 +13,12 @@
         "PASSIVE_Palvolve_Evolved_1": "Tiến hóa I",
         "PASSIVE_Palvolve_Evolved_2": "Tiến hóa II",
         "PASSIVE_Palvolve_Evolved_3": "Tiến hóa III",
-        "PASSIVE_Palvolve_Evolved_4": "Tiến hóa IV"
+        "PASSIVE_Palvolve_Evolved_4": "Tiến hóa IV",
+        "PASSIVE_Palvolve_Evolved_1_Locked": "Tiến hóa I, chỉ thủ công",
+        "PASSIVE_Palvolve_Evolved_2_Locked": "Tiến hóa II, chỉ thủ công",
+        "PASSIVE_Palvolve_Evolved_3_Locked": "Tiến hóa III, chỉ thủ công",
+        "PASSIVE_Palvolve_Evolved_4_Locked": "Tiến hóa IV, chỉ thủ công",
+        "PASSIVE_Palvolve_NoAutoEvolve": "Chỉ thủ công"
     },
     "DT_SkillDescText": {
         "PASSIVE_Palvolve_Prestige_1": "Hành trình thăng tiến bắt đầu.\r\nTấn công +{EffectValue1}%\r\nPhòng thủ +{EffectValue2}%\r\nTốc độ làm việc +{EffectValue3}%",
@@ -29,6 +34,11 @@
         "PASSIVE_Palvolve_Evolved_1": "HP tối đa +{EffectValue1}%\nTốc độ di chuyển +{EffectValue2}%\nTốc độ làm việc +{EffectValue3}%",
         "PASSIVE_Palvolve_Evolved_2": "HP tối đa +{EffectValue1}%\nTốc độ di chuyển +{EffectValue2}%\nTốc độ làm việc +{EffectValue3}%",
         "PASSIVE_Palvolve_Evolved_3": "HP tối đa +{EffectValue1}%\nTốc độ di chuyển +{EffectValue2}%\nTốc độ làm việc +{EffectValue3}%",
-        "PASSIVE_Palvolve_Evolved_4": "HP tối đa +{EffectValue1}%\nTốc độ di chuyển +{EffectValue2}%\nTốc độ làm việc +{EffectValue3}%"
+        "PASSIVE_Palvolve_Evolved_4": "HP tối đa +{EffectValue1}%\nTốc độ di chuyển +{EffectValue2}%\nTốc độ làm việc +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_1_Locked": "HP tối đa +{EffectValue1}%\nTốc độ di chuyển +{EffectValue2}%\nTốc độ làm việc +{EffectValue3}%\nKhông tự tiến hóa.",
+        "PASSIVE_Palvolve_Evolved_2_Locked": "HP tối đa +{EffectValue1}%\nTốc độ di chuyển +{EffectValue2}%\nTốc độ làm việc +{EffectValue3}%\nKhông tự tiến hóa.",
+        "PASSIVE_Palvolve_Evolved_3_Locked": "HP tối đa +{EffectValue1}%\nTốc độ di chuyển +{EffectValue2}%\nTốc độ làm việc +{EffectValue3}%\nKhông tự tiến hóa.",
+        "PASSIVE_Palvolve_Evolved_4_Locked": "HP tối đa +{EffectValue1}%\nTốc độ di chuyển +{EffectValue2}%\nTốc độ làm việc +{EffectValue3}%\nKhông tự tiến hóa.",
+        "PASSIVE_Palvolve_NoAutoEvolve": "Không tự tiến hóa."
     }
 }

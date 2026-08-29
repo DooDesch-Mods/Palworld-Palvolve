@@ -67,6 +67,20 @@ local function unwrap(elem)
     return elem
 end
 
+-- Declared ABOVE tintActor on purpose. They used to sit near the bottom of the
+-- file, so inside tintActor these names resolved to globals and were nil. The
+-- pcall around them caught that every time, silently, and the bench was never
+-- tinted - a feature that has shipped without ever running.
+local function makeMid(kismet, actor, mat, mesh, slot)
+    local mid = kismet:CreateDynamicMaterialInstance(actor, mat, FName(""), 0)
+    if not (mid and mid:IsValid()) then return nil end
+    mesh:SetMaterial(slot, mid)
+    return mid
+end
+
+local function setVectorParam(mat, param) mat:SetVectorParameterValue(FName(param), TINT) end
+local function setScalarParam(mat, param, value) mat:SetScalarParameterValue(FName(param), value) end
+
 local function tintActor(actor)
     local ok, err = pcall(function()
         local meshClass = StaticFindObject("/Script/Engine.StaticMeshComponent")
@@ -176,15 +190,6 @@ end
 -- Named, because it is called from a hook body that runs per build object.
 local function getSelf(selfParam) return selfParam:get() end
 
-local function makeMid(kismet, actor, mat, mesh, slot)
-    local mid = kismet:CreateDynamicMaterialInstance(actor, mat, FName(""), 0)
-    if not (mid and mid:IsValid()) then return nil end
-    mesh:SetMaterial(slot, mid)
-    return mid
-end
-
-local function setVectorParam(mat, param) mat:SetVectorParameterValue(FName(param), TINT) end
-local function setScalarParam(mat, param, value) mat:SetScalarParameterValue(FName(param), value) end
 
 function BenchVisual.init()
     local pending = {}

@@ -100,17 +100,30 @@ function PalPassives.capture(param)
     return out
 end
 
+--- The auto-evolve lock the player sets on one Pal.
+---
+--- Two forms, because it has to fit a Pal that has evolved and one that never
+--- has. An evolved Pal carries the LOCKED VARIANT of its own Evolved rung, so it
+--- keeps its rank and shows the lock without spending a second passive slot. A
+--- Pal with no rung has nothing to hang that on, so it carries a standalone one.
+local LOCK_SUFFIX = "_Locked"
+local LOCK_STANDALONE = "Palvolve_NoAutoEvolve"
+
+--- Returns the stage and whether this id is the locked variant of it.
 local function parseStage(id, ladder)
     local raw = id:match("^" .. ladder.prefix .. "(%d+)$")
-    if not raw then return nil end
-    return tonumber(raw)
+    if raw then return tonumber(raw), false end
+    raw = id:match("^" .. ladder.prefix .. "(%d+)" .. LOCK_SUFFIX .. "$")
+    if raw then return tonumber(raw), true end
+    return nil
 end
 
 local function stateFor(names, ladder)
-    local state = { id = nil, stage = 0, index = nil, count = 0 }
+    local state = { id = nil, stage = 0, index = nil, count = 0, locked = false }
     for i, id in ipairs(names) do
-        local rawStage = parseStage(id, ladder)
+        local rawStage, isLocked = parseStage(id, ladder)
         if rawStage then
+            if isLocked then state.locked = true end
             local stage = math.max(1, math.min(rawStage, ladder.maxStage))
             state.count = state.count + 1
             if not state.id or stage > state.stage then
@@ -210,7 +223,7 @@ function PalPassives.restore(param, expected)
     return false, err
 end
 
-local function canonicalList(names, stages)
+local function canonicalList(names, stages, locked)
     local out = {}
     for _, id in ipairs(names) do
         if not parseStage(id, LADDERS.evolved) and not parseStage(id, LADDERS.prestige) then
@@ -218,7 +231,10 @@ local function canonicalList(names, stages)
         end
     end
     if stages.evolved > 0 then
+        -- The lock rides on the rung itself, so rewriting the ladder must carry
+        -- it across or setting a rank would silently unlock the Pal.
         out[#out + 1] = LADDERS.evolved.prefix .. tostring(stages.evolved)
+            .. (locked and LOCK_SUFFIX or "")
     end
     if stages.prestige > 0 then
         out[#out + 1] = LADDERS.prestige.prefix .. tostring(stages.prestige)
@@ -249,7 +265,14 @@ local function grant(param, ladderName)
     local previousStage = selected.stage
     stages[ladderName] = math.min(previousStage + 1, ladder.maxStage)
     if stages[ladderName] < 1 then stages[ladderName] = 1 end
-    local expected = canonicalList(initial, stages)
+    -- The lock rides on the Evolved rung, so rewriting that rung has to carry it
+    -- across. Without this a player who locked a Pal and then evolved it by hand
+    -- would find it unlocked again, having done nothing to ask for that.
+    --
+    -- A PRESTIGE is the exception and it is deliberate: it resets the Pal, and
+    -- the lock goes with the reset. See AUTO-EVOLVE.md, decision 6.
+    local keepLock = ladderName ~= "prestige" and states.evolved.locked == true
+    local expected = canonicalList(initial, stages, keepLock)
 
     if sameList(initial, expected) then
         return true, {
@@ -305,6 +328,51 @@ local function grant(param, ladderName)
         id = targetId, stage = stages[ladderName], previousStage = previousStage,
         changed = true, passives = expected,
     }
+end
+
+--- Whether the player has told this Pal not to evolve on its own.
+---
+--- Either form counts: the locked variant of an Evolved rung, or the standalone
+--- passive a Pal carries when it has no rung to hang it on.
+function PalPassives.isAutoLocked(param)
+    local names, err = PalPassives.capture(param)
+    if not names then return false, err end
+    for _, id in ipairs(names) do
+        if id == LOCK_STANDALONE then return true end
+        local _, locked = parseStage(id, LADDERS.evolved)
+        if locked then return true end
+    end
+    return false
+end
+
+--- Sets or clears that lock, picking the form that fits this Pal.
+function PalPassives.setAutoLock(param, wanted)
+    local names, err = PalPassives.capture(param)
+    if not names then return false, err end
+    local states = resolveNames(names)
+    local stage = states.evolved.stage or 0
+
+    local rest = {}
+    for _, id in ipairs(names) do
+        if id ~= LOCK_STANDALONE then rest[#rest + 1] = id end
+    end
+
+    local expected
+    if stage > 0 then
+        expected = canonicalList(rest, {
+            evolved = stage,
+            prestige = states.prestige.stage or 0,
+        }, wanted == true)
+    else
+        expected = canonicalList(rest, {
+            evolved = 0,
+            prestige = states.prestige.stage or 0,
+        }, false)
+        if wanted == true then expected[#expected + 1] = LOCK_STANDALONE end
+    end
+
+    if sameList(names, expected) then return true, expected end
+    return PalPassives.restore(param, expected)
 end
 
 function PalPassives.grantEvolved(param)

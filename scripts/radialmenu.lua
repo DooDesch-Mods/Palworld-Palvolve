@@ -509,6 +509,11 @@ local function buildSubmenu(menu)
         Log(string.format("submenu capped at %d targets, %d not shown - "
             .. "the Evolutions tab in the Palpedia lists them all", TARGET_MAX, hidden))
     end
+    -- Added after the cap for the same reason cancel is: it must never be the
+    -- entry a full submenu truncates. The label does not say which way it will
+    -- go, because the wheel does not know this Pal - the answer comes back in
+    -- chat once it has been set.
+    keep[#keep + 1] = { autoLock = true, label = I18n.msg("autoLockEntry") }
     keep[#keep + 1] = { cancel = true, label = I18n.msg("cancel") }
     options = keep
     subOptions = keep

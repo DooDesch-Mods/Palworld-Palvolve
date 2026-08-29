@@ -13,7 +13,12 @@
         "PASSIVE_Palvolve_Evolved_1": "Evoluto I",
         "PASSIVE_Palvolve_Evolved_2": "Evoluto II",
         "PASSIVE_Palvolve_Evolved_3": "Evoluto III",
-        "PASSIVE_Palvolve_Evolved_4": "Evoluto IV"
+        "PASSIVE_Palvolve_Evolved_4": "Evoluto IV",
+        "PASSIVE_Palvolve_Evolved_1_Locked": "Evoluto I, solo manuale",
+        "PASSIVE_Palvolve_Evolved_2_Locked": "Evoluto II, solo manuale",
+        "PASSIVE_Palvolve_Evolved_3_Locked": "Evoluto III, solo manuale",
+        "PASSIVE_Palvolve_Evolved_4_Locked": "Evoluto IV, solo manuale",
+        "PASSIVE_Palvolve_NoAutoEvolve": "Solo manuale"
     },
     "DT_SkillDescText": {
         "PASSIVE_Palvolve_Prestige_1": "L'ascesa ha inizio.\r\nAttacco +{EffectValue1}%\r\nDifesa +{EffectValue2}%\r\nVelocità di lavoro +{EffectValue3}%",
@@ -29,6 +34,11 @@
         "PASSIVE_Palvolve_Evolved_1": "PS max +{EffectValue1}%\nVelocità di movimento +{EffectValue2}%\nVelocità di lavoro +{EffectValue3}%",
         "PASSIVE_Palvolve_Evolved_2": "PS max +{EffectValue1}%\nVelocità di movimento +{EffectValue2}%\nVelocità di lavoro +{EffectValue3}%",
         "PASSIVE_Palvolve_Evolved_3": "PS max +{EffectValue1}%\nVelocità di movimento +{EffectValue2}%\nVelocità di lavoro +{EffectValue3}%",
-        "PASSIVE_Palvolve_Evolved_4": "PS max +{EffectValue1}%\nVelocità di movimento +{EffectValue2}%\nVelocità di lavoro +{EffectValue3}%"
+        "PASSIVE_Palvolve_Evolved_4": "PS max +{EffectValue1}%\nVelocità di movimento +{EffectValue2}%\nVelocità di lavoro +{EffectValue3}%",
+        "PASSIVE_Palvolve_Evolved_1_Locked": "PS max +{EffectValue1}%\nVelocità di movimento +{EffectValue2}%\nVelocità di lavoro +{EffectValue3}%\nNon si evolve automaticamente.",
+        "PASSIVE_Palvolve_Evolved_2_Locked": "PS max +{EffectValue1}%\nVelocità di movimento +{EffectValue2}%\nVelocità di lavoro +{EffectValue3}%\nNon si evolve automaticamente.",
+        "PASSIVE_Palvolve_Evolved_3_Locked": "PS max +{EffectValue1}%\nVelocità di movimento +{EffectValue2}%\nVelocità di lavoro +{EffectValue3}%\nNon si evolve automaticamente.",
+        "PASSIVE_Palvolve_Evolved_4_Locked": "PS max +{EffectValue1}%\nVelocità di movimento +{EffectValue2}%\nVelocità di lavoro +{EffectValue3}%\nNon si evolve automaticamente.",
+        "PASSIVE_Palvolve_NoAutoEvolve": "Non si evolve automaticamente."
     }
 }
