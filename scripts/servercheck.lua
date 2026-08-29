@@ -48,6 +48,10 @@ local generation = 0
 -- it, and consume it the moment the world entry is classified.
 local earlyPong = nil
 local EARLY_PONG_MAX_AGE_S = 30
+-- OnCompleteInitializeParameter can fire more than once for the same local
+-- character. That is not a new connection and must not start a fresh timeout
+-- after this host has already been confirmed.
+local activeWorldContext = nil
 
 -- Set when a player reached for evolution while the check was still running.
 -- Without it they got "still checking, try again in a moment" and then silence:
@@ -281,6 +285,11 @@ end
 -- (or between servers) later in the same session.
 function ServerCheck.onEnterWorld(wc)
     if not (Config.serverCheck and Config.serverCheck.enabled) then return end
+    if wc == activeWorldContext and state ~= ST.IDLE then
+        Log("duplicate world-entry hook ignored for the active character")
+        return
+    end
+    activeWorldContext = wc
     generation = generation + 1
     local gen = generation
     beginProtocolGeneration(gen)
