@@ -16,7 +16,7 @@
 - **Keeps identity and progress:** every learned move carries over, even ones the new form could never learn on its own, and level, nickname, gender, passives, IVs, souls and condenser rank all stay. Alphas evolve into Alpha forms, Luckys stay Lucky.
 - **Prestige at the end of a line:** a Pal with nowhere left to evolve can start over. Level goes back to 1, everything it earned stays, and each prestige adds a rank of the Prestige passive up to 10. The presentation grows with the rank, and a prestiged Pal shimmers from then on.
 - **Conditional evolutions:** a pair can require day or night, water, a status effect, a location, a party member, a known move or passive, an item or an amount of gold, a condenser rank, the last thing the Pal was fed, or a trainer-level, trust-rank or IV threshold. Every one of them can be inverted. Greyed options name exactly what is still missing, in your game language.
-- **Evolutions that fire on their own:** switch a pair to automatic and it triggers the moment its conditions are true, taking the same costs and leaving the same rollback as a manual one.
+- **Evolutions that fire on their own:** switch a pair to automatic and it triggers the moment its conditions are true, taking the same costs and leaving the same rollback as a manual one. `!palvolve lock` keeps one Pal out of it, `!palvolve unlock` puts it back.
 - **Evolution tree in the Palpedia:** a third tab, "Evolutions", shows what the selected Pal evolves from and into, with the level, the stone and the conditions each step needs. Click a Pal inside the tree to make it the new centre and walk a whole line without leaving the screen.
 - **Web configurator:** build your own evolution tree at [palvolve.doodesch.de](https://palvolve.doodesch.de/?utm_source=github&utm_medium=readme&utm_campaign=palvolve) - rewire pairs, set levels and conditions, share it as a short link, and download the config. 17 languages.
 - **Reversible by design:** every evolution is snapshotted first, `!palvolve rollback` restores the previous form, and an aborted transformation refunds what it used.
@@ -78,7 +78,7 @@ Since 1.7.0 the server hands its tree to every player who joins, so nobody has t
 
 The rules travel with it as well - whether a stone is required and how many, the material cost model, the workbench level and how talkative the mod is in chat - so the numbers a player sees are the ones the server acts on.
 
-One gap to know about: going straight from a Palvolve server to a server without Palvolve keeps the first server's tree until the player enters a world of their own.
+One gap: going straight from a Palvolve server to a server without Palvolve keeps the first server's tree until the player enters a world of their own.
 
 ## Multiplayer
 
@@ -151,6 +151,9 @@ Take a Pal to the end of its evolution line and to the level `prestigeMinLevel` 
 
 **Why does a Pal I expected to prestige only offer Evolve?**
 It still has an evolution ahead of it, and those come first. A Pal that appears in no pair at all can prestige straight away when `prestigeMinEvolutions` is 0.
+
+**How do I turn prestige off?**
+Set `prestigeEnabled = false` in `config_user.lua`. No Pal is offered a prestige any more, and the Prestige Stone leaves the workbench with it. `prestigeAutoLink = false` keeps prestige but stops the mod working out connections for you, so only the ones drawn in the editor count.
 
 **The workbench unlocks too late (or too early) for my run?**
 Set `techLevelCap` in the configurator or in `config_user.lua` to the player level you want, anywhere from 1 to 100. The mod rewrites its own technology entry on startup, so the setting survives mod updates.

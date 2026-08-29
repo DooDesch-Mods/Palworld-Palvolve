@@ -227,8 +227,8 @@ function BenchVisual.init()
     -- Which of these fire depends on the role, and a LISTEN HOST is the one case
     -- where all three do: it is the authority and the drawing client at once. A
     -- dedicated server never runs the multicast, a remote client never runs the
-    -- server-internal finish. Singleplayer runs the lot, so it sees three times
-    -- the dispatch of anything that was ever tested against a server.
+    -- server-internal finish. Singleplayer runs the lot, so every completion
+    -- dispatches three times there and once on a dedicated server.
     local COMPLETION_HOOKS = {
         "/Script/Pal.PalBuildObject:PlayBuildCompleteFX_ToALL",
         "/Script/Pal.PalBuildObject:OnRep_CurrentState",

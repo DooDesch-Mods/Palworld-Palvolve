@@ -8,7 +8,7 @@ if not okPaldex or type(PALDEX) ~= "table" then PALDEX = nil end
 local okElements, ELEMENTS = pcall(require, "elements_static")
 if not okElements or type(ELEMENTS) ~= "table" then ELEMENTS = {} end
 
-local cacheMap, cacheShippedMap, cacheMin = nil, nil, nil
+local cacheMap, cacheShippedMap, cacheMin, cacheAutoLink = nil, nil, nil, nil
 local cacheTargets, cacheByFrom = nil, nil
 
 local function addUnique(list, seen, id)
@@ -66,7 +66,10 @@ local function betterBase(endElements, left, right)
     return left.order < right.order
 end
 
-local function deriveConnections(map, shippedMap, minimum)
+-- autoLink=false keeps every authored prestige row and derives none. The roster
+-- walk is what costs, so it is skipped entirely rather than filtered afterwards.
+local function deriveConnections(map, shippedMap, minimum, autoLink)
+    if autoLink == nil then autoLink = true end
     local roster, rosterErr = buildRoster(shippedMap)
     if not roster then return nil, rosterErr end
 
@@ -91,7 +94,7 @@ local function deriveConnections(map, shippedMap, minimum)
 
     local derived = {}
     for _, chainEnd in ipairs(roster) do
-        if not outgoing[chainEnd] then
+        if autoLink and not outgoing[chainEnd] then
             local candidates = {}
             local function trace(id, depth, seen)
                 local parents = incoming[id]
@@ -174,24 +177,34 @@ local function deriveConnections(map, shippedMap, minimum)
 end
 
 function Prestige.targets(config)
+    -- The single choke point for every prestige OFFER: the wheel, the option
+    -- list and the authority's re-check of an incoming request all resolve
+    -- through here, so one gate covers all three rather than three gates that
+    -- can disagree. The Palpedia tree view is not one of them - it walks
+    -- Config.map row by row, so an authored prestige row is still drawn there
+    -- while this returns nothing.
+    if config and config.prestigeEnabled == false then return {}, {} end
+
     local map = config and config.map or nil
     local shippedMap = config and (config.builtinMap or config.map) or nil
     local minimum = math.max(0, math.floor(tonumber(config and config.prestigeMinEvolutions) or 0))
-    if cacheTargets and cacheMap == map and cacheShippedMap == shippedMap and cacheMin == minimum then
+    local autoLink = not (config and config.prestigeAutoLink == false)
+    if cacheTargets and cacheMap == map and cacheShippedMap == shippedMap and cacheMin == minimum
+        and cacheAutoLink == autoLink then
         return cacheTargets, cacheByFrom
     end
 
-    local targets, err = deriveConnections(map, shippedMap, minimum)
+    local targets, err = deriveConnections(map, shippedMap, minimum, autoLink)
     if not targets then return {}, {}, err end
     local byFrom = {}
     for index, pair in ipairs(targets) do
         pair.prestigeIndex = index
-        if pair.derived then pair.minLevel = config.prestigeMinLevel end
+        if pair.derived then pair.minLevel = config and config.prestigeMinLevel end
         local list = byFrom[pair.from]
         if not list then list = {}; byFrom[pair.from] = list end
         list[#list + 1] = pair
     end
-    cacheMap, cacheShippedMap, cacheMin = map, shippedMap, minimum
+    cacheMap, cacheShippedMap, cacheMin, cacheAutoLink = map, shippedMap, minimum, autoLink
     cacheTargets, cacheByFrom = targets, byFrom
     return targets, byFrom
 end
@@ -202,14 +215,15 @@ function Prestige.forSpecies(config, characterId)
 end
 
 function Prestige.invalidate()
-    cacheMap, cacheShippedMap, cacheMin = nil, nil, nil
+    cacheMap, cacheShippedMap, cacheMin, cacheAutoLink = nil, nil, nil, nil
     cacheTargets, cacheByFrom = nil, nil
 end
 
 -- Exposed for the release proof and for a pure-data regression check. Runtime
 -- callers use targets(), whose authored-row overlay intentionally comes later.
-function Prestige.derive(map, shippedMap, minimum)
-    return deriveConnections(map, shippedMap, math.max(0, math.floor(tonumber(minimum) or 0)))
+function Prestige.derive(map, shippedMap, minimum, autoLink)
+    return deriveConnections(map, shippedMap, math.max(0, math.floor(tonumber(minimum) or 0)),
+        autoLink)
 end
 
 return Prestige

@@ -3951,7 +3951,7 @@ local function scanAutoControllerUnsafe(pc)
     local id, isAlpha = baseCharacterId(param:GetCharacterID():ToString())
     local level = tonumber(param:GetLevel()) or 0
     local pairList, isPrestige = optionPairsFor(id)
-    local bestIndex, bestCount = nil, -1
+    local bestIndex = nil
     local nextDelay = AUTO_SLOW_S
     local condCtx = { actor = actor, param = param, playerCtx = playerCtx, holder = holder }
 
@@ -4008,9 +4008,22 @@ local function scanAutoControllerUnsafe(pc)
     return nextDelay, false
 end
 
+-- One line per distinct failure and never again, not one per scan: this runs
+-- every few hundred milliseconds per player, so an unfiltered log would bury
+-- everything else. Silence is not the alternative - a scan that throws on its
+-- first call looks exactly like a scan that never finds anything ready.
+local autoScanFailures = {}
+
 local function scanAutoController(pc)
     local ok, delay, started = pcall(scanAutoControllerUnsafe, pc)
-    if not ok then return AUTO_SLOW_S, false end
+    if not ok then
+        local reason = tostring(delay)
+        if not autoScanFailures[reason] then
+            autoScanFailures[reason] = true
+            Log("auto-evolve scan failed: " .. reason)
+        end
+        return AUTO_SLOW_S, false
+    end
     return delay or AUTO_SLOW_S, started == true
 end
 

@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-08-29
+
+### Added
+
+- **You can stop one Pal from evolving on its own.** Pick it on the wheel or type `!palvolve lock`; `!palvolve unlock` puts it back. The Pal carries a passive that says so, and an evolved Pal keeps its Evolved rank while it is locked. Evolving it by hand leaves the lock in place, a prestige clears it. First asked for by ferkin1, who had already built the same idea himself.
+- **A path that was ready once stays reachable.** When automatic evolution finds a path ready but does not take it, that path is unlocked: it stays on the wheel and you trigger it when you want, even after its condition has passed. Most conditions in the mod are fleeting - electrified, raining, in combat, low health, night, a region - and until now you could only use one by standing at the wheel in that exact second. Unlocks last for the session.
+- **New setting `prestigeEnabled`.** Off means no Pal is ever offered a prestige, and the Prestige Stone leaves the workbench with it.
+- **New setting `prestigeAutoLink`.** Off stops the mod from working out prestige connections for you, so only the ones drawn in the editor count. Asked for by Narayan.
+
+### Changed
+
+- **Automatic evolution no longer picks for you when two paths are ready at the same moment.** It used to take whichever one came first in the file, an order nobody sets on purpose and the editor never shows. Now neither fires and both are unlocked instead, so the choice is yours. Asked by SephVII, who wanted to know which of two Teafant paths would win.
+- **The editor's settings panel shows all 44 settings.** It showed four. The rest, among them how moves are inherited and what a prestige costs, existed and worked but were only reachable through the old editor. Reported by TheDungeonToucan.
+
+### Fixed
+
+- **Deleting a prestige connection in the editor now sticks.** It used to come straight back, because the connection is worked out from your tree rather than stored, and the rule ran again the moment the row was gone. Deleting one now switches it off instead, which is what the inspector's own button already did. Reported by Narayan.
+- **The Pal Alchemy Workbench was never tinted.** The function that colours it called three helpers declared below it, so all three were empty inside it and the tint failed silently on every call, from the day it was written.
+
+Special thanks: SephVII, Narayan, ferkin1, TheDungeonToucan, Layoned and Reign. The automatic-evolution rules in this release came out of their threads.
+
 ## [1.9.0] - 2026-08-27
 
 ### Added

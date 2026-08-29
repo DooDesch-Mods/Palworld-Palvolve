@@ -117,6 +117,12 @@ local GLOBALS = {
     -- values would draw targets the host refuses, so these travel with the tree.
     { key = "prestigeMinEvolutions", kind = "number", since = 3 },
     { key = "prestigeMinLevel", kind = "number", since = 3 },
+    -- Same reason, one step earlier: these two decide whether the list exists
+    -- at all. A client left on its own values would derive its 174 connections
+    -- against a host that has prestige switched off, and put a wheel entry in
+    -- front of the player for a request the host then refuses.
+    { key = "prestigeEnabled", kind = "bool", since = 3 },
+    { key = "prestigeAutoLink", kind = "bool", since = 3 },
     -- The price of a prestige, for the same reason stoneCount travels: a client
     -- that quotes a different number than the host charges is the one thing a
     -- cost display must never do.
@@ -493,6 +499,17 @@ local function invalidateViews()
         local costs = require("costs")
         if not (costs and costs.clearCache) then error("invalidator unavailable") end
         costs.clearCache()
+    end)
+    -- Prestige connections are memoized against the map table's identity plus
+    -- the three settings that shape them. Applying a frame swaps the map for a
+    -- different table, so today the memo breaks on its own - but that is a
+    -- property of how a frame happens to be applied, not of this list. Naming it
+    -- here means a later change to the apply path cannot silently leave a client
+    -- deriving prestige against the settings it had before the host spoke.
+    invalidate("prestige", function()
+        local prestige = require("prestige")
+        if not (prestige and prestige.invalidate) then error("invalidator unavailable") end
+        prestige.invalidate()
     end)
     invalidate("tree view", function()
         local view = require("treeview")

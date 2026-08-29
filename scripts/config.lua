@@ -37,7 +37,7 @@ local Config = {
 
     -- Mod version, reported to connected clients by the host handshake. Keep in
     -- sync with Info.json (the release flow checks this).
-    modVersion = "1.9.0",
+    modVersion = "1.9.1",
 
     -- Unlock the catch-gated technologies (saddle, Pal gear) of the target species when a
     -- pal evolves, the same way capturing one would. Needs the native companion in
@@ -129,6 +129,19 @@ local Config = {
     -- depth and level gates apply to every derived or authored connection.
     prestigeMinEvolutions = 1,
     prestigeMinLevel = 80,
+
+    -- Off means no Pal is ever offered a prestige, whatever the tree says, and
+    -- the Prestige Stone recipe goes with it. The recipe is PalSchema data
+    -- rather than a runtime value, but Lua runs before PalSchema reads its raw
+    -- folder, so both halves land on the same restart.
+    prestigeEnabled = true,
+
+    -- Off stops the automatic derivation, so only prestige connections the tree
+    -- author wrote themselves count. This has to be a mod setting rather than an
+    -- editor one: the mod derives the connections itself at load, so an editor
+    -- that stopped deriving would export nothing and the mod would rebuild all
+    -- of them anyway.
+    prestigeAutoLink = true,
 
     -- Selected keeps the explicit target wheel. Conditioned resolves the
     -- strongest passing rule deterministically and puts only that target on it.
@@ -2391,6 +2404,8 @@ local USER_KEYS = {
     { path = "autoEvolve", kind = "bool" },
     { path = "prestigeMinEvolutions", kind = "int", min = 0, max = 5 },
     { path = "prestigeMinLevel", kind = "int", min = 1, max = 80 },
+    { path = "prestigeEnabled", kind = "bool" },
+    { path = "prestigeAutoLink", kind = "bool" },
     { path = "evolutionMode", kind = "enum", values = { "selected", "conditioned" } },
     { path = "conditionDisclosure", kind = "enum", values = { "exact", "partial", "hidden" } },
     { path = "eggFilter.enabled", kind = "bool" },

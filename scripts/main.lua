@@ -58,6 +58,14 @@ do
     if not okTech then Log("tech level: " .. tostring(errTech)) end
 end
 
+-- Prestige Stone recipe: PalSchema data as well, so the same next-start contract
+-- applies. Runs even on a dedicated server, where the bench that lists it belongs
+-- to the clients but the file is read on this side.
+do
+    local okRecipe, errRecipe = pcall(function() require("prestigerecipe").apply() end)
+    if not okRecipe then Log("prestige recipe: " .. tostring(errRecipe)) end
+end
+
 -- Evolution core
 local Evolution = nil
 local okCore, errCore = pcall(function()
