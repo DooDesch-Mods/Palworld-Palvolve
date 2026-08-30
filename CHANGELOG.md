@@ -14,7 +14,9 @@
 ### Changed
 
 - **Automatic evolution no longer picks for you when two paths are ready at the same moment.** It used to take whichever one came first in the file, an order nobody sets on purpose and the editor never shows. Now neither fires and both are unlocked instead, so the choice is yours. Asked by SephVII, who wanted to know which of two Teafant paths would win.
-- **The editor's settings panel shows all 44 settings.** It showed four. The rest, among them how moves are inherited and what a prestige costs, existed and worked but were only reachable through the old editor. Reported by TheDungeonToucan.
+- **The editor's settings panel shows all 44 settings.** It showed four. The rest, among them how moves are inherited and what a prestige costs, existed and worked but were only reachable through the old editor. The panel also gained a search and a switch that hides the explanations once you know them. Reported by TheDungeonToucan.
+- **The four line kinds on the editor canvas are switches now.** Each one turns off on its own, so you can look at evolutions and prestige together while adaptations stay out of the way. Before, clicking one kind dimmed the other three and clicking a second moved the highlight.
+- **Installing the config is one instruction instead of a folder to pick.** Put the file in the mod's scripts folder and start. Palvolve moves it somewhere a mod update cannot reach and writes to the log where it went. The exact folders are still listed for anyone who would rather place it themselves.
 
 ### Fixed
 
