@@ -26,9 +26,15 @@ local MAGIC_MASK = 0xFFFF0000
 local OP_EVOLVE_LEGACY = 7
 local OP_PRESTIGE = 8
 local OP_EVOLVE_V3 = 9
+-- The lock is not an evolution and carries no option index, but it has to make
+-- the same trip: it writes a passive on the Pal, and on a connected client that
+-- write lands on a replica the host never sees. The index byte carries the
+-- wanted state instead of a pair.
+local OP_AUTOLOCK = 10
 NetChannel.OP_EVOLVE_LEGACY = OP_EVOLVE_LEGACY
 NetChannel.OP_PRESTIGE = OP_PRESTIGE
 NetChannel.OP_EVOLVE_V3 = OP_EVOLVE_V3
+NetChannel.OP_AUTOLOCK = OP_AUTOLOCK
 
 -- host -> client phase signals, carried in SendScreenLogToClient (invisible
 -- in the retail HUD; the client mod hooks that RPC and parses the prefix).
@@ -109,6 +115,17 @@ end
 function NetChannel.sendPrestige(playerCtx, targetIndex)
     if not v3TreeReady() then return false, "v3 tree not ready" end
     return sendRequest(playerCtx, OP_PRESTIGE, targetIndex)
+end
+
+-- Asks the host to flip the auto-evolve lock on the player's summoned Pal.
+--
+-- A toggle rather than a wanted state, because the wheel entry carries no state
+-- to compare against and the host holds the authoritative passive list anyway.
+-- The index byte is 1 and means toggle. It is not 0 because validTargetIndex
+-- rejects that on both sides; an explicit lock or unlock from a client would be
+-- 2 and 3, and neither has a caller yet.
+function NetChannel.sendAutoLock(playerCtx)
+    return sendRequest(playerCtx, OP_AUTOLOCK, 1)
 end
 
 -- The "do you run Palvolve?" handshake is host-driven, not a client ping: no
@@ -291,6 +308,7 @@ function NetChannel.initHost(handler)
 
                     local knownOpcode = opcode == OP_EVOLVE_LEGACY
                         or opcode == OP_PRESTIGE or opcode == OP_EVOLVE_V3
+                        or opcode == OP_AUTOLOCK
                     if not knownOpcode then
                         Log(string.format("Request dropped: unknown opcode %d", opcode))
                         return

@@ -1256,6 +1256,7 @@ local function findEligibleFor(playerCtx)
                 palDisplayName(id), requiredLevelFor(cand), level)
         else
             local condOk, unmet = Conditions.evaluate(cand, condCtx)
+            if not condOk and AutoUnlock.has(param, cand.to) then condOk = true end
             if condOk then
                 -- The cost belongs in this loop. Checked only afterwards, a
                 -- species whose first target lacks a stone reported that stone
@@ -3198,6 +3199,11 @@ return false, I18n.msg("selectionOutdated", palDisplayName(id), palDisplayName(f
                 palDisplayName(id), requiredLevelFor(cand), level)
         else
             local condOk, unmet = Conditions.evaluate(cand, condCtx)
+            -- The same relaxation listOptions applies when it draws the wheel.
+            -- Without it here the entry is offered ungreyed, marked as unlocked,
+            -- and then refused on the way in - which is the one situation the
+            -- unlock exists to prevent.
+            if not condOk and AutoUnlock.has(param, cand.to) then condOk = true end
             if condOk then
                 local count = conditionCount(cand)
                 if exactPairIndex ~= nil or Config.evolutionMode ~= "conditioned"
@@ -3297,9 +3303,24 @@ end
 -- fresh handles and re-validates.
 function Evolution.executeOption(opt)
     -- The lock entry is not an evolution and carries no pair, so it is answered
-    -- before the pair check that every other path relies on.
+    -- before the pair check that every other path relies on. It still takes the
+    -- same role split as every other path: the passive lives on the Pal, and a
+    -- client writing it touches a replica the host never reads, so the Pal would
+    -- go on auto-evolving while the player watched the passive appear.
     if opt and opt.autoLock then
-        Evolution.toggleAutoLock(Role.localPlayerCtx())
+        local lockCtx = Role.localPlayerCtx()
+        if not lockCtx then
+            Log(I18n.msg("noLocalPlayer"))
+            return
+        end
+        if Role.hasWorldAuthority() then
+            Evolution.toggleAutoLock(lockCtx)
+        else
+            if not NetChannel.sendAutoLock(lockCtx) then
+                Log("auto-lock request could not be sent to the host")
+                Role.chat(lockCtx, I18n.msg("autoLockFailed", ""), "reply")
+            end
+        end
         return
     end
     if not (opt and opt.pair) then return end
@@ -4088,6 +4109,12 @@ function Evolution.init()
         local opcode = type(request) == "table" and request.opcode or NetChannel.OP_EVOLVE_LEGACY
         if opcode == NetChannel.OP_PRESTIGE then
             return handlePrestigeByIndex(senderCtx, pairIndex)
+        end
+        if opcode == NetChannel.OP_AUTOLOCK then
+            -- senderCtx is the requesting player resolved on this side, so the
+            -- lock is written on the host's own Pal, by the player who owns it.
+            -- toggleAutoLock reads the current state here, where it is true.
+            return Evolution.toggleAutoLock(senderCtx)
         end
         return handleEvolveByIndex(senderCtx, pairIndex)
     end)
