@@ -11,16 +11,16 @@
 
 ## Features
 
-- **143 curated transformations** as the starting point: evolution chains like Pengullet to Penking, fun chains like Sweepa to Snugloo, and 87 element adaptations.
+- **143 transformations to start with:** evolution chains like Pengullet to Penking, fun chains like Sweepa to Snugloo, and 87 element adaptations.
 - **Evolve when you want to:** hold 4, pick Evolve, and your Pal transforms in front of you with a finale built from its target elements. F2 does the same without the menu once you switch it on (`confirmKeyEnabled = true`).
 - **Keeps identity and progress:** every learned move carries over, even ones the new form could never learn on its own, and level, nickname, gender, passives, IVs, souls and condenser rank all stay. Alphas evolve into Alpha forms, Luckys stay Lucky.
-- **Prestige at the end of a line:** a Pal with nowhere left to evolve can start over. Level goes back to 1, everything it earned stays, and each prestige adds a rank of the Prestige passive up to 10. The presentation grows with the rank, and a prestiged Pal shimmers from then on.
-- **Conditional evolutions:** a pair can require day or night, water, a status effect, a location, a party member, a known move or passive, an item or an amount of gold, a condenser rank, the last thing the Pal was fed, or a trainer-level, trust-rank or IV threshold. Every one of them can be inverted. Greyed options name exactly what is still missing, in your game language.
-- **Evolutions that fire on their own:** switch a pair to automatic and it triggers the moment its conditions are true, taking the same costs and leaving the same rollback as a manual one. `!palvolve lock` keeps one Pal out of it, `!palvolve unlock` puts it back.
+- **Prestige at the end of a line:** a Pal with nowhere left to evolve can start over. Level goes back to 1, everything it earned stays, and each prestige adds a rank of the Prestige passive up to 10. The show gets bigger with each rank, and a prestiged Pal shimmers from then on.
+- **Conditional evolutions:** an evolution can require day or night, water, a status effect, a location, a party member, a known move or passive, an item or an amount of gold, a condenser rank, the last thing the Pal was fed, or a trainer-level, trust-rank or IV threshold. Every condition can also be flipped to the opposite. Greyed options name what is still missing, in your game language.
+- **Evolutions that happen on their own:** set an evolution to automatic and it runs as soon as its conditions are met. It costs the same and can be undone the same way. `!palvolve lock` keeps one Pal out of it, `!palvolve unlock` puts it back.
 - **Evolution tree in the Palpedia:** a third tab, "Evolutions", shows what the selected Pal evolves from and into, with the level, the stone and the conditions each step needs. Click a Pal inside the tree to make it the new centre and walk a whole line without leaving the screen.
-- **Web configurator:** build your own evolution tree at [palvolve.doodesch.de](https://palvolve.doodesch.de/?utm_source=github&utm_medium=readme&utm_campaign=palvolve) - rewire pairs, set levels and conditions, share it as a short link, and download the config. 17 languages.
-- **Reversible by design:** every evolution is snapshotted first, `!palvolve rollback` restores the previous form, and an aborted transformation refunds what it used.
-- **Earned, not free:** evolutions cost stones from the buildable Pal Alchemy Workbench, and an optional egg filter can keep eggs hatching base forms.
+- **Web configurator:** build your own evolution tree at [palvolve.doodesch.de](https://palvolve.doodesch.de/?utm_source=github&utm_medium=readme&utm_campaign=palvolve) - change which Pal becomes which, set levels and conditions, share it as a short link, and download the config. 17 languages.
+- **Every evolution can be undone:** the Pal is saved beforehand, `!palvolve rollback` brings the old form back, and an evolution that breaks off refunds what it used.
+- **Evolutions cost something:** stones from the Pal Alchemy Workbench you build yourself. An optional egg filter can keep eggs hatching base forms.
 
 ## Requirements
 
@@ -49,7 +49,7 @@ Never mix a Workshop UE4SS and a manual UE4SS in the same install - that double-
 
 ### Dedicated servers
 
-The server validates the technology unlock. If the mod is not running on the server, the workbench relocks every time you reopen the technology tree.
+The server checks the technology unlock. If the mod is not running on the server, the workbench relocks every time you reopen the technology tree.
 
 1. Install **UE4SS Experimental (Palworld)** on the server (proxy dll next to the server binary).
 2. Install **PalSchema** on the server ([installation guide](https://okaetsu.github.io/PalSchema/docs/installation)).
@@ -66,7 +66,7 @@ Every player also needs Palvolve, PalSchema and UE4SS active on their own client
 
 A server looks in `<server>\Pal\Saved\Palvolve\config_user.lua` first, then in `%LocalAppData%\Pal\Saved\Palvolve\`, which on a rented server belongs to the hosting company rather than to you.
 
-Since 1.8.0 you can also just drop the file in the mod's own `scripts\` folder. On the next start it is moved to whichever of those two paths applies, a note is left behind saying where it went, and any config already there is kept as `config_user.lua.bak`. That folder is the one most people find first and the one a mod update replaces, so nothing is meant to stay there.
+Since 1.8.0 you can also just drop the file in the mod's own `scripts\` folder. On the next start it is moved to whichever of those two paths applies, a note is left behind saying where it went, and any config already there is kept as `config_user.lua.bak`. That folder is the one most people find first, and a mod update replaces it, so nothing is meant to stay there.
 
 Since 1.6.3 the log names the file it loaded, so one line tells you which tree the server is running:
 
@@ -74,18 +74,18 @@ Since 1.6.3 the log names the file it loaded, so one line tells you which tree t
 [Palvolve] user config loaded (166 pairs, .../Pal/Saved/Palvolve/config_user.lua)
 ```
 
-Since 1.7.0 the server hands its tree to every player who joins, so nobody has to copy `config_user.lua` around any more. The client draws and offers what the server runs, and gets its own tree back when it enters a world of its own. The server's tree is on loan: it never reaches a player's disk, and their Survival Guide keeps describing their own.
+Since 1.7.0 the server hands its tree to every player who joins, so nobody has to copy `config_user.lua` around any more. You see and use what the server runs, and get your own tree back in a world of your own. The server's tree is on loan: it is never saved to your disk, and your Survival Guide keeps describing your own.
 
-The rules travel with it as well - whether a stone is required and how many, the material cost model, the workbench level and how talkative the mod is in chat - so the numbers a player sees are the ones the server acts on.
+The rules travel with it as well - whether a stone is required and how many, the material costs, the workbench level and how talkative the mod is in chat - so the numbers you see are the ones the server uses.
 
-One gap: going straight from a Palvolve server to a server without Palvolve keeps the first server's tree until the player enters a world of their own.
+One gap: going straight from a Palvolve server to a server without Palvolve keeps the first server's tree until you enter a world of your own.
 
 ## Multiplayer
 
 Single player, co-op and dedicated servers all work. A few rules:
 
 - Install UE4SS, PalSchema and Palvolve on the host or server **and** on every client. A client-only install does not work.
-- The host or server validates ownership, level, costs and conditions before anything changes.
+- The host or server checks ownership, level, costs and conditions before anything changes.
 - On a dedicated server, only the evolving player sees the full cinematic. Everyone else sees the normal recall and resummon.
 
 ## Configuration
@@ -115,12 +115,12 @@ Close the game and clean the save at **[palvolve.doodesch.de/save-cleaner](https
 ## Known issues
 
 - Removing the mod without cleaning the save first can stop the world from loading. The [Save Cleaner](https://palvolve.doodesch.de/save-cleaner?utm_source=github&utm_medium=readme&utm_campaign=palvolve) repairs that world as well.
-- A rollback does not re-lock catch-gated technologies. Evolving into a species unlocks its saddle and Pal Gear the way catching one does, and `!palvolve rollback` gives the Pal and the materials back but leaves that unlock in place. Taking it away again would also take it from someone who had caught the species themselves, which is the worse mistake of the two.
+- A rollback does not lock a technology again. Evolving into a species unlocks its saddle and Pal Gear the way catching one does, and `!palvolve rollback` gives the Pal and the materials back but leaves that unlock in place. Taking it away again would also take it from someone who had caught the species themselves, which is the worse mistake of the two.
 
 ## FAQ
 
-**Evolve is greyed out on a Pal your tree does configure, while other Pals work?**
-Update to 1.5.3 or newer. Palworld spells 42 of its own Pal ids two ways, and a session hands back whichever spelling it saw first, so one species could stop matching the tree while every other Pal kept working. HenryFrost spent an evening on this with a Lamball that refused to evolve while its Lucky counterpart did. If it still happens on 1.5.3, move Palvolve up in the in-game Mod Management list: that list is ordered, and another mod can take Palvolve's evolutions out for one species with no error showing up.
+**Evolve is greyed out on one species, while other Pals work?**
+Update to 1.5.3 or newer. Palworld spells 42 of its own Pal ids two ways, which could stop one species from matching the tree while every other Pal kept working. HenryFrost spent an evening on this with a Lamball that refused to evolve while its Lucky counterpart did. If it still happens on 1.5.3, move Palvolve up in the in-game Mod Management list: that list is ordered, and another mod can take Palvolve's evolutions out for one species with no error showing up.
 
 **No "Evolve" option in the hold-4 menu, even though the workbench and stones work?**
 UE4SS is not loading Palvolve. The workbench is PalSchema, the Evolve button is UE4SS. Check that UE4SS Experimental (Palworld) is installed and Palvolve is enabled; relaunch if it vanishes mid-session.
@@ -147,25 +147,25 @@ Evolution turns a Pal into a different Pal (Pengullet to Penking). Adaptation ch
 Build the Pal Alchemy Workbench (unlocks at level 10, adjustable), forge an Evolution Stone from skill-fruit essences, then hold 4 and pick Evolve. `!palvolve rollback` undoes it.
 
 **How do I prestige a Pal?**
-Take a Pal to the end of its evolution line and to the level `prestigeMinLevel` asks for, then hold 4: the entry reads Prestige instead of Evolve. It costs a Prestige Stone, crafted at the Pal Alchemy Workbench from an Evolution Stone and Nightstar Sand. On a server both settings come from the host, so what qualifies is the host's decision.
+Take a Pal to the end of its evolution line and to the level `prestigeMinLevel` asks for, then hold 4: the entry reads Prestige instead of Evolve. It costs a Prestige Stone, crafted at the Pal Alchemy Workbench from an Evolution Stone and Nightstar Sand. On a server both settings come from the host.
 
 **Why does a Pal I expected to prestige only offer Evolve?**
-It still has an evolution ahead of it, and those come first. A Pal that appears in no pair at all can prestige straight away when `prestigeMinEvolutions` is 0.
+It still has an evolution ahead of it, and those come first. A Pal with no evolution at all can prestige straight away when `prestigeMinEvolutions` is 0.
 
 **How do I turn prestige off?**
 Set `prestigeEnabled = false` in `config_user.lua`. No Pal is offered a prestige any more, and the Prestige Stone leaves the workbench with it. `prestigeAutoLink = false` keeps prestige but stops the mod working out connections for you, so only the ones drawn in the editor count.
 
 **The workbench unlocks too late (or too early) for my run?**
-Set `techLevelCap` in the configurator or in `config_user.lua` to the player level you want, anywhere from 1 to 100. The mod rewrites its own technology entry on startup, so the setting survives mod updates.
+Set `techLevelCap` in the configurator or in `config_user.lua` to the player level you want, anywhere from 1 to 100. The setting survives mod updates.
 
 **How do I turn the chat messages off?**
-Set `chatMessages = "replies"` in `config_user.lua` to keep only what answers something you did, or `"off"` to keep only the answers to `!palvolve` commands. On a server the admin's setting reaches every player. Whether your client and the server agree on a version is always shown.
+Set `chatMessages = "replies"` in `config_user.lua` to keep only what answers something you did, or `"off"` to keep only the answers to `!palvolve` commands. On a server the admin's setting reaches every player. The version check between you and the server is always shown.
 
 **F2 does nothing.**
 Since 1.6.4 the mod claims no key unless you ask it to: set `confirmKeyEnabled = true` in `config_user.lua`. Evolving works through the wheel (hold 4) and `!palvolve evolve` either way.
 
 **Why `!palvolve` and not `/palvolve`?**
-A leading slash is the game's own admin sigil: Palworld answers every such line with "You are not an Admin" before any mod ever sees it, and that reply cannot be intercepted from a mod. `/palvolve` still works if that is what you are used to - `!palvolve` is the quiet one, and the same prefix the other Palworld command mods use.
+A leading slash belongs to the game's admin commands: Palworld answers every such line with "You are not an Admin" before any mod sees it, and no mod can stop that reply. `/palvolve` still works if that is what you are used to - `!palvolve` is the quiet one, and the same prefix the other Palworld command mods use.
 
 **I evolved a Pal but its saddle is missing from the Tech Tree and Pal Gear Workbench?**
 Since 1.4.0 the mod unlocks those recipes for you when you evolve a Pal into that species. If the saddle still does not show up, the native component behind it is not loading. Check the UE4SS log for a line starting with `[PalvolveNative]`, and make sure your UE4SS build matches the one the mod was built against. If you prefer the vanilla rule that only catching a species unlocks its gear, set `unlockCatchTech = false` in your `config_user.lua`. Before 1.8.0 that line was only read from the mod's own copy, which every update replaced.

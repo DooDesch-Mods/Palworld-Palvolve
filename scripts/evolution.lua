@@ -2625,6 +2625,7 @@ end
 -- logging every call would put one line per frame in the file. Logging nothing
 -- is worse: "not your pal", "nothing configured for this species" and "host not
 -- confirmed" produce the same grey entry and are otherwise indistinguishable.
+local lastOfferPlayerMsg = nil
 local lastOfferReason = nil
 local lastOfferPrestige = false
 -- The wheel labels itself from lastOfferPrestige, and a prestige connection
@@ -2637,9 +2638,19 @@ local lastOfferShape = nil
 -- nothing to act on. One line per distinct cause per session: canOffer runs on
 -- every wheel rebuild, so anything less selective would be chat spam.
 local toldReasons = {}
+--- Says it once, and only where it can be said properly.
+---
+--- A client cannot set a chat sender, so anything it writes arrives under the
+--- PLAYER's own name: "[DooDesch]: [Palvolve] No Pal summoned" reads as if the
+--- player had typed it. This line is not even an answer to something the player
+--- did - it fires while the wheel is being built - so on a connected client it
+--- stays out of the chat entirely and goes to the wheel instead, where
+--- Evolution.offerReason puts it in the middle of the ring under the entry it
+--- is about. The host has a real sender and keeps the line.
 local function tellPlayer(msg)
     if not msg or toldReasons[msg] then return end
     toldReasons[msg] = true
+    if not Role.hasWorldAuthority() then return end
     local playerCtx = Role.localPlayerCtx()
     if not playerCtx then return end
     pcall(Role.chat, playerCtx, "[Palvolve] " .. msg)
@@ -2651,7 +2662,14 @@ local function offerVerdict(reason, playerMsg)
         Log(reason and ("Evolve unavailable: " .. reason) or "Evolve available")
         if reason then tellPlayer(playerMsg) end
     end
+    lastOfferPlayerMsg = reason and playerMsg or nil
     return reason
+end
+
+--- Why the wheel entry is greyed, in the player's language, or nil when it is
+--- not. Set by the last canOffer, which the wheel calls on every rebuild.
+function Evolution.offerReason()
+    return lastOfferPlayerMsg
 end
 
 -- Light-weight availability for the radial label: an owned pal is
@@ -2693,6 +2711,12 @@ function Evolution.canOffer()
                 I18n.msg("greyNotYours")
         end
         local pairList, isPrestige, prestigeErr = optionPairsFor(id)
+        -- Before any of the refusals below, not after them. The entry names
+        -- itself from this, and every early return left it on the value the
+        -- last Pal set - so a Pal whose only step is a prestige was refused
+        -- under the word "Evolve", while the reason beside it talked about
+        -- prestige. A greyed entry still has to say what it is greyed FOR.
+        lastOfferPrestige = isPrestige
         if isPrestige and prestigeAtMax(param) then
             return string.format("pal '%s' is already at the last prestige rank", id),
                 I18n.msg("prestigeAtMax", palDisplayName(id))
@@ -2700,12 +2724,26 @@ function Evolution.canOffer()
         local n = #pairList
         if n == 0 then
             if prestigeErr then Log("Prestige targets unavailable: " .. tostring(prestigeErr)) end
-            local playerMessage = I18n.msg("hasNoEvolution", palDisplayName(id))
-            if isPrestige then playerMessage = I18n.msg("hasNoPrestige", palDisplayName(id)) end
+            -- The wheel already carries the Pal: its portrait is in the ring
+            -- and the entry sits on it, so repeating the species name here
+            -- spends the width that the reason needs. The chat paths keep the
+            -- named wording, where there is no wheel to read it from.
+            local playerMessage = I18n.msg("hasNoEvolutionShort")
+            if isPrestige then
+                -- Two different answers wearing the same words. "This Pal
+                -- cannot prestige" is about the Pal; a host that switched
+                -- prestige off is about the world, and every Pal in it reads
+                -- the same. Blaming the Pal for the setting sends the player
+                -- looking for a fault in their Pal.
+                if Config.prestigeEnabled == false then
+                    playerMessage = I18n.msg("prestigeOffHere")
+                else
+                    playerMessage = I18n.msg("hasNoPrestigeShort")
+                end
+            end
             return string.format("no enabled pair configured for '%s'", id),
                 playerMessage
         end
-        lastOfferPrestige = isPrestige
         local shape = string.format("%s:%d:%s", id, n, tostring(isPrestige))
         if shape ~= lastOfferShape then
             lastOfferShape = shape
@@ -2979,6 +3017,18 @@ end
 -- earliest point the price applies, which is the level the guide quotes too.
 local function requirementLine(pair, level, worldCtx)
     local lines = {}
+    -- What KIND of step this is, above the level and the price. A prestige and
+    -- an ordinary evolution ask for the same things and cost the same shape of
+    -- price, so without a word for it the middle of the wheel reads identically
+    -- for a step that resets the Pal and one that does not. Auto-Evo is the
+    -- same case from the other side: it does not wait to be picked, and the
+    -- colour on the segment only says so to somebody who knows the colour.
+    if pair.category == "prestige" then
+        wrapText(I18n.msg("prestige"), CENTER_WIDTH, lines)
+    end
+    if pair.autoEvolve == true then
+        wrapText(I18n.msg("autoLockEntry"), CENTER_WIDTH, lines)
+    end
     local minLevel = requiredLevelFor(pair)
     if minLevel > 0 then wrapText(I18n.msg("guideLevelShort", minLevel), CENTER_WIDTH, lines) end
 
@@ -3002,6 +3052,12 @@ local function requirementLine(pair, level, worldCtx)
     end
 
     if #lines == 0 then return nil end
+    -- Last word on the budget. The cost block trims itself above, but the
+    -- kind of step, the level and the conditions do not, and together they
+    -- pass the cap on their own: two kind lines plus a level plus three
+    -- conditions plus a price is eight. What goes is what came last, so the
+    -- kind and the level - the two a player reads first - always survive.
+    for i = #lines, CENTER_MAX_LINES + 1, -1 do lines[i] = nil end
     return table.concat(lines, "\n")
 end
 
@@ -3083,6 +3139,11 @@ function Evolution.listOptions()
                         opt.label, Costs.describeMissing(missing))
                 end
             end
+        end
+        if Config.devMode then
+            Log(string.format("[radial] %s auto=%s blocked=%s unlocked=%s",
+                tostring(opt.label), tostring(pair.autoEvolve),
+                tostring(opt.blocked), tostring(opt.unlocked)))
         end
         -- Same-target variants (either/or conditions) collapse into ONE wheel
         -- entry: the first unblocked variant wins its index; while every
@@ -3544,7 +3605,12 @@ function Evolution.onNetSignal(kind, phaseInfo)
         remoteRevealStart = os.clock()
         remoteCtx = buildRemoteCtx(actor, holder, playerCtx, lastRemotePair)
         local toName = lastRemotePair and palDisplayName(lastRemotePair.to) or "its new form"
-        Role.chat(playerCtx, I18n.msg("evolvingInto", toName))
+        -- The same step by its own name. This line is the only one a client
+        -- gets for a host-run step, and it said "evolving" for a prestige too -
+        -- the one word the player uses to tell the two apart.
+        local startKey = (lastRemotePair and lastRemotePair.category == "prestige")
+            and "prestigingInto" or "evolvingInto"
+        Role.chat(playerCtx, I18n.msg(startKey, toName))
         pcall(function() playFanfare(actor) end)
         pcall(function() FX.onDissolve(remoteCtx) end)
         -- after the dissolve, start the hold loop and recall the pal
@@ -3637,6 +3703,24 @@ end
 ---
 --- The wheel entry cannot label itself with the current state, because the wheel
 --- is built without knowing which Pal is out. So the answer arrives in chat.
+--- Is the Pal the player has out left alone by auto-evolve?
+---
+--- The wheel asks this to put the state in the middle of the ring, the way a
+--- target puts its requirements there. It answers for the SUMMONED Pal, which
+--- is the one the wheel is about, and false for "no Pal out" - the entry then
+--- reads as off, which is what acting on it would produce.
+function Evolution.isAutoLocked(senderCtx)
+    local playerCtx = senderCtx or Role.localPlayerCtx()
+    if not playerCtx then return false end
+    local holder = findHolderFor(playerCtx, nil)
+    local actor = nil
+    if holder then pcall(function() actor = holder:TryGetSpawnedOtomo() end) end
+    if not (actor and actor:IsValid()) then return false end
+    local param = paramOf(actor)
+    if not param then return false end
+    return AutoLock.isLocked(param)
+end
+
 function Evolution.toggleAutoLock(senderCtx)
     local playerCtx = senderCtx or Role.localPlayerCtx()
     local holder = findHolderFor(playerCtx, nil)
@@ -3924,6 +4008,9 @@ local AUTO_SCHEDULER_MS = 250
 local autoWatchNextAt = 0
 local autoWatchQueued = false
 local autoOwnershipSkipped = {}
+-- Pals already told "two ways are open", so a timer that runs every few seconds
+-- does not repeat one line into the chat forever.
+local autoHeldTold = {}
 
 local function autoDelayFor(met, total)
     if not total or total <= 0 then return AUTO_SLOW_S end
@@ -4013,9 +4100,26 @@ local function scanAutoControllerUnsafe(pc)
         for _, entry in ipairs(ready) do
             AutoUnlock.remember(param, entry.pair)
         end
+        -- Nothing happening is the whole point here, and nothing happening is
+        -- indistinguishable from the feature never running. Both the player and
+        -- the log are told, or the next report is "auto-evolve does nothing".
+        -- Once per Pal per stretch, not once per scan: this runs on a timer.
+        local heldKey = guidString(param.IndividualId.InstanceId)
+        if not autoHeldTold[heldKey] then
+            autoHeldTold[heldKey] = true
+            Log(string.format("auto-evolve held: '%s' has %d ways open at once", id, #ready))
+            Role.chat(playerCtx, I18n.msg("autoEvolveHeld", palDisplayName(id)))
+        end
         return nextDelay, false
     end
-    if #ready == 1 then bestIndex = ready[1].index end
+    if #ready == 1 then
+        -- Cleared here and nowhere else. A condition that lapses puts the Pal
+        -- back at nothing-to-do, and clearing there would let a pair of
+        -- flickering conditions re-announce the same hold every few seconds.
+        -- One evolution is the event that makes the next hold a new one.
+        autoHeldTold[guidString(param.IndividualId.InstanceId)] = nil
+        bestIndex = ready[1].index
+    end
 
     if bestIndex then
         local started

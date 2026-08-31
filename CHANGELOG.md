@@ -2,28 +2,34 @@
 
 ## [Unreleased]
 
-## [1.9.1] - 2026-08-29
+## [1.9.1] - 2026-08-31
 
 ### Added
 
-- **You can stop one Pal from evolving on its own.** Pick it on the wheel or type `!palvolve lock`; `!palvolve unlock` puts it back. The Pal carries a passive that says so, and an evolved Pal keeps its Evolved rank while it is locked. Evolving it by hand leaves the lock in place, a prestige clears it. First asked for by ferkin1, who had already built the same idea himself.
-- **A path that was ready once stays reachable.** When automatic evolution finds a path ready but does not take it, that path is unlocked: it stays on the wheel and you trigger it when you want, even after its condition has passed. Most conditions in the mod are fleeting - electrified, raining, in combat, low health, night, a region - and until now you could only use one by standing at the wheel in that exact second. Unlocks last for the session.
-- **New setting `prestigeEnabled`.** Off means no Pal is ever offered a prestige, and the Prestige Stone leaves the workbench with it.
-- **New setting `prestigeAutoLink`.** Off stops the mod from working out prestige connections for you, so only the ones drawn in the editor count. Asked for by Narayan.
+- **You can stop one Pal from evolving on its own.** Pick Auto-Evo on the wheel, or type `!palvolve lock`. `!palvolve unlock` allows it again. The Pal gets a passive skill that shows this. Asked for by ferkin1, who had built the same thing himself.
+- **A path your Pal once qualified for stays open.** Rain, night, low health and the like pass quickly. Now you can still take that evolution later in the same play session.
+- **New setting `prestigeEnabled`.** Off means no Pal can prestige.
+- **New setting `prestigeAutoLink`.** Off means only the prestige connections you drew in the editor count. Asked for by Narayan.
 
 ### Changed
 
-- **Automatic evolution no longer picks for you when two paths are ready at the same moment.** It used to take whichever one came first in the file, an order nobody sets on purpose and the editor never shows. Now neither fires and both are unlocked instead, so the choice is yours. Asked by SephVII, who wanted to know which of two Teafant paths would win.
-- **The editor's settings panel shows all 44 settings.** It showed four. The rest, among them how moves are inherited and what a prestige costs, existed and worked but were only reachable through the old editor. The panel also gained a search and a switch that hides the explanations once you know them. Reported by TheDungeonToucan.
-- **The four line kinds on the editor canvas are switches now.** Each one turns off on its own, so you can look at evolutions and prestige together while adaptations stay out of the way. Before, clicking one kind dimmed the other three and clicking a second moved the highlight.
-- **Installing the config is one instruction instead of a folder to pick.** Put the file in the mod's scripts folder and start. Palvolve moves it somewhere a mod update cannot reach and writes to the log where it went. The exact folders are still listed for anyone who would rather place it themselves.
+- **Two evolutions ready at the same time? Your Pal waits for you.** It used to pick one by itself. Now it takes neither, and both stay open on the wheel. Asked by SephVII.
+- **The editor's settings panel shows all 44 settings.** It showed four. It has a search box now. Reported by TheDungeonToucan.
+- **You can switch each kind of line in the editor on and off.** Show evolutions and prestige, hide adaptations, however you like.
+- **The wheel tells you what an entry is before you pick it.** Point at a target and the middle of the wheel says Prestige or Auto-Evo, then the level and the price. A greyed out entry says why it is greyed out.
+- **Installing your config is one step.** Put `config_user.lua` in the mod's scripts folder and start the game.
 
 ### Fixed
 
-- **Deleting a prestige connection in the editor now sticks.** It used to come straight back, because the connection is worked out from your tree rather than stored, and the rule ran again the moment the row was gone. Deleting one now switches it off instead, which is what the inspector's own button already did. Reported by Narayan.
-- **The Pal Alchemy Workbench was never tinted.** The function that colours it called three helpers declared below it, so all three were empty inside it and the tint failed silently on every call, from the day it was written.
+- **Settings a server switches off now reach the players on it.** A server with prestige off still showed everyone a Prestige button, and then refused it. Seven settings were affected.
+- **Greyed out entries in the wheel are grey again instead of black.**
+- **A prestige on a server no longer announces itself as an evolution.**
+- **A server with prestige off says so, instead of making it look like your Pal's fault.**
+- **The lock is called Auto-Evo now and says whether it is on or off.** The passive skill read "Manual only" before. An evolved Pal keeps its rank on the card.
+- **Deleting a prestige connection in the editor sticks.** It used to come straight back. Reported by Narayan.
+- **The Pal Alchemy Workbench has its colour.** It was never tinted, since the day it was added.
 
-Special thanks: SephVII, Narayan, ferkin1, TheDungeonToucan, Layoned and Reign. The automatic-evolution rules in this release came out of their threads.
+Special thanks: SephVII, Narayan, ferkin1, TheDungeonToucan, Layoned and Reign. The automatic evolution rules in this release came out of their threads.
 
 ## [1.9.0] - 2026-08-27
 

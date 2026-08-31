@@ -14,11 +14,11 @@
         "PASSIVE_Palvolve_Evolved_2": "진화 II",
         "PASSIVE_Palvolve_Evolved_3": "진화 III",
         "PASSIVE_Palvolve_Evolved_4": "진화 IV",
-        "PASSIVE_Palvolve_Evolved_1_Locked": "진화 I, 수동 전용",
-        "PASSIVE_Palvolve_Evolved_2_Locked": "진화 II, 수동 전용",
-        "PASSIVE_Palvolve_Evolved_3_Locked": "진화 III, 수동 전용",
-        "PASSIVE_Palvolve_Evolved_4_Locked": "진화 IV, 수동 전용",
-        "PASSIVE_Palvolve_NoAutoEvolve": "수동 전용"
+        "PASSIVE_Palvolve_Evolved_1_Locked": "진화 I",
+        "PASSIVE_Palvolve_Evolved_2_Locked": "진화 II",
+        "PASSIVE_Palvolve_Evolved_3_Locked": "진화 III",
+        "PASSIVE_Palvolve_Evolved_4_Locked": "진화 IV",
+        "PASSIVE_Palvolve_NoAutoEvolve": "자동 진화"
     },
     "DT_SkillDescText": {
         "PASSIVE_Palvolve_Prestige_1": "상승이 시작됩니다.\r\n공격 +{EffectValue1}%\r\n방어 +{EffectValue2}%\r\n작업 속도 +{EffectValue3}%",
@@ -35,10 +35,10 @@
         "PASSIVE_Palvolve_Evolved_2": "최대 HP +{EffectValue1}%\n이동 속도 +{EffectValue2}%\n작업 속도 +{EffectValue3}%",
         "PASSIVE_Palvolve_Evolved_3": "최대 HP +{EffectValue1}%\n이동 속도 +{EffectValue2}%\n작업 속도 +{EffectValue3}%",
         "PASSIVE_Palvolve_Evolved_4": "최대 HP +{EffectValue1}%\n이동 속도 +{EffectValue2}%\n작업 속도 +{EffectValue3}%",
-        "PASSIVE_Palvolve_Evolved_1_Locked": "최대 HP +{EffectValue1}%\n이동 속도 +{EffectValue2}%\n작업 속도 +{EffectValue3}%\n자동으로 진화하지 않음.",
-        "PASSIVE_Palvolve_Evolved_2_Locked": "최대 HP +{EffectValue1}%\n이동 속도 +{EffectValue2}%\n작업 속도 +{EffectValue3}%\n자동으로 진화하지 않음.",
-        "PASSIVE_Palvolve_Evolved_3_Locked": "최대 HP +{EffectValue1}%\n이동 속도 +{EffectValue2}%\n작업 속도 +{EffectValue3}%\n자동으로 진화하지 않음.",
-        "PASSIVE_Palvolve_Evolved_4_Locked": "최대 HP +{EffectValue1}%\n이동 속도 +{EffectValue2}%\n작업 속도 +{EffectValue3}%\n자동으로 진화하지 않음.",
-        "PASSIVE_Palvolve_NoAutoEvolve": "자동으로 진화하지 않음."
+        "PASSIVE_Palvolve_Evolved_1_Locked": "최대 HP +{EffectValue1}%\n이동 속도 +{EffectValue2}%\n작업 속도 +{EffectValue3}%\n자동 진화: 비활성화됨",
+        "PASSIVE_Palvolve_Evolved_2_Locked": "최대 HP +{EffectValue1}%\n이동 속도 +{EffectValue2}%\n작업 속도 +{EffectValue3}%\n자동 진화: 비활성화됨",
+        "PASSIVE_Palvolve_Evolved_3_Locked": "최대 HP +{EffectValue1}%\n이동 속도 +{EffectValue2}%\n작업 속도 +{EffectValue3}%\n자동 진화: 비활성화됨",
+        "PASSIVE_Palvolve_Evolved_4_Locked": "최대 HP +{EffectValue1}%\n이동 속도 +{EffectValue2}%\n작업 속도 +{EffectValue3}%\n자동 진화: 비활성화됨",
+        "PASSIVE_Palvolve_NoAutoEvolve": "비활성화됨"
     }
 }

@@ -14,11 +14,11 @@
         "PASSIVE_Palvolve_Evolved_2": "Ewolucja II",
         "PASSIVE_Palvolve_Evolved_3": "Ewolucja III",
         "PASSIVE_Palvolve_Evolved_4": "Ewolucja IV",
-        "PASSIVE_Palvolve_Evolved_1_Locked": "Ewolucja I, tylko ręcznie",
-        "PASSIVE_Palvolve_Evolved_2_Locked": "Ewolucja II, tylko ręcznie",
-        "PASSIVE_Palvolve_Evolved_3_Locked": "Ewolucja III, tylko ręcznie",
-        "PASSIVE_Palvolve_Evolved_4_Locked": "Ewolucja IV, tylko ręcznie",
-        "PASSIVE_Palvolve_NoAutoEvolve": "Tylko ręcznie"
+        "PASSIVE_Palvolve_Evolved_1_Locked": "Ewolucja I",
+        "PASSIVE_Palvolve_Evolved_2_Locked": "Ewolucja II",
+        "PASSIVE_Palvolve_Evolved_3_Locked": "Ewolucja III",
+        "PASSIVE_Palvolve_Evolved_4_Locked": "Ewolucja IV",
+        "PASSIVE_Palvolve_NoAutoEvolve": "Autoewolucja"
     },
     "DT_SkillDescText": {
         "PASSIVE_Palvolve_Prestige_1": "Rozpoczyna się wywyższenie.\r\nAtak +{EffectValue1}%\r\nObrona +{EffectValue2}%\r\nSzybkość pracy +{EffectValue3}%",
@@ -35,10 +35,10 @@
         "PASSIVE_Palvolve_Evolved_2": "Maks. PŻ +{EffectValue1}%\nPrędkość ruchu +{EffectValue2}%\nSzybkość pracy +{EffectValue3}%",
         "PASSIVE_Palvolve_Evolved_3": "Maks. PŻ +{EffectValue1}%\nPrędkość ruchu +{EffectValue2}%\nSzybkość pracy +{EffectValue3}%",
         "PASSIVE_Palvolve_Evolved_4": "Maks. PŻ +{EffectValue1}%\nPrędkość ruchu +{EffectValue2}%\nSzybkość pracy +{EffectValue3}%",
-        "PASSIVE_Palvolve_Evolved_1_Locked": "Maks. PŻ +{EffectValue1}%\nPrędkość ruchu +{EffectValue2}%\nSzybkość pracy +{EffectValue3}%\nNie ewoluuje automatycznie.",
-        "PASSIVE_Palvolve_Evolved_2_Locked": "Maks. PŻ +{EffectValue1}%\nPrędkość ruchu +{EffectValue2}%\nSzybkość pracy +{EffectValue3}%\nNie ewoluuje automatycznie.",
-        "PASSIVE_Palvolve_Evolved_3_Locked": "Maks. PŻ +{EffectValue1}%\nPrędkość ruchu +{EffectValue2}%\nSzybkość pracy +{EffectValue3}%\nNie ewoluuje automatycznie.",
-        "PASSIVE_Palvolve_Evolved_4_Locked": "Maks. PŻ +{EffectValue1}%\nPrędkość ruchu +{EffectValue2}%\nSzybkość pracy +{EffectValue3}%\nNie ewoluuje automatycznie.",
-        "PASSIVE_Palvolve_NoAutoEvolve": "Nie ewoluuje automatycznie."
+        "PASSIVE_Palvolve_Evolved_1_Locked": "Maks. PŻ +{EffectValue1}%\nPrędkość ruchu +{EffectValue2}%\nSzybkość pracy +{EffectValue3}%\nAutoewolucja: Wyłączone",
+        "PASSIVE_Palvolve_Evolved_2_Locked": "Maks. PŻ +{EffectValue1}%\nPrędkość ruchu +{EffectValue2}%\nSzybkość pracy +{EffectValue3}%\nAutoewolucja: Wyłączone",
+        "PASSIVE_Palvolve_Evolved_3_Locked": "Maks. PŻ +{EffectValue1}%\nPrędkość ruchu +{EffectValue2}%\nSzybkość pracy +{EffectValue3}%\nAutoewolucja: Wyłączone",
+        "PASSIVE_Palvolve_Evolved_4_Locked": "Maks. PŻ +{EffectValue1}%\nPrędkość ruchu +{EffectValue2}%\nSzybkość pracy +{EffectValue3}%\nAutoewolucja: Wyłączone",
+        "PASSIVE_Palvolve_NoAutoEvolve": "Wyłączone"
     }
 }

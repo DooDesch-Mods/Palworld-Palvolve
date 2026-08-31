@@ -229,21 +229,40 @@ local function readGrey(menu)
             if s and s.R ~= nil then src = s end
         end)
         if not src then src = c end
-        flat = { R = src.R + 0.0, G = src.G + 0.0, B = src.B + 0.0, A = src.A + 0.0 }
+        -- Vanilla's own no-otomo grey, taken down to a bit under half. The
+        -- game's value was picked to be read against its own dimmed backdrop;
+        -- on the wheel it sat close enough to white that a blocked target and
+        -- an open one were hard to tell apart. Scaling rather than replacing
+        -- keeps whatever hue the game gives it.
+        local DIM = 0.45
+        flat = { R = src.R * DIM, G = src.G * DIM, B = src.B * DIM, A = src.A + 0.0 }
     end)
     return flat
 end
 
-local function applyGrey(widget, flat)
+-- The colour the site marks an automatic connection with, as UE wants it:
+-- --accent, oklch(0.82 0.14 195), converted to LINEAR sRGB because
+-- FLinearColor is linear and a gamma-encoded value arrives washed out. What
+-- the editor draws in that colour and what the wheel draws in it are the same
+-- thing, so somebody who set a connection to evolve on its own recognises it
+-- here without reading anything.
+local AUTO_COLOR = { R = 0.0, G = 0.7426, B = 0.7456, A = 1.0 }
+
+--- The parameter is an FSlateColor, so the colour goes one level down.
+---
+--- Passing a flat { R, G, B, A } instead is not an error: a table is mapped
+--- onto the struct BY FIELD NAME, so a shape that matches no member sets
+--- nothing at all and the call still reports success, leaving the struct at its
+--- default - which is black.
+local function applyColor(widget, flat)
     -- fallback when the property read yields nothing: a grey close to the
     -- vanilla no-otomo look
-    flat = flat or { R = 0.35, G = 0.35, B = 0.35, A = 1.0 }
-    local ok = pcall(function() widget:SetTextColor(flat) end)
-    if not ok then
-        -- the parameter may be an FSlateColor instead of an FLinearColor
-        ok = pcall(function()
-            widget:SetTextColor({ SpecifiedColor = flat, ColorUseRule = 0 })
-        end)
+    flat = flat or { R = 0.16, G = 0.16, B = 0.16, A = 1.0 }
+    local ok = pcall(function()
+        widget:SetTextColor({ SpecifiedColor = flat, ColorUseRule = 0 })
+    end)
+    if not ok and Config.devMode then
+        Log("[radial] SetTextColor refused an FSlateColor")
     end
     return ok
 end
@@ -329,7 +348,7 @@ local function injectMainEntry(menu)
     if relabel then pcall(function() ourWidget:SetText(relabel) end) end
     if not offered and not ourWidgetGreyed then
         local flat = readGrey(menu)
-        ourWidgetGreyed = applyGrey(ourWidget, flat)
+        ourWidgetGreyed = applyColor(ourWidget, flat)
         if Config.devMode then
             Log(string.format("[radial] grey attempt: read=%s applied=%s",
                 flat and string.format("%.2f/%.2f/%.2f/%.2f", flat.R, flat.G, flat.B, flat.A) or "nil",
@@ -463,7 +482,7 @@ local function setCenterText(menu, text)
 end
 
 -- What the wheel can be grown to without taking the process with it, measured
--- on 2026-08-13 against a synthetic tree that gave one Pal 22 ways out:
+-- against a synthetic tree that gave one Pal 22 ways out:
 --
 --   7   works, but every segment is a target and the cancel entry is gone
 --   13  works, smooth, cancel present
@@ -510,10 +529,21 @@ local function buildSubmenu(menu)
             .. "the Evolutions tab in the Palpedia lists them all", TARGET_MAX, hidden))
     end
     -- Added after the cap for the same reason cancel is: it must never be the
-    -- entry a full submenu truncates. The label does not say which way it will
-    -- go, because the wheel does not know this Pal - the answer comes back in
-    -- chat once it has been set.
-    keep[#keep + 1] = { autoLock = true, label = I18n.msg("autoLockEntry") }
+    -- entry a full submenu truncates. Its state goes in the middle of the ring
+    -- on hover, where a target shows its requirements - the same place, so the
+    -- one entry that is a switch rather than a destination reads like the rest
+    -- of the wheel instead of like a button whose answer arrives in chat.
+    local locked = false
+    if api.isAutoLocked then
+        local okLock, res = pcall(api.isAutoLocked)
+        if okLock then locked = res == true
+        else Log("auto-evolve state unreadable for the wheel: " .. tostring(res)) end
+    end
+    keep[#keep + 1] = {
+        autoLock = true,
+        label = I18n.msg("autoLockEntry"),
+        requirement = I18n.msg(locked and "autoLockOff" or "autoLockOn"),
+    }
     keep[#keep + 1] = { cancel = true, label = I18n.msg("cancel") }
     options = keep
     subOptions = keep
@@ -536,7 +566,11 @@ local function buildSubmenu(menu)
         subWidgets[i] = w
         if w then
             if opt.blocked then
-                applyGrey(w, grey)
+                -- blocked wins over automatic: the first thing to know about a
+                -- target you cannot take is that you cannot take it
+                applyColor(w, grey)
+            elseif opt.pair and opt.pair.autoEvolve == true then
+                applyColor(w, AUTO_COLOR)
             end
             saw(wheel, i - 1, w)
         end
@@ -691,6 +725,17 @@ function RadialMenu.init(evolutionApi)
                     -- first frame on our segment: vanilla just played its
                     -- hover tick, silence the flapping from here on
                     muteHoverSound(wheel)
+                    -- and, while it is greyed, why. The submenu shows a
+                    -- target's requirements in the same spot; this is the same
+                    -- question one level up, and on a client it is the only
+                    -- place the answer can appear at all.
+                    local why = nil
+                    if api.offerReason then
+                        local okWhy, res = pcall(api.offerReason)
+                        if okWhy then why = res
+                        else Log("grey reason unreadable for the wheel: " .. tostring(res)) end
+                    end
+                    setCenterText(menuRef, why or "")
                 end
                 ourHover = true
                 wheel.nowSelectedIndex = -1
@@ -703,6 +748,7 @@ function RadialMenu.init(evolutionApi)
                         -- tick while the sound was muted - replay it
                         playHoverTick(wheel)
                     end
+                    setCenterText(menuRef, "")
                 end
                 ourHover = false
             end
@@ -758,7 +804,22 @@ function RadialMenu.init(evolutionApi)
                 pcall(function() wheel = self:get() end)
                 -- Close is what the engine calls while dismantling the UI on the
                 -- way back to the main menu, so the widget can already be gone
+                if not (wheel and wheel:IsValid()) then
+                    -- The canvas the center label hangs on went with the wheel.
+                    -- Drop the handle without touching the widget: taking a
+                    -- child off a freed parent is the fault guarded against
+                    -- below, so the reference is released, not unhooked.
+                    centerWidget = nil
+                end
                 if wheel and wheel:IsValid() and isActionWheel(wheel) then
+                    -- Before anything else, and in EVERY branch: the label in
+                    -- the middle is parented to this wheel's own canvas, and
+                    -- the wheel is about to take that canvas down. Clearing it
+                    -- only on the cancel path left the widget behind on a
+                    -- committed close - it stayed "valid" while its parent was
+                    -- freed, and the next wheel that touched it took the
+                    -- process with it (access violation reading -1).
+                    clearCenter()
                     if cancelRequested then
                         if Config.devMode and (ourHover or subMode) then
                             Log("[radial] close: cancelled, nothing committed")
@@ -766,7 +827,6 @@ function RadialMenu.init(evolutionApi)
                         subMode = false
                         subOptions = nil
                         subHoverIdx = nil
-                        clearCenter()
                     elseif subMode then
                         subCommit()
                     else

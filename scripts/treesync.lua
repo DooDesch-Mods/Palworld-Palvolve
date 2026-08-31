@@ -170,7 +170,16 @@ end
 local function encodeGlobals(version)
     local out = {}
     for _, g in ipairs(GLOBALS) do
-        local v = (not g.since or version >= g.since) and readPath(Config, g.key) or nil
+        -- Not `cond and readPath(...) or nil`: that idiom cannot carry `false`,
+        -- because `x and false or nil` is nil in Lua. Every bool that was
+        -- switched OFF fell out of the frame here, so a host could turn one of
+        -- these on for its clients but never off - prestigeEnabled = false
+        -- reached no client, and each of them went on offering a prestige the
+        -- host then refused.
+        local v = nil
+        if not g.since or version >= g.since then
+            v = readPath(Config, g.key)
+        end
         if v ~= nil then
             if g.kind == "bool" then
                 out[#out + 1] = g.key .. "=" .. (v and "1" or "0")

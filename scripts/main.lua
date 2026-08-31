@@ -100,6 +100,10 @@ if Evolution and not Role.isDedicated() then
             offerIsPrestige = Evolution.offerIsPrestige,
             listOptions = Evolution.listOptions,
             executeOption = Evolution.executeOption,
+            -- so the auto-evolve entry can say whether it is on for this Pal
+            isAutoLocked = Evolution.isAutoLocked,
+            -- why the entry is greyed, for the middle of the ring
+            offerReason = Evolution.offerReason,
         })
     end)
     if not okRadial then

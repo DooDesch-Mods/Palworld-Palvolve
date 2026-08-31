@@ -14,11 +14,11 @@
         "PASSIVE_Palvolve_Evolved_2": "Эволюция II",
         "PASSIVE_Palvolve_Evolved_3": "Эволюция III",
         "PASSIVE_Palvolve_Evolved_4": "Эволюция IV",
-        "PASSIVE_Palvolve_Evolved_1_Locked": "Эволюция I, только вручную",
-        "PASSIVE_Palvolve_Evolved_2_Locked": "Эволюция II, только вручную",
-        "PASSIVE_Palvolve_Evolved_3_Locked": "Эволюция III, только вручную",
-        "PASSIVE_Palvolve_Evolved_4_Locked": "Эволюция IV, только вручную",
-        "PASSIVE_Palvolve_NoAutoEvolve": "Только вручную"
+        "PASSIVE_Palvolve_Evolved_1_Locked": "Эволюция I",
+        "PASSIVE_Palvolve_Evolved_2_Locked": "Эволюция II",
+        "PASSIVE_Palvolve_Evolved_3_Locked": "Эволюция III",
+        "PASSIVE_Palvolve_Evolved_4_Locked": "Эволюция IV",
+        "PASSIVE_Palvolve_NoAutoEvolve": "Автоэволюция"
     },
     "DT_SkillDescText": {
         "PASSIVE_Palvolve_Prestige_1": "Возвышение начинается.\r\nАтака +{EffectValue1}%\r\nЗащита +{EffectValue2}%\r\nСкорость работы +{EffectValue3}%",
@@ -35,10 +35,10 @@
         "PASSIVE_Palvolve_Evolved_2": "Макс. ОЗ +{EffectValue1}%\nСкорость передвижения +{EffectValue2}%\nСкорость работы +{EffectValue3}%",
         "PASSIVE_Palvolve_Evolved_3": "Макс. ОЗ +{EffectValue1}%\nСкорость передвижения +{EffectValue2}%\nСкорость работы +{EffectValue3}%",
         "PASSIVE_Palvolve_Evolved_4": "Макс. ОЗ +{EffectValue1}%\nСкорость передвижения +{EffectValue2}%\nСкорость работы +{EffectValue3}%",
-        "PASSIVE_Palvolve_Evolved_1_Locked": "Макс. ОЗ +{EffectValue1}%\nСкорость передвижения +{EffectValue2}%\nСкорость работы +{EffectValue3}%\nНе эволюционирует самостоятельно.",
-        "PASSIVE_Palvolve_Evolved_2_Locked": "Макс. ОЗ +{EffectValue1}%\nСкорость передвижения +{EffectValue2}%\nСкорость работы +{EffectValue3}%\nНе эволюционирует самостоятельно.",
-        "PASSIVE_Palvolve_Evolved_3_Locked": "Макс. ОЗ +{EffectValue1}%\nСкорость передвижения +{EffectValue2}%\nСкорость работы +{EffectValue3}%\nНе эволюционирует самостоятельно.",
-        "PASSIVE_Palvolve_Evolved_4_Locked": "Макс. ОЗ +{EffectValue1}%\nСкорость передвижения +{EffectValue2}%\nСкорость работы +{EffectValue3}%\nНе эволюционирует самостоятельно.",
-        "PASSIVE_Palvolve_NoAutoEvolve": "Не эволюционирует самостоятельно."
+        "PASSIVE_Palvolve_Evolved_1_Locked": "Макс. ОЗ +{EffectValue1}%\nСкорость передвижения +{EffectValue2}%\nСкорость работы +{EffectValue3}%\nАвтоэволюция: Отключено",
+        "PASSIVE_Palvolve_Evolved_2_Locked": "Макс. ОЗ +{EffectValue1}%\nСкорость передвижения +{EffectValue2}%\nСкорость работы +{EffectValue3}%\nАвтоэволюция: Отключено",
+        "PASSIVE_Palvolve_Evolved_3_Locked": "Макс. ОЗ +{EffectValue1}%\nСкорость передвижения +{EffectValue2}%\nСкорость работы +{EffectValue3}%\nАвтоэволюция: Отключено",
+        "PASSIVE_Palvolve_Evolved_4_Locked": "Макс. ОЗ +{EffectValue1}%\nСкорость передвижения +{EffectValue2}%\nСкорость работы +{EffectValue3}%\nАвтоэволюция: Отключено",
+        "PASSIVE_Palvolve_NoAutoEvolve": "Отключено"
     }
 }
