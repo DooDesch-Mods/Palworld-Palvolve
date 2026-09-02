@@ -193,6 +193,7 @@ tell me and I will correct the entry.
 | PalMagic | Not fully compatible, evolve options can stay greyed out | 2026-07-20, Nexus | Open, unverified |
 | Existing Pal Editor | Evolve entry missing from the wheel | 2026-07-20, Nexus | Likely fixed in 1.3.3 |
 | Technology Tree Overhaul | Evolution stones missing from the Pal Alchemy Workbench | 2026-08-25, Discord (Shas Hakomairos) | Fixed in 1.9.0 |
+| Final Boss Unlock | The game crashes when you summon one of its pals and press 4 | 2026-08, Steam comments (StrongFish91) | Open, unverified |
 
 The Existing Pal Editor report matched a Palvolve bug of its own: the wheel could lose its
 Evolve entry for a whole session because the wheel's interface classes load late. That was fixed in
