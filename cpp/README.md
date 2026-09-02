@@ -1,11 +1,13 @@
 # PalvolveNative
 
-The native part of Palvolve. It does exactly one thing: when a Pal evolves, it registers the
-target species in the player's capture record so the game unlocks that species' saddle and Pal
-Gear recipes. Everything else in Palvolve is Lua.
+The native part of Palvolve. It handles the things an evolution has to change that UE4SS' Lua
+API cannot reach: the capture record behind saddle and Pal Gear recipes, the work suitability
+ranks a Pal carries into its new form, the moves it keeps, and the question of whether this
+process is a dedicated server. Everything else in Palvolve is Lua.
 
-This lives in C++ because the capture record is stored in replicated fast arrays that UE4SS'
-Lua API cannot reach. The build output ships as `dlls/main.dll` next to `scripts/`.
+Each of those lives in a replicated fast array, an engine-side cache or a native-only call, which
+is what puts them out of Lua's reach. The build output ships as `dlls/main.dll` next to
+`scripts/`.
 
 ## What it exposes to the Lua side
 
@@ -16,7 +18,17 @@ how the bindings reach `scripts/evolution.lua`:
 PalvolveNative_Version()                                                -- string
 PalvolveNative_GetCaptureRecord(characterId, uid?, playerStateName?)    -- count, flagSet, message
 PalvolveNative_UnlockCaptureRecord(characterId, uid?, playerStateName?) -- ok, message
+PalvolveNative_SetWorkSuitability(palAddress, workType, rank)           -- ok, message
+PalvolveNative_ClearWorkSuitability(palAddress)                         -- ok, message
+PalvolveNative_ScanWorkCache(palAddress)                                -- ok, message
+PalvolveNative_TeachMasteredWaza(palAddress, wazaId)                    -- ok, message
+PalvolveNative_IsDedicatedServer()                                      -- bool
+PalvolveNative_Console(message)                                         -- writes to the server console
 ```
+
+`PalvolveNative_IsDedicatedServer` reads the role from the executable name. Asking the engine is
+just as certain but only answers once a world exists, and probing for one during startup killed
+the server outright.
 
 `uid` is the owning player's `OwnerPlayerUId` formatted as `%08X-%08X-%08X-%08X`.
 `playerStateName` is the object name of that player's `PalPlayerState`. When both are given the
