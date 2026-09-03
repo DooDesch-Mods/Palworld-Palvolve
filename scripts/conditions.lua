@@ -245,11 +245,21 @@ BOOL_EVAL.inWater = function(ctx)
     -- Ragnahawk, ...) never enter the swim state - they float above the
     -- surface. The PLAYER swimming counts too, which also matches the
     -- region conditions: those read the player's position already.
+    --
+    -- Not `okPal and waterState(...) or nil`: that idiom cannot carry false,
+    -- because `x and false or nil` is nil in Lua. waterState returns a real
+    -- false for "measured, and dry", so the shorthand turned every dry answer
+    -- into "unknown" - and with both sides unknown this returns nil, which a
+    -- negated condition never accepts. "!inWater" therefore passed nowhere,
+    -- including on dry land.
+    local palIn = nil
     local okPal, palMovement = pcall(palMovementUnsafe, ctx)
-    local palIn = okPal and waterState(palMovement) or nil
+    if okPal then palIn = waterState(palMovement) end
     if palIn == true then return true end
+
+    local playerIn = nil
     local okPlayer, playerMovement = pcall(playerMovementUnsafe, ctx)
-    local playerIn = okPlayer and waterState(playerMovement) or nil
+    if okPlayer then playerIn = waterState(playerMovement) end
     if playerIn == true then return true end
     if palIn == nil and playerIn == nil then return nil end
     return false

@@ -881,17 +881,24 @@ function PrestigeMark.init()
 
     LoopAsync(500, drainTick)
 
-    -- THE Palvolve debug key. One key, re-pointed at whatever is being tested;
-    -- it currently cycles the prestige shimmer. Client side and deliberately so:
-    -- the chat hook only fires on the AUTHORITY while effects are drawn here, so
-    -- every chat attempt needed its argument to travel first. A key press does
-    -- not, which is the whole reason this exists.
+    -- THE Palvolve debug key, and devMode only. One key, re-pointed at whatever
+    -- is being tested; it currently cycles the prestige shimmer. Client side and
+    -- deliberately so: the chat hook only fires on the AUTHORITY while effects
+    -- are drawn here, so every chat attempt needed its argument to travel first.
+    -- A key press does not, which is the whole reason this exists.
     --
-    -- F5, not F1: F1 opens the Creative Menu. The probe keys on F3 to F10 only
-    -- exist while devMode is on (main.lua loads probes.lua behind that flag), so
-    -- F5 is free on a normal client. F11 is the game's fullscreen toggle and F12
-    -- belongs to Steam.
-    local okKey = pcall(function()
+    -- It used to bind unconditionally, on the reasoning that the probe keys on
+    -- F3 to F10 sit behind devMode and F5 is therefore free. The probes do; this
+    -- key did not, so every player had F5 taken by a tool meant for one machine.
+    -- Other mods bind F5 for their own actions.
+    --
+    -- F5, not F1: F1 opens the Creative Menu, F11 is the game's fullscreen
+    -- toggle and F12 belongs to Steam.
+    --
+    -- In devMode this shares F5 with the overlay probe in probes.lua, so one
+    -- press does both. That is a nuisance on one machine, not a bug on anyone
+    -- else's, and no F key is free enough to be worth moving to.
+    local okKey = Config.devMode and pcall(function()
         local code = Key and Key.F5
         if code == nil then return end
         -- the five that a stage can wear, weakest first, plus back to
@@ -911,9 +918,13 @@ function PrestigeMark.init()
             ExecuteInGameThread(function() PrestigeMark.setStage(stage) end)
         end)
     end)
-    if not okKey then Log("prestige marker: the debug key F5 could not be bound") end
+    if Config.devMode and not okKey then
+        Log("prestige marker: the devMode key F5 could not be bound")
+    end
 
-    Log("Prestige marker active: prestiged pals shimmer (F5 cycles the look)")
+    Log(Config.devMode
+        and "Prestige marker active: prestiged pals shimmer (devMode: F5 cycles the look)"
+        or "Prestige marker active: prestiged pals shimmer")
     return true
 end
 

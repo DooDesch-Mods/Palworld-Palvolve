@@ -81,7 +81,26 @@ cmake -B build -G "Visual Studio 17 2022" -A x64 .
 cmake --build build --config Game__Shipping__Win64 --target PalvolveNative
 ```
 
-Copy `build/PalvolveNative/Game__Shipping__Win64/PalvolveNative.dll` to `Palvolve/dlls/main.dll`.
+**The Visual Studio generator picks the wrong toolset.** It takes the default,
+14.38 on a machine that also has 14.44, and `-T version=14.44` does not change
+that: UE4SS checks `MSVC_VERSION`, sees 1938 against its minimum of 1943, and
+stops at configure time. Do not pass `-DUE4SS_VERSION_CHECK=OFF` to get around
+it. The check guards the ABI this DLL is locked to, and a mismatch is exactly
+the failure it exists to prevent.
+
+Put the right compiler on PATH first and use a single-config generator:
+
+```bat
+call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat" x64 -vcvars_ver=14.44
+cmake -B build-nmake -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Game__Shipping__Win64 .
+cmake --build build-nmake --target PalvolveNative
+```
+
+The DLL then lands in `build-nmake/PalvolveNative/PalvolveNative.dll`.
+
+Copy the built `PalvolveNative.dll` to `Palvolve/dlls/main.dll`, then check that the game logs
+`[PalvolveNative] loaded v<version>` with the version you expect. The release gate compares
+`ModVersionString` against the mod version, but only the log proves the binary was rebuilt.
 
 Always build `Game__Shipping__Win64`. A Debug build links a different C runtime than the
 shipped UE4SS and will not load.

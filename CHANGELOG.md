@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [1.9.2] - 2026-09-02
+
+### Fixed
+
+- **F5 is off until you ask for it.** F5 changed the look of a prestiged Pal. Set `devMode = true` in `config_user.lua` to get the key back. Reported by Dobrynya, who uses F5 in Pal Squad: All Out! to summon the fifth Pal.
+- **An evolution that asks for "not in water" works now.** It stayed greyed out on the wheel. Dry land made no difference.
+
 ## [1.9.1] - 2026-08-31
 
 ### Added
