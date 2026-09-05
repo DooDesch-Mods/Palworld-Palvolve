@@ -72,13 +72,23 @@ end
 local listedCache = nil
 local listedProbe = nil
 
+--- The rows the tree is built from: switched on, and not a prestige. Prestige
+--- has no place in here. The derived connections never reach Config.map at all
+--- (prestige.lua builds those at run time), and an authored prestige row, which
+--- does, has no rule text of its own: ruleText in treehtml.lua knows an
+--- adaptation stone and an evolution stone, so the row draws as an evolution
+--- back to the base Pal. The wheel is where a prestige is offered.
+local function isTreeRow(p)
+    return p.enabled and p.category ~= "prestige"
+end
+
 local function listedPals()
     if listedCache and listedProbe and palName(listedProbe.id) == listedProbe.name then
         return listedCache
     end
     local seen, ids = {}, {}
     for _, p in ipairs(Config.map or {}) do
-        if p.enabled then
+        if isTreeRow(p) then
             for _, id in ipairs({ p.from, p.to }) do
                 if not seen[id] then
                     seen[id] = true
@@ -104,7 +114,7 @@ end
 local function neighbours(palId, dir)
     local grouped, order = {}, {}
     for _, p in ipairs(Config.map or {}) do
-        if p.enabled then
+        if isTreeRow(p) then
             local mine = (dir == "out" and p.from == palId) or (dir == "in" and p.to == palId)
             if mine then
                 local other = dir == "out" and p.to or p.from
@@ -123,7 +133,7 @@ end
 local function onwardCount(palId)
     local seen, n = {}, 0
     for _, p in ipairs(Config.map or {}) do
-        if p.enabled and p.from == palId and not seen[p.to] then
+        if isTreeRow(p) and p.from == palId and not seen[p.to] then
             seen[p.to] = true
             n = n + 1
         end

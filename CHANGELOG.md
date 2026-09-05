@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.9.3] - 2026-09-06
+
+### Fixed
+
+- **The Palpedia tree does not show a prestige connection as an evolution any more.** A prestige connection you drew in the editor appeared there as "evolves into", with the wrong stone under it. The tree shows evolutions and adaptations. Prestige is on the wheel. Reported by CrimsonStarfall.
+
 ## [1.9.2] - 2026-09-02
 
 ### Fixed

@@ -180,9 +180,8 @@ function Prestige.targets(config)
     -- The single choke point for every prestige OFFER: the wheel, the option
     -- list and the authority's re-check of an incoming request all resolve
     -- through here, so one gate covers all three rather than three gates that
-    -- can disagree. The Palpedia tree view is not one of them - it walks
-    -- Config.map row by row, so an authored prestige row is still drawn there
-    -- while this returns nothing.
+    -- can disagree. The Palpedia tree view is not one of them and needs no gate:
+    -- it walks Config.map row by row and skips every prestige row on the way.
     if config and config.prestigeEnabled == false then return {}, {} end
 
     local map = config and config.map or nil

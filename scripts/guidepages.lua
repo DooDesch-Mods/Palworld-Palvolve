@@ -99,11 +99,13 @@ local function targetLine(displayName, pair, worldCtx)
 end
 
 -- Groups the enabled pairs by source species, sorted by the name the player
--- sees rather than by the internal id.
+-- sees rather than by the internal id. Prestige rows are left out, as in the
+-- Palpedia tree: the derived ones never sit in Config.map, and an authored one
+-- would read as an evolution back to the base Pal. The wheel offers prestige.
 local function speciesBlocks(displayName, worldCtx)
     local bySource, order = {}, {}
     for _, pair in ipairs(Config.map or {}) do
-        if pair.enabled then
+        if pair.enabled and pair.category ~= "prestige" then
             if not bySource[pair.from] then
                 bySource[pair.from] = {}
                 table.insert(order, pair.from)
