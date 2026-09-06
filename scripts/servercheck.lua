@@ -221,6 +221,10 @@ local function settleRemote(ver)
     deliverVerdict("serverCheckReady")
     local mine = tostring(Config.modVersion)
     if ver and ver ~= "" and ver ~= mine then
+        -- The chat line reaches the player. This one reaches the log, because
+        -- three support cases came down to a version difference and each cost a
+        -- manual comparison of two logs before anyone could say so.
+        Log("version mismatch: this client runs " .. mine .. ", the host runs " .. tostring(ver))
         -- the mismatch warning names both versions, so no extra client line
         showLocalMessage(I18n.msg("serverVersionMismatch", ver, mine))
     elseif ver == mine then

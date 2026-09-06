@@ -50,6 +50,19 @@ end
 -- early enough to matter: everything that depends on it runs after a world
 -- exists anyway.
 
+-- Install faults that the mod can see and the player cannot: a second UE4SS in
+-- the same game, and a PalSchema that never loaded. Both cost a support thread
+-- every time, and both are one line from here. The loader half runs now; the
+-- PalSchema half needs a world and hangs off the world-entry callback below.
+local InstallCheck = nil
+do
+    local okInstall, errInstall = pcall(function()
+        InstallCheck = require("installcheck")
+        InstallCheck.init()
+    end)
+    if not okInstall then Log("install check failed to load: " .. tostring(errInstall)) end
+end
+
 -- Workbench unlock stage: PalSchema data, so this only writes the file and the
 -- new stage applies on the next start. Runs on every launch, which also repairs
 -- the value after a Workshop update replaced the PalSchema folder.
@@ -131,6 +144,21 @@ if Evolution and not Role.isDedicated() then
         end
     end)
     if not okGuide then Log("guide pages failed to load: " .. tostring(errGuide)) end
+end
+
+-- The PalSchema half of the install check. Chained the same way and not gated
+-- on the role: a dedicated server without PalSchema has no stones either, and
+-- its admin is the one reading this log.
+if InstallCheck then
+    local okSchema, errSchema = pcall(function()
+        local NetChannel = require("netchannel")
+        local previous = NetChannel.onLocalEnterWorld
+        NetChannel.onLocalEnterWorld = function(char)
+            if previous then pcall(previous, char) end
+            pcall(InstallCheck.checkPalSchema)
+        end
+    end)
+    if not okSchema then Log("install check (PalSchema) not armed: " .. tostring(errSchema)) end
 end
 
 -- Egg filter (config-gated inside)

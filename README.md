@@ -33,6 +33,14 @@
 
 Subscribe to [Palvolve](https://steamcommunity.com/sharedfiles/filedetails/?id=3766366950), then enable it under **Options > Mod Management**. The Workshop pulls in UE4SS Experimental (Palworld) and [PalSchema](https://steamcommunity.com/sharedfiles/filedetails/?id=3625280368) as dependencies.
 
+The order in that list decides whether any of it works. Put them in this order, top to bottom:
+
+1. UE4SS Experimental (Palworld)
+2. PalSchema
+3. Palvolve
+
+With PalSchema above UE4SS the workbench and the stones never appear, and nothing says why. HenryFrost spent two days ruling out everything else before finding it.
+
 ### Manual
 
 > ⚠️ Use **UE4SS Experimental (Palworld)** ([Workshop 3625223587](https://steamcommunity.com/sharedfiles/filedetails/?id=3625223587)). The generic upstream RE-UE4SS breaks on Palworld 1.0. Its Steam ID does not match, so mods do not load and nothing says why.
@@ -126,7 +134,10 @@ Update to 1.5.3 or newer. Palworld spells 42 of its Pal ids two ways. That could
 UE4SS is not loading Palvolve. PalSchema supplies the workbench; UE4SS supplies the Evolve button. Check that UE4SS Experimental (Palworld) is installed and Palvolve is enabled. Relaunch if the button vanishes mid-session.
 
 **The workbench will not unlock at level 10, or will not stay unlocked?**
-UE4SS or PalSchema is inactive. If the log has no UE4SS output at all, that confirms it.
+UE4SS or PalSchema is inactive. If the log has no UE4SS output at all, that confirms it. On the Workshop, check the order under **Options > Mod Management** first: UE4SS, then PalSchema, then Palvolve. Since 1.9.4 Palvolve writes a line into `UE4SS.log` when the PalSchema half did not arrive, naming what will be missing.
+
+**Palvolve appears twice in the log, or the log says nothing about a session I just played?**
+There are two UE4SS installs in the same game. The one under `Pal\Binaries\Win64` wins; the one under `Mods\NativeMods` never starts and keeps writing an old log. Since 1.9.4 Palvolve names both at startup and says which one is running.
 
 **Co-op and dedicated servers - where do I install it?**
 Install it on the server **and** every client. UE4SS, PalSchema and Palvolve must run on both sides. A client-only install does not work.
