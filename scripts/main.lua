@@ -184,4 +184,11 @@ if okCfg and cfg.devMode then
     if not okProbes then
         Log("probes failed to load: " .. tostring(errProbes))
     end
+    -- Runs Lua handed in from outside inside THIS Lua state, which is the only
+    -- way anything behind the mod's own modules can be exercised without a
+    -- human at the keyboard. Gated twice: devMode, and the _PalTest copy.
+    local okDev, errDev = pcall(function() require("devbridge").init() end)
+    if not okDev then
+        Log("dev bridge failed to load: " .. tostring(errDev))
+    end
 end
