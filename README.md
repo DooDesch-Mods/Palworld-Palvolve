@@ -179,7 +179,7 @@ Since 1.6.4, Palvolve claims no key by default. Set `confirmKeyEnabled = true` i
 A leading slash belongs to the game's admin commands. Palworld answers every such line with "You are not an Admin" before a mod sees it, and mods cannot stop that reply. `/palvolve` still works. `!palvolve` avoids the reply and matches the prefix used by other Palworld command mods.
 
 **I evolved a Pal but its saddle is missing from the Tech Tree and Pal Gear Workbench?**
-Since 1.4.0, Palvolve unlocks those recipes when a Pal evolves into that species. A missing saddle means the native component is not loading. Check the UE4SS log for a line starting with `[PalvolveNative]` and use the UE4SS build Palvolve was built against. Set `unlockCatchTech = false` in your `config_user.lua` if you want the vanilla rule, where catching a species unlocks its gear. Before 1.8.0, Palvolve read that line only from the mod's own copy, which every update replaced.
+Since 1.4.0, Palvolve unlocks those recipes when a Pal evolves into that species. A missing saddle means the native component is not loading. Check the UE4SS log for a line starting with `[PalvolveNative]` and use the UE4SS build Palvolve was built against. Set `unlockCatchTech = false` in your `config_user.lua` if you want the vanilla rule, where catching a species unlocks its gear. Before 1.8.0, Palvolve read that setting only from the mod's own copy, which every update replaced.
 
 **Compatible with other mods?**
 See [Known mod conflicts](#known-mod-conflicts) below. Keep every mod updated and send your mod list if an option stays greyed out.
@@ -207,7 +207,7 @@ tell me and I will correct the entry.
 | Final Boss Unlock | The game crashes when you summon one of its pals and press 4 | 2026-08, Steam comments (StrongFish91) | Open, unverified |
 
 The Existing Pal Editor report matched a Palvolve bug of its own: the wheel could lose its
-Evolve entry for a whole session because the wheel's interface classes load late. That was fixed in
+Evolve entry for a whole session when part of the wheel loaded late. That was fixed in
 1.3.3 and nobody has reported the combination since. If you still see it on 1.3.3 or newer, that is
 a separate problem - please report it.
 
