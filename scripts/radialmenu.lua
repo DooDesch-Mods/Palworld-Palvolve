@@ -448,6 +448,20 @@ local function clearCenter()
     centerWidget = nil
 end
 
+-- The same job for the Evolve label. It is parented to the wheel's own canvas
+-- and dies with it, but the handle survived every close and was reused on the
+-- next open: a widget whose parent has been freed still answers IsValid, and
+-- touching one is what took the process down in 1.9.1. Held to the same rule as
+-- clearCenter, in every branch that ends a wheel.
+local function clearOurs()
+    if ourWidget and ourWidget:IsValid() then
+        pcall(function() ourWidget:RemoveFromParent() end)
+    end
+    ourWidget = nil
+    ourWidgetGreyed = false
+    ourIndex = nil
+end
+
 local function setCenterText(menu, text)
     local wheel = wheelOf(menu)
     if not wheel then return end
@@ -805,11 +819,14 @@ function RadialMenu.init(evolutionApi)
                 -- Close is what the engine calls while dismantling the UI on the
                 -- way back to the main menu, so the widget can already be gone
                 if not (wheel and wheel:IsValid()) then
-                    -- The canvas the center label hangs on went with the wheel.
-                    -- Drop the handle without touching the widget: taking a
+                    -- The canvas both our labels hang on went with the wheel.
+                    -- Drop the handles without touching the widgets: taking a
                     -- child off a freed parent is the fault guarded against
-                    -- below, so the reference is released, not unhooked.
+                    -- below, so the references are released, not unhooked.
                     centerWidget = nil
+                    ourWidget = nil
+                    ourWidgetGreyed = false
+                    ourIndex = nil
                 end
                 if wheel and wheel:IsValid() and isActionWheel(wheel) then
                     -- Before anything else, and in EVERY branch: the label in
@@ -820,6 +837,7 @@ function RadialMenu.init(evolutionApi)
                     -- freed, and the next wheel that touched it took the
                     -- process with it (access violation reading -1).
                     clearCenter()
+                    clearOurs()
                     if cancelRequested then
                         if Config.devMode and (ourHover or subMode) then
                             Log("[radial] close: cancelled, nothing committed")
