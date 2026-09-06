@@ -1169,6 +1169,37 @@ local function restorePrestigeState(param, state)
         tostring(speciesErr), tostring(levelErr), tostring(passiveErr))
 end
 
+--- Says what the bonus slot did, in every outcome.
+---
+--- It said nothing in two of the three. PalSlots answers "true, changed=false"
+--- when the Pal already has four moves, and again when nothing in its learned
+--- pool is left to promote - both perfectly ordinary, both indistinguishable
+--- from the setting having no effect at all. It even built the sentence for the
+--- player, in all 17 languages, and neither caller ever sent it. A reporter
+--- switched the option on, evolved, counted three slots and had nothing to go
+--- on; so did the next person to look at the log.
+local function reportBonusSlot(playerCtx, ok, result, what)
+    if not ok then
+        Log(string.format("%s bonus slot FAILED: %s", what, tostring(result)))
+        return
+    end
+    if type(result) ~= "table" then
+        Log(string.format("%s bonus slot returned no result", what))
+        return
+    end
+    if result.mode == "off" then return end
+    if result.changed then
+        Log(string.format("%s bonus slot: granted %s (waza %s)",
+            what, tostring(result.wazaName), tostring(result.wazaId)))
+    else
+        Log(string.format("%s bonus slot: nothing to grant (%d move(s) equipped)",
+            what, type(result.activeMoves) == "table" and #result.activeMoves or -1))
+    end
+    if result.message and playerCtx then
+        pcall(function() Role.chat(playerCtx, result.message, "reply") end)
+    end
+end
+
 --- playerCtx is a PARAMETER, not an upvalue. It used to read an undeclared
 --- global here, so PalSlots.grantPrestige always got nil and the fourth move
 --- slot a prestige is supposed to hand out was never granted to anybody.
@@ -1195,11 +1226,7 @@ local function applyPrestigeMutation(param, targetId, playerCtx)
     -- the rank is already written, and refusing it over a bonus nobody asked
     -- for would cost the player the thing they did ask for.
     local slotOk, slotResult = PalSlots.grantPrestige(param, playerCtx)
-    if slotOk and slotResult and slotResult.changed then
-        Log(string.format("Prestige bonus (slot): %s", tostring(slotResult.id)))
-    elseif not slotOk then
-        Log("BONUS SLOT GRANT FAILED: " .. tostring(slotResult))
-    end
+    reportBonusSlot(playerCtx, slotOk, slotResult, "Prestige")
     return true, passiveResult
 end
 
@@ -1777,11 +1804,7 @@ local function performEvolution(p)
                 -- reward, which a server owner turns on. It fails loudly and
                 -- changes nothing else, because the swap is already committed.
                 local slotOk, slotResult = PalSlots.grantEvolution(param, playerCtx)
-                if slotOk and slotResult and slotResult.changed then
-                    Log(string.format("Evolution bonus (slot): %s", tostring(slotResult.id)))
-                elseif not slotOk then
-                    Log("BONUS SLOT GRANT FAILED: " .. tostring(slotResult))
-                end
+                reportBonusSlot(playerCtx, slotOk, slotResult, "Evolution")
             else
                 -- The cost is already committed. Continuing keeps the successful
                 -- species swap at the tradeoff that this reward is not refunded alone.
