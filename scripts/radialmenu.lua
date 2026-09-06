@@ -57,6 +57,9 @@ local ourWidgetGreyed = false
 -- true while the cursor rests on our segment (maintained by the native
 -- UpdateSelectedIndex post-hooks); consumed on wheel close/decide
 local ourHover = false
+-- one line per wheel from the per-frame hover hook, not one per frame; reset
+-- when a wheel opens
+local suppressErrLogged = false
 -- the outer WBP_PlayerRadialMenu instance, captured on every build
 local menuRef = nil
 
@@ -699,7 +702,11 @@ function RadialMenu.init(evolutionApi)
     -- switch (unknown indices would run the photo mode branch there).
     -- Submenu mode: observe only - vanilla is unbound, everything is ours.
     local function suppressHandler(self)
-        pcall(function()
+        -- Runs on every frame the selection changes, so a persistent fault would
+        -- write a line per frame. It writes one per wheel instead, which is
+        -- enough to tell "the hover stopped working" from "the hook never ran" -
+        -- and this pcall discarded its result entirely, so neither was visible.
+        local ok, err = pcall(function()
             local wheel = self:get()
             if not (wheel and wheel:IsValid() and isActionWheel(wheel)) then return end
             local idx = wheel.nowSelectedIndex
@@ -753,7 +760,7 @@ function RadialMenu.init(evolutionApi)
                 end
                 ourHover = true
                 wheel.nowSelectedIndex = -1
-            elseif idx >= 0 then
+            elseif idx ~= nil and idx >= 0 then
                 if ourHover then
                     local wasMuted = savedHoverSound ~= nil
                     restoreHoverSound(wheel)
@@ -769,6 +776,10 @@ function RadialMenu.init(evolutionApi)
             -- idx == -1 keeps the last state: the wheel itself is sticky
             -- about the previous selection when the cursor rests mid-wheel
         end)
+        if not ok and not suppressErrLogged then
+            suppressErrLogged = true
+            Log("hover tracking failed on this wheel: " .. tostring(err))
+        end
     end
     local noopPre = function() end
 
@@ -786,6 +797,7 @@ function RadialMenu.init(evolutionApi)
                 menuRef = menu
                 wheelOpen = true
                 cancelRequested = false
+                suppressErrLogged = false
                 ExecuteInGameThread(function()
                     pcall(function() injectEntry(menu) end)
                 end)
