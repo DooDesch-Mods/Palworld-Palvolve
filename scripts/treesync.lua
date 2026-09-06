@@ -112,6 +112,18 @@ local GLOBALS = {
     { key = "chatMessages", kind = "enum", values = { all = true, replies = true, off = true } },
     { key = "autoEvolve", kind = "bool", since = 3 },
 
+    -- The two that decide what the wheel offers and what it says about a
+    -- connection the player cannot take yet. The host applies its own value
+    -- when the request arrives, so a client left on the shipped defaults built
+    -- its list under one rule and got answered under another: it offered
+    -- evolutions the host refuses, and spelled out conditions a server had
+    -- chosen to keep vague. Not gated on the protocol version - an older client
+    -- has no entry for these keys and drops them, and the newer one needs them
+    -- whichever version it speaks.
+    { key = "evolutionMode", kind = "enum", values = { selected = true, conditioned = true } },
+    { key = "conditionDisclosure", kind = "enum",
+      values = { exact = true, partial = true, hidden = true } },
+
     -- Both decide WHICH prestige connections exist at all, and host and client
     -- derive that list separately from the same rule. A client left on its own
     -- values would draw targets the host refuses, so these travel with the tree.
