@@ -6,7 +6,7 @@
 
 ### Added
 
-- **The mod says when PalSchema did not load.** The wheel works, the Pal Alchemy Workbench and the stones are missing, and nothing tells you why. Eight people needed a support thread to find that, so entering a world now writes a line naming what is missing and where to look.
+- **The line about a missing PalSchema now says how to fix it.** It named the fault and stopped there, and eight people still needed a support thread. It now names what is gone, what still works, the Workshop order, and the leftover folder to delete.
 - **The mod says when UE4SS is installed twice.** Only one of them runs, and the log you were reading came from the other one. Startup now names the one that is running, and the idle one if it is there.
 - **The Workshop load order is written down.** Subscribe order decides whether any of it works: UE4SS, then PalSchema, then Palvolve. HenryFrost spent two days ruling out everything else before finding it.
 

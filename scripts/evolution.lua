@@ -1196,7 +1196,13 @@ local function reportBonusSlot(playerCtx, ok, result, what)
             what, type(result.activeMoves) == "table" and #result.activeMoves or -1))
     end
     if result.message and playerCtx then
-        pcall(function() Role.chat(playerCtx, result.message, "reply") end)
+        -- Role.chat logs its own refusals and returns false; this catches an
+        -- outright error, which would otherwise leave the player told nothing
+        -- under a log line that says the slot was handled.
+        local sent, sendErr = pcall(function() Role.chat(playerCtx, result.message, "reply") end)
+        if not sent then
+            Log(string.format("%s bonus slot message not sent: %s", what, tostring(sendErr)))
+        end
     end
 end
 

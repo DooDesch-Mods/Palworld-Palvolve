@@ -1,15 +1,17 @@
--- installcheck.lua: the two install faults that produce most support threads,
--- reported by the mod instead of by a person reading someone else's log.
+-- installcheck.lua: which UE4SS is actually running.
 --
--- 1. PalSchema is installed but never loads. The radial wheel works, and the
---    Pal Alchemy Workbench, the technology entry and every stone are missing.
---    Eight reports, the same diagnosis every time, and every time it took a
---    thread to reach it.
--- 2. UE4SS is in two places at once. The copy under Pal\Binaries\Win64 wins and
---    the one under Mods\NativeMods never starts, so the log the player is
---    reading belongs to the install that is not running. Six reports.
+-- Six people had UE4SS in two places at once. The copy under Pal\Binaries\Win64
+-- wins and the one under Mods\NativeMods never starts, so the log the player is
+-- reading belongs to the install that is not running, and the search then goes
+-- everywhere except the cause.
 --
--- Both are visible from inside the game, and neither was ever said out loud.
+-- The mod knows which one loaded it, and nothing ever said so.
+--
+-- The other install fault of this class, a PalSchema that did not apply, is NOT
+-- here. benchfilter asks the same question from a poll that runs on every role
+-- and retries until the item manager is up; a second check that runs once, on a
+-- client only, and cannot tell an absent item from a throwing engine call is
+-- strictly worse than the one that already exists.
 
 local InstallCheck = {}
 
@@ -33,11 +35,19 @@ local function ownPath()
     return src
 end
 
+--- true, false, or nil when the answer is "the file system would not say".
+--- The three are kept apart because the all-clear below is phrased as a fact,
+--- and a refused open is not the same as an absent file.
 local function exists(path)
-    local handle = io.open(path, "rb")
-    if not handle then return false end
-    handle:close()
-    return true
+    local handle, err, code = io.open(path, "rb")
+    if handle then
+        handle:close()
+        return true
+    end
+    -- ENOENT is the ordinary answer and means the file is not there. Anything
+    -- else (a denied read, a path this process cannot reach) is not an answer.
+    if code == 2 then return false end
+    return nil, err
 end
 
 -- ---------------------------------------------------------------- loaders
@@ -69,7 +79,14 @@ function InstallCheck.checkLoaders()
     local live = path:find("[/\\][Mm]ods[/\\][Nn]ative[Mm]ods[/\\]") and 2 or 1
     local other = live == 1 and 2 or 1
 
-    if not exists(win64 .. LOADERS[other].probe) then
+    local found, probeErr = exists(win64 .. LOADERS[other].probe)
+    if found == nil then
+        -- The line below states a fact, so it is not written on a guess.
+        Log(string.format("loaded by %s. Whether a second UE4SS sits under %s could not be "
+            .. "checked: %s", LOADERS[live].name, LOADERS[other].name, tostring(probeErr)))
+        return
+    end
+    if not found then
         -- Said even when there is nothing wrong. A check that only speaks up on
         -- failure cannot be told apart from a check that never ran, and this is
         -- the line a support reader needs first anyway.
@@ -81,43 +98,6 @@ function InstallCheck.checkLoaders()
         "two UE4SS installs found. Running: %s. Idle and writing no log: %s. "
             .. "A log from the idle one shows nothing about this session; remove it.",
         LOADERS[live].name, LOADERS[other].name))
-end
-
--- -------------------------------------------------------------- PalSchema
-
-local schemaChecked = false
-
---- Says so when the PalSchema half of the mod never arrived. Runs on the first
---- world entry, because the item manager does not exist before then.
-function InstallCheck.checkPalSchema()
-    if schemaChecked then return end
-
-    local mgr = nil
-    pcall(function() mgr = FindFirstOf("PalItemIDManager") end)
-    if not (mgr and mgr:IsValid()) then
-        -- Not an answer yet: no manager means the world is not far enough
-        -- along, and reporting a missing item from here would be a false
-        -- alarm. Left unchecked so the next world entry tries again.
-        return
-    end
-    schemaChecked = true
-
-    local found = false
-    pcall(function()
-        local data = mgr:GetStaticItemData(FName("Palvolve_EvolutionStone"))
-        found = data ~= nil and data:IsValid()
-    end)
-    if found then
-        Log("PalSchema data is loaded (the evolution stone exists)")
-        return
-    end
-
-    Log("PalSchema did not load Palvolve's items. The evolve wheel still works, "
-        .. "but the Pal Alchemy Workbench, its technology entry and every stone "
-        .. "are absent. Check UE4SS.log for a PalSchema line: if the word does "
-        .. "not appear, PalSchema itself never started. The usual cause is a "
-        .. "stale copy - delete the PalSchema folder from both Mods\\ManagedMods "
-        .. "and ue4ss\\Mods, then subscribe again.")
 end
 
 function InstallCheck.init()

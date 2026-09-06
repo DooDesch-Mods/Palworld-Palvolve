@@ -208,10 +208,20 @@ function BenchFilter.init()
                                     tostring(data.SortId)))
                             end
                         else
+                            -- This line has shipped since 1.6.3 and eight people
+                            -- still needed a support thread, because it named the
+                            -- fault and not the fix. Every one of those threads
+                            -- ended the same way, so that ending is in here now.
                             Log("the Evolution Stone item does not exist in this world: PalSchema "
-                                .. "did not apply Palvolve's data. Check that PalSchema is loaded and "
-                                .. "that Pal\\Binaries\\Win64\\ue4ss\\Mods\\PalSchema\\mods\\Palvolve "
-                                .. "is installed")
+                                .. "did not apply Palvolve's data, so the Pal Alchemy Workbench, its "
+                                .. "technology entry and every stone are missing. Evolving from the "
+                                .. "wheel still works. Search UE4SS.log for the word PalSchema: if it "
+                                .. "does not appear, PalSchema itself never started. On the Workshop "
+                                .. "the order decides it, UE4SS first, then PalSchema, then Palvolve. "
+                                .. "Otherwise it is usually a leftover copy: delete the PalSchema "
+                                .. "folder from Mods\\ManagedMods and from ue4ss\\Mods, then subscribe "
+                                .. "again. Manual installs need "
+                                .. "Pal\\Binaries\\Win64\\ue4ss\\Mods\\PalSchema\\mods\\Palvolve")
                         end
                     end)
                 end
