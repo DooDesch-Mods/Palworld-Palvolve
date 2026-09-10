@@ -8,8 +8,8 @@
 -- removed, a player who edits the loadout loses the fourth slot for good
 -- without ever having seen it.
 --
--- Measured on build 25094871 before this was written, because the deciding
--- fact is not in any dump (INGAME-TREE.md carries the table):
+-- The layout of build 25094871, which no dump carries, so it is written out
+-- here (INGAME-TREE.md has the full table):
 --   * the three slots hang on a CanvasPanel at x=8, y=12/56/100, size 508x32
 --   * ActiveSkillPanelArray holds those three and CAN be extended from Lua
 --   * after UpdateActiveSkill_Binded the fourth entry SURVIVES, and the game
@@ -36,7 +36,6 @@ local MoveSlot4 = {}
 
 local MOD_NAME = "Palvolve"
 local SCREEN_CLASS = "WBP_MainMenu_Pal_00_C"
-local SLOT_CLASS = "WBP_MainMenu_Pal_Skill_Active_C"
 local UPDATE_FN =
     "/Game/Pal/Blueprint/UI/UserInterface/MainMenu/Pal/WBP_MainMenu_Pal_00."
     .. "WBP_MainMenu_Pal_00_C:UpdateActiveSkill_Binded"
@@ -58,19 +57,14 @@ local function Log(message)
     print(string.format("[%s] [slot4] %s\n", MOD_NAME, tostring(message)))
 end
 
---- A live instance, never the cooked template: every widget blueprint keeps one
---- that answers to the same class, and taking it is what makes a mod act on a
---- screen that is not on the player's monitor.
-local function liveOne(className)
-    for _, o in ipairs(FindAllOf(className) or {}) do
-        local n = ""
-        pcall(function() n = tostring(o:GetFullName()) end)
-        if o:IsValid() and n:find("/Engine/Transient", 1, true)
-            and not n:find("Default__", 1, true) then
-            return o
-        end
-    end
-    return nil
+-- The fill below runs once per selected Pal, so a standing fault would write
+-- a line per click. One line per session is enough to tell it apart from a
+-- hook that never ran.
+local warned = {}
+local function warnOnce(message)
+    if warned[message] then return end
+    warned[message] = true
+    Log("[WARN] " .. message)
 end
 
 local function canvasSlotOf(widget)
@@ -102,13 +96,15 @@ local function fourthRowGeometry(screen)
     return x, y, w, h
 end
 
---- Builds the fourth widget once per screen and hangs it beside the third.
+--- Identity of a screen as a string. The widget belongs to one screen and the
+--- name is what ties it there.
 local function screenName(screen)
     local n = ""
     pcall(function() n = tostring(screen:GetFullName()) end)
     return n
 end
 
+--- Builds the fourth widget once per screen and hangs it beside the third.
 local function ensureExtra(screen)
     local existing = nil
     if extraWidget and extraWidget:IsValid() and extraScreenName == screenName(screen) then
@@ -201,12 +197,25 @@ end
 --- ordinary Pal never shows an empty slot it cannot have.
 local function onUpdate(screen, skills)
     local wanted = 0
-    pcall(function() wanted = #skills:get() end)
-    if wanted == 0 then pcall(function() wanted = #skills end) end
+    local okList = pcall(function() wanted = #skills:get() end)
+    if wanted == 0 then
+        local okDirect = pcall(function() wanted = #skills end)
+        okList = okList or okDirect
+    end
+    if not okList then
+        -- Neither read worked, so wanted stays 0 and the branch below takes
+        -- the row away again, which is the right answer for a count nobody
+        -- knows. Without this line a Pal with four moves shows three and
+        -- nothing anywhere says why.
+        warnOnce("the move list could not be read, so the fourth slot stays off")
+    end
 
     local arr = nil
     pcall(function() arr = screen.ActiveSkillPanelArray end)
-    if not arr then return end
+    if not arr then
+        warnOnce("the screen has no ActiveSkillPanelArray, so no fourth slot is drawn")
+        return
+    end
 
     local have = 0
     pcall(function() have = #arr end)

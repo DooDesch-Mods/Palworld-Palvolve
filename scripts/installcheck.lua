@@ -101,7 +101,10 @@ function InstallCheck.checkLoaders()
 end
 
 function InstallCheck.init()
-    pcall(InstallCheck.checkLoaders)
+    local ok, err = pcall(InstallCheck.checkLoaders)
+    if not ok then
+        Log("install check did not run: " .. tostring(err))
+    end
 end
 
 return InstallCheck

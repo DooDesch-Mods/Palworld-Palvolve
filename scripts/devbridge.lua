@@ -4,9 +4,7 @@
 -- mod cannot `require("evolution")` or touch anything Palvolve holds - from
 -- there Palvolve is just another process's memory. That gap meant the paths
 -- that live behind the mod's own modules could only be exercised by a human at
--- the keyboard: the evolve wheel, the bonus slot report, the chat replies. Four
--- of them went into a test plan for exactly that reason, which is three too
--- many.
+-- the keyboard: the evolve wheel, the bonus slot report, the chat replies.
 --
 -- ModRef:SetSharedVariable is the one channel that crosses states. It carries
 -- strings, numbers and booleans, so the wire is a string: a sequence number, a
@@ -158,9 +156,19 @@ function DevBridge.init()
         Log("not armed: this UE4SS build exposes no ModRef")
         return
     end
-    pcall(function() ModRef:SetSharedVariable(RES_VAR, "") end)
+    local okClear, clearErr = pcall(function() ModRef:SetSharedVariable(RES_VAR, "") end)
+    if not okClear then
+        Log("could not clear a stale response: " .. tostring(clearErr))
+    end
+    -- One line per fault, not one per poll: the loop runs five times a second,
+    -- so a permanent fault would bury the log it is meant to appear in.
+    local serveErrLogged = false
     LoopAsync(POLL_MS, function()
-        pcall(serve)
+        local ok, err = pcall(serve)
+        if not ok and not serveErrLogged then
+            serveErrLogged = true
+            Log("the request loop failed: " .. tostring(err))
+        end
         return false
     end)
     Log("armed on the " .. tostring(why) .. ": running requests from " .. REQ_VAR .. " in Palvolve's own Lua state")

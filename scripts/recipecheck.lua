@@ -97,12 +97,20 @@ function RecipeCheck.run()
         else
             for id, row in pairs(idsIn(body)) do
                 checked = checked + 1
-                local ok = false
-                pcall(function()
+                local resolved = false
+                -- A throwing lookup is not an absent item, and the line below
+                -- tells the reader to delete a folder. It is only written when
+                -- the engine actually answered.
+                local okAsk, askErr = pcall(function()
                     local data = mgr:GetStaticItemData(FName(id))
-                    ok = data ~= nil and data:IsValid()
+                    resolved = data ~= nil and data:IsValid()
                 end)
-                if not ok then
+                if not okAsk then
+                    unreadable = unreadable + 1
+                    Log(string.format("[WARN] recipe check: the item '%s' could not be looked up, "
+                        .. "so the recipe '%s' in %s is unchecked: %s",
+                        id, row, file, tostring(askErr)))
+                elseif not resolved then
                     missing = missing + 1
                     Log(string.format(
                         "the item '%s' does not exist in this world, so the recipe '%s' in %s is "
@@ -117,13 +125,10 @@ function RecipeCheck.run()
         end
     end
 
-    -- A clean run is invisible on purpose, but the operator gets one line, so
-    -- "every recipe resolved" and "the check never ran" stay distinguishable.
+    -- One line on a clean run, so "every recipe resolved" and "the check never
+    -- ran" stay distinguishable in a log someone sends in.
     if missing == 0 and unreadable == 0 then
-        local Config = require("config")
-        if Config.devMode then
-            Log(string.format("[INFO] recipe check: %d item id(s) resolved", checked))
-        end
+        Log(string.format("[INFO] recipe check: %d item id(s) resolved", checked))
     end
 end
 
