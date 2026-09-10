@@ -349,6 +349,21 @@ BOOL_EVAL.isFemale = function(ctx)
     return gender == GENDER_FEMALE
 end
 
+local function shinyUnsafe(ctx)
+    return ctx.param.SaveParameter.IsRarePal == true
+end
+
+-- The shiny flag, which is a different thing from the passive called "Rare"
+-- even though English calls both of them Lucky. A rule that wants the shiny
+-- variant had no way to say so and hasPassive:Rare was the obvious wrong
+-- guess: a shiny without that passive looks identical to the player and fails
+-- the rule, which is how the first report of this arrived.
+BOOL_EVAL.isShiny = function(ctx)
+    local ok, shiny = pcall(shinyUnsafe, ctx)
+    if not ok then return nil end
+    return shiny
+end
+
 local function glidingUnsafe(movement)
     return movement:IsGliding() == true
 end
@@ -853,7 +868,7 @@ Conditions.ORDER = {
     "inCave", "inDesert", "inVolcano", "inSnow", "inGrassland", "inForest",
     "inSakura", "inDarkIsland", "onSkyIsland", "onMushroomIsland",
     "atWorldTree", "onOilrig", "inSanctuary",
-    "isMale", "isFemale",
+    "isMale", "isFemale", "isShiny",
     "hpLow", "hpFull", "hungry", "wellFed", "highTrust",
     "isGliding", "inOwnBase", "inCombat",
     "raining", "snowing", "thunderstorm", "foggy",
@@ -875,7 +890,7 @@ Conditions.LABELS = {
     onSkyIsland = "On a sky island", onMushroomIsland = "On the mushroom island",
     atWorldTree = "At the World Tree", onOilrig = "On the oil rig",
     inSanctuary = "In a wildlife sanctuary",
-    isMale = "Male", isFemale = "Female",
+    isMale = "Male", isFemale = "Female", isShiny = "Lucky Pal (shiny)",
     isGliding = "Gliding", inOwnBase = "In your own base", inCombat = "In combat",
     raining = "Raining", snowing = "Snowing", thunderstorm = "Thunderstorm",
     foggy = "Foggy",
