@@ -620,7 +620,14 @@ end
 
 local function visitFName(value, state)
     local ok, name = pcall(fnameStringUnsafe, value)
-    if ok and name == state.want then
+    -- Lower case on both sides, for the reason inParty gives below: an FName
+    -- compares case-insensitively inside the engine but hands back whichever
+    -- spelling the session registered first. A raw compare here made a Pal that
+    -- carries the passive read as one that does not, depending on which mod
+    -- touched the name first. Species ids have gone through Config.canonicalId
+    -- since 1.5.3 for exactly this; passives were the one catalog condition
+    -- left comparing raw.
+    if ok and name and name:lower() == state.want then
         state.found = true
         return false
     end
@@ -636,7 +643,7 @@ end
 PARAM_EVAL.hasPassive = function(ctx, passiveId)
     local ok, list = pcall(passiveListUnsafe, ctx.param)
     if not ok or not list then return nil end
-    local state = { want = passiveId, found = false }
+    local state = { want = tostring(passiveId):lower(), found = false }
     if not forEachInArray(list, visitFName, state) then return nil end
     return state.found
 end

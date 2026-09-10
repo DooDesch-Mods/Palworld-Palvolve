@@ -207,6 +207,16 @@ function BenchFilter.init()
                                 Log(string.format("Evolution Stone registered, SortId=%s",
                                     tostring(data.SortId)))
                             end
+                            -- The data applied, so the recipes are worth reading
+                            -- back: a single material the world does not have
+                            -- drops its own row silently, and the product item
+                            -- stays registered while it happens.
+                            local okRecipes, errRecipes = pcall(function()
+                                require("recipecheck").run()
+                            end)
+                            if not okRecipes then
+                                Log("[WARN] recipe check did not run: " .. tostring(errRecipes))
+                            end
                         else
                             -- This line has shipped since 1.6.3 and eight people
                             -- still needed a support thread, because it named the
