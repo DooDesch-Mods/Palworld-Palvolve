@@ -138,7 +138,7 @@ local CONDITION_HINT_GROUP = {
     inSakura = "location", inDarkIsland = "location", onSkyIsland = "location",
     onMushroomIsland = "location", atWorldTree = "location",
     onOilrig = "location", inSanctuary = "location",
-    isMale = "pal", isFemale = "pal", hpLow = "pal", hpFull = "pal",
+    isMale = "pal", isFemale = "pal", isShiny = "pal", hpLow = "pal", hpFull = "pal",
     hungry = "pal", wellFed = "pal", highTrust = "pal",
     isGliding = "context", inOwnBase = "context", inCombat = "context",
     raining = "weather", snowing = "weather", thunderstorm = "weather",
