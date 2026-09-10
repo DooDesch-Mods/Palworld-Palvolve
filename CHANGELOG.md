@@ -2,20 +2,24 @@
 
 ## [Unreleased]
 
-## [1.9.4] - 2026-09-06
+## [1.9.4] - 2026-09-10
 
 ### Added
 
 - **The line about a missing PalSchema now says how to fix it.** It named the fault and stopped there, and eight people still needed a support thread. It now names what is gone, what still works, the Workshop order, and the leftover folder to delete.
 - **The mod says when UE4SS is installed twice.** Only one of them runs, and the log you were reading came from the other one. Startup now names the one that is running, and the idle one if it is there.
 - **The Workshop load order is written down.** Subscribe order decides whether any of it works: UE4SS, then PalSchema, then Palvolve. HenryFrost spent two days ruling out everything else before finding it.
+- **The fourth move slot is finally on screen.** The extra attack has been handed out for a while and drawn nowhere, because the status screen is built with three rows. A Pal that carries four moves now shows four. Reported by SephVII.
+- **A rule can ask for a Lucky Pal.** English uses that one word for two different things: the passive skill, and the shiny Pal itself. Only the passive could be picked, so a rule meant for a shiny failed on a Pal that plainly looked the part. Reported by Aulent.
+- **A recipe that names an item the game does not have says so.** One wrong material and that recipe never reaches the Pal Alchemy Workbench, while the item it makes is still registered and still logged. The startup line now names the item, the recipe and the file. Reported by SephVII.
 
 ### Fixed
 
-- **The extra move slot says what happened.** With the setting on, some evolutions handed out nothing and said nothing, so the setting looked broken. A Pal with four moves already, or with nothing worth promoting, now says so instead of leaving you counting slots. Reported by SephVII.
+- **The extra move slot says what happened.** With the setting on, some evolutions handed out nothing and said nothing, so the setting looked broken. A Pal with four moves already, or with no move better than the three it has, now says so instead of leaving you counting slots. Reported by SephVII.
 - **A long session with the evolve wheel could take the game down.** After the wheel closed, its Evolve entry stayed behind and the next wheel reused it.
 - **Players on a server get the server's evolution rules.** How evolutions are offered, and how much a condition gives away, are the server's call, and neither setting reached anyone. You could be offered an evolution the server then refused, or read an exact requirement it had chosen to keep vague.
 - **A version difference between you and the server is written to the log.** The chat already said it, the log did not. Three of these were diagnosed by hand before the line existed.
+- **A required passive is matched however the name is spelled.** Whichever mod registers a name first decides its capitalisation for that session, so a Pal carrying the passive could read as one that does not.
 
 ## [1.9.3] - 2026-09-06
 
