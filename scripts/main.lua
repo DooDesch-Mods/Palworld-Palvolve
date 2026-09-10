@@ -119,6 +119,16 @@ if Evolution and not Role.isDedicated() then
     end
 end
 
+-- The fourth active move is granted and then drawn nowhere: the status screen
+-- is built with three slot widgets. This adds the fourth row when a Pal
+-- actually carries four moves. Client only, like every other UI module.
+if not Role.isDedicated() then
+    local okSlot4, errSlot4 = pcall(function() require("moveslot4").init() end)
+    if not okSlot4 then
+        Log("the fourth move slot could not be set up: " .. tostring(errSlot4))
+    end
+end
+
 -- Survival Guide pages describing the loaded tree. PalSchema data like the
 -- workbench stage above, so this writes a file and the pages appear on the next
 -- start. Pointless on a dedicated server, which has no guide to read them.
