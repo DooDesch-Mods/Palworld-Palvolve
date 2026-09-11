@@ -83,7 +83,13 @@ local function deriveConnections(map, shippedMap, minimum, autoLink)
                 if not authored then authored = {}; authoredByFrom[pair.from] = authored end
                 authored[#authored + 1] = pair
             elseif pair.enabled == true then
-                outgoing[pair.from] = true
+                -- An adaptation is the same Pal in another element, not a step
+                -- forward, so it does not make its source unfinished. A Pal
+                -- whose only outgoing link is an adaptation is still the end of
+                -- its evolution line and still prestiges. The link stays in
+                -- `incoming` and in the order below: it is no progress, but it
+                -- is a way back to the family base.
+                if pair.category ~= "adaptation" then outgoing[pair.from] = true end
                 if firstFromOrder[pair.from] == nil then firstFromOrder[pair.from] = order end
                 local parents = incoming[pair.to]
                 if not parents then parents = {}; incoming[pair.to] = parents end

@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.9.5] - 2026-09-11
+
+### Fixed
+
+- **Prestige is offered again when an element variant hangs at the end of a line.** A Pal whose only remaining connection was an adaptation counted as unfinished, so the wheel never offered Prestige for it. An adaptation is the same Pal in another element, not a step forward. In the shipped tree eleven more Pals can prestige, among them Captain Penguin, King Alpaca and Cryolinx, and no Pal loses it. The editor draws the same connections. Reported by CrimsonStarfall.
+
 ## [1.9.4] - 2026-09-10
 
 ### Added
