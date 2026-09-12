@@ -11,6 +11,7 @@ local Costs = require("costs")
 local Elements = require("elements")
 local Conditions = require("conditions")
 local I18n = require("i18n")
+local RemotePresentation = require("remote_presentation")
 local Role = require("role")
 local Authority = require("authority")
 local NetChannel = require("netchannel")
@@ -3610,6 +3611,13 @@ function Evolution.onNetSignal(kind, phaseInfo)
         -- in `from`, beat name in `to`
         Evolution.playPrestigePreview(holder, nil,
             tonumber(phaseInfo.from) or 1, phaseInfo.to)
+        return
+    end
+    if RemotePresentation.consume(kind, phaseInfo, function()
+        local pc = playerCtx and playerCtx.pc
+        if pc and pc:IsValid() then pc:InactiveOtomo() end
+    end) then
+        Log("[mpseq-c] safe presentation: normal recall used; unstable cinematic skipped")
         return
     end
     if kind == "start" then
