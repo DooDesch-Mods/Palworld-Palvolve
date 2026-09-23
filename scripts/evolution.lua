@@ -1125,6 +1125,9 @@ local function applySwapSurvivors(param, skinState, wazaState)
             Log(string.format("Move inheritance taught %d repertoire entr(ies) [%s]",
                 wazaResult.taught, tostring(wazaResult.teachDetail)))
         end
+        if (wazaResult.cleared or 0) > 0 then
+            Log(string.format("Move inheritance removed %d empty mastered entr(ies)", wazaResult.cleared))
+        end
     end
     return true
 end
@@ -1136,8 +1139,9 @@ local function restoreSwapSurvivors(param, skinState, wazaState)
         if not skinOk then errors[#errors + 1] = "skin=" .. tostring(skinErr) end
     end
     if wazaState then
-        local wazaOk, wazaErr = WazaInherit.restore(param, wazaState)
+        local wazaOk, wazaErr, wazaNote = WazaInherit.restore(param, wazaState)
         if not wazaOk then errors[#errors + 1] = "moves=" .. tostring(wazaErr) end
+        if wazaNote then Log("Move lists restored: " .. wazaNote) end
     end
     if #errors > 0 then return false, table.concat(errors, "; ") end
     return true

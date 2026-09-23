@@ -21,7 +21,7 @@ PalvolveNative_UnlockCaptureRecord(characterId, uid?, playerStateName?) -- ok, m
 PalvolveNative_SetWorkSuitability(palAddress, workType, rank)           -- ok, message
 PalvolveNative_ClearWorkSuitability(palAddress)                         -- ok, message
 PalvolveNative_ScanWorkCache(palAddress)                                -- ok, message
-PalvolveNative_TeachMasteredWaza(palAddress, wazaId)                    -- ok, message
+PalvolveNative_TeachMasteredWaza(param, "id,id")                        -- ok, added, message, cleared
 PalvolveNative_IsDedicatedServer()                                      -- bool
 PalvolveNative_Console(message)                                         -- writes to the server console
 ```

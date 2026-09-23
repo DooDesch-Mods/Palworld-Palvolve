@@ -315,6 +315,9 @@ end
 -- MasteredWaza is what a skill fruit writes, it is empty on every wild-caught Pal,
 -- and this build exposes no add or setter for it. Growing it from here would mean
 -- writing past the end of a zero-length array, so this one step goes native.
+--
+-- The native call also drops the zeroed tail writeDirect leaves behind, which the
+-- picker would otherwise offer as ACTION_SKILL_None with 999 power.
 local function teachRepertoire(param, ...)
     if type(PalvolveNative_TeachMasteredWaza) ~= "function" then
         return false, "the native half is not loaded"
@@ -329,13 +332,20 @@ local function teachRepertoire(param, ...)
             end
         end
     end
-    if #ids == 0 then return true, 0 end
 
-    local called, ok, added, message = pcall(PalvolveNative_TeachMasteredWaza,
+    local called, ok, added, message, cleared = pcall(PalvolveNative_TeachMasteredWaza,
         param, table.concat(ids, ","))
     if not called then return false, tostring(ok) end
     if not ok then return false, tostring(message) end
-    return true, added, message
+    return true, added, message, tonumber(cleared) or 0
+end
+
+--- Removes empty entries from both MasteredWaza halves, and nothing else.
+--- Returns ok, removed count, detail.
+function WazaInherit.repair(param)
+    local ok, added, detail, cleared = teachRepertoire(param)
+    if not ok then return false, 0, added end
+    return true, cleared, detail
 end
 
 function WazaInherit.apply(param, snapshot, mode)
@@ -361,7 +371,7 @@ function WazaInherit.apply(param, snapshot, mode)
 
     -- Reported, never fatal: the moves are already equipped at this point, and an
     -- evolution that worked must not be rolled back over the repertoire step.
-    local okTeach, added, teachDetail = teachRepertoire(param, equip, mastered, known or {})
+    local okTeach, added, teachDetail, cleared = teachRepertoire(param, equip, mastered, known or {})
     return true, {
         removedEquip = removedEquip,
         removedMastered = removedMastered,
@@ -370,13 +380,22 @@ function WazaInherit.apply(param, snapshot, mode)
         taught = okTeach and added or nil,
         teachError = (not okTeach) and added or nil,
         teachDetail = okTeach and teachDetail or nil,
+        cleared = okTeach and cleared or nil,
     }
 end
 
 function WazaInherit.restore(param, snapshot)
     local state, stateErr = validateState(snapshot)
     if not state then return false, stateErr end
-    return writeTransaction(param, state)
+    local okWrite, writeErr = writeTransaction(param, state)
+    if not okWrite then return false, writeErr end
+    -- The restored lists are in place either way; an empty tail left behind only
+    -- costs a stray picker entry, so the repair result is reported, not fatal.
+    local okRepair, removed, detail = WazaInherit.repair(param)
+    if not okRepair then
+        return true, nil, "empty move entries could not be removed: " .. tostring(detail)
+    end
+    return true, nil, removed > 0 and string.format("%d empty move entr(ies) removed", removed) or nil
 end
 
 return WazaInherit

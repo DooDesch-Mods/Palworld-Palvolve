@@ -139,6 +139,14 @@ local GLOBALS = {
     -- that quotes a different number than the host charges is the one thing a
     -- cost display must never do.
     { key = "prestigeStoneCount", kind = "number", since = 3 },
+    -- Whether an evolution or a prestige hands out a fourth move slot. The host
+    -- grants it, and the client's status screen decides from the same value
+    -- whether an emptied fourth slot is still shown as "Free slot"; left on its
+    -- own value, a client would show a slot the host never granted, or hide one
+    -- it did. Not gated: an older client has no entry for these keys and drops
+    -- them.
+    { key = "evolutionBonusSlot", kind = "enum", values = { off = true, active = true } },
+    { key = "prestigeBonusSlot", kind = "enum", values = { off = true, active = true } },
 
     -- How the transformation looks, so a server decides what its players see
     -- rather than each of them running their own cut. These are read per

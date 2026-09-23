@@ -14,7 +14,7 @@
 //   PalvolveNative_GetCaptureRecord(characterId, uid?, state?)     -> count, flagSet, message
 //   PalvolveNative_UnlockCaptureRecord(characterId, uid?, state?)  -> ok, message
 //   PalvolveNative_SetWorkSuitability(individualParameter)         -> ok, message
-//   PalvolveNative_TeachMasteredWaza(individualParameter, "id,id") -> ok, added, message
+//   PalvolveNative_TeachMasteredWaza(individualParameter, "id,id") -> ok, added, message, cleared
 //   PalvolveNative_ClearWorkSuitability(individualParameter)       -> ok
 //   PalvolveNative_ScanWorkCache(individualParameter, species)     -> message (diagnostic)
 //
@@ -69,7 +69,7 @@ using namespace RC::Unreal;
 
 namespace
 {
-    constexpr const wchar_t* ModVersionString = STR("1.9.6");
+    constexpr const wchar_t* ModVersionString = STR("1.9.7");
 
     // A world context object is required by the *_ForServer setters. The game mode is the
     // first reliable one available and exists only on the authority, which doubles as the
@@ -2016,13 +2016,15 @@ namespace
     // PalIndividualCharacterSaveParameterUtility, and no setter or add anywhere. The array is
     // empty on every wild-caught Pal, and growing a zero-length TArray from Lua writes into
     // memory nobody reserved.
+    //
+    // Every call also removes empty entries, so an empty id list repairs the array alone.
     auto teach_mastered_waza(UObject* Param, const std::vector<int32>& Ids)
-        -> std::tuple<bool, int32, std::wstring>
+        -> std::tuple<bool, int32, int32, std::wstring>
     {
-        if (!Param) return { false, 0, STR("no parameter object") };
-        if (Ids.empty()) return { true, 0, STR("nothing to teach") };
+        if (!Param) return { false, 0, 0, STR("no parameter object") };
 
         int32 AddedTotal = 0;
+        int32 ClearedTotal = 0;
         int32 HalvesTouched = 0;
         std::wstring Counts;
         std::wstring Found;
@@ -2046,7 +2048,7 @@ namespace
         }
         if (Halves.empty())
         {
-            return { false, 0, std::format(STR("{} carries no PalIndividualCharacterSaveParameter"),
+            return { false, 0, 0, std::format(STR("{} carries no PalIndividualCharacterSaveParameter"),
                 Param->GetClassPrivate() ? Param->GetClassPrivate()->GetName() : STR("an unnamed class")) };
         }
 
@@ -2154,9 +2156,21 @@ namespace
                 }
             };
 
+            // Empty entries go first. The Lua half can only overwrite entries in place, so a
+            // shorter move list leaves the tail of MasteredWaza zeroed, and the picker lists
+            // every zero as ACTION_SKILL_None with 999 power. Picking it equips that entry.
             std::vector<int32> Known;
             const int32 Before = Arr->Num();
-            for (int32 i = 0; i < Before; ++i) Known.push_back(ReadAt(i));
+            for (int32 i = 0; i < Before; ++i)
+            {
+                const int32 Id = ReadAt(i);
+                if (Id <= 0) continue;
+                WriteAt(static_cast<int32>(Known.size()), Id);
+                Known.push_back(Id);
+            }
+            const int32 Cleared = Before - static_cast<int32>(Known.size());
+            if (Cleared > 0) Arr->Remove(static_cast<int32>(Known.size()), Cleared, ElemSize, ElemAlign);
+            ClearedTotal += Cleared;
 
             int32 Added = 0;
             for (const int32 Id : Ids)
@@ -2176,10 +2190,11 @@ namespace
             ++HalvesTouched;
             if (!Counts.empty()) Counts += STR(", ");
             Counts += std::format(STR("{}: {} -> {}"), Which, Before, Arr->Num());
+            if (Cleared > 0) Counts += std::format(STR(" ({} empty removed)"), Cleared);
         }
 
-        if (HalvesTouched == 0) return { false, 0, Found.empty() ? std::wstring(STR("no save half was readable")) : Found };
-        return { true, AddedTotal, Counts };
+        if (HalvesTouched == 0) return { false, 0, 0, Found.empty() ? std::wstring(STR("no save half was readable")) : Found };
+        return { true, AddedTotal, ClearedTotal, Counts };
     }
 
     // The uid the Lua side computes comes from the replicated PlayerState. Reading it here
@@ -2496,12 +2511,14 @@ class PalvolveNative : public CppUserModBase
                 L.set_bool(false);
                 L.set_integer(0);
                 L.set_string("individual parameter (object) required");
-                return 3;
+                L.set_integer(0);
+                return 4;
             }
             std::string List;
             if (L.is_string()) List = L.get_string();
 
             std::vector<int32> Ids;
+            int32 Unreadable = 0;
             size_t At = 0;
             while (At <= List.size())
             {
@@ -2511,18 +2528,22 @@ class PalvolveNative : public CppUserModBase
                 {
                     // A malformed piece is skipped rather than thrown: the caller is our own
                     // Lua half, and one unreadable id must not cost the Pal the rest of them.
+                    // The count goes into the message.
                     try { Ids.push_back(static_cast<int32>(std::stol(Piece))); }
-                    catch (...) {}
+                    catch (...) { ++Unreadable; }
                 }
                 if (Comma == std::string::npos) break;
                 At = Comma + 1;
             }
 
-            const auto [Ok, Added, Message] = teach_mastered_waza(Param, Ids);
+            auto [Ok, Added, Cleared, Message] = teach_mastered_waza(Param, Ids);
+            if (Unreadable > 0) Message += std::format(STR("; {} unreadable id(s) skipped"), Unreadable);
+            // Message stays third so callers written against the three-value form keep working.
             L.set_bool(Ok);
             L.set_integer(Added);
             L.set_string(to_string(Message));
-            return 3;
+            L.set_integer(Cleared);
+            return 4;
         });
 
         // Lets the Lua half put a line in front of a server admin. Used for the

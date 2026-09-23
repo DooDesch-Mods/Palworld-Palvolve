@@ -17,13 +17,25 @@
 -- So the fill is array-driven. The count three lives only in the three widgets
 -- authored in the WidgetTree.
 --
--- Data-driven on purpose: the extra widget follows how many moves actually
--- arrive, so a Pal with three moves shows three slots and no empty fourth.
+-- Which Pals get the row: every Pal that carries four moves, and a Pal that
+-- carries three but has earned the slot, so a slot emptied by removing a move
+-- stays there as "Free slot" instead of vanishing. Earned means the matching
+-- setting is on and the Pal has been through the step that grants it: at least
+-- one evolution for evolutionBonusSlot, at least one prestige for
+-- prestigeBonusSlot. Both are read off the Pal's own Evolved and Prestige
+-- passives, so nothing new is stored.
 --
--- NOT covered here, and both are written down in INGAME-TREE.md: a click on the
--- fourth slot does not open the swap list (Lua cannot bind OnClicked; the way in
--- is the BndEvt hook the Paldex tab uses), and hover does not highlight it. The
--- fourth move is shown, not yet edited.
+-- The game does the editing itself. Its fill empties a row beyond the move
+-- count ("Free slot", BindedWazaID 0), OpenChangeActiveSkillList opens the swap
+-- list for any row it is handed, and picking a move there replaces the row's
+-- move by value or, on an empty row, adds it as the fourth. What the extra row
+-- lacks is the wiring: the screen bound OnClicked, OnHovered and OnUnhovered on
+-- its three authored rows only, and Lua cannot bind a delegate. So the row's own
+-- button handlers are hooked, and for the extra row this module calls the
+-- screen's function the binding would have called. On Palworld 1.0.5:
+--   BndEvt ..._0_... -> OpenChangeActiveSkillList
+--   BndEvt ..._4_... -> OnHoveredActiveSkillButtonEvent
+--   BndEvt ..._5_... -> OnUnhoveredActiveSkillButtonEvent
 --
 -- Client only. The status screen does not exist on a dedicated server, and a
 -- retry poll for a class that never loads is the shape that "wuerfelt bis zum
@@ -31,14 +43,22 @@
 
 local Config = require("config")
 local Role = require("role")
+local PalPassives = require("palpassives")
+local WazaInherit = require("wazainherit")
 
 local MoveSlot4 = {}
 
 local MOD_NAME = "Palvolve"
 local SCREEN_CLASS = "WBP_MainMenu_Pal_00_C"
-local UPDATE_FN =
-    "/Game/Pal/Blueprint/UI/UserInterface/MainMenu/Pal/WBP_MainMenu_Pal_00."
-    .. "WBP_MainMenu_Pal_00_C:UpdateActiveSkill_Binded"
+local SCREEN_PATH =
+    "/Game/Pal/Blueprint/UI/UserInterface/MainMenu/Pal/WBP_MainMenu_Pal_00.WBP_MainMenu_Pal_00_C:"
+local UPDATE_FN = SCREEN_PATH .. "UpdateActiveSkill_Binded"
+local ROW_PATH =
+    "/Game/Pal/Blueprint/UI/UserInterface/MainMenu/Pal/WBP_MainMenu_Pal_Skill_Active."
+    .. "WBP_MainMenu_Pal_Skill_Active_C:BndEvt__WBP_MainMenu_Pal_Skill_Active_WBP_PalInvisibleButton_K2Node_"
+local ROW_CLICK_FN = ROW_PATH .. "ComponentBoundEvent_0_CommonButtonBaseClicked__DelegateSignature"
+local ROW_HOVER_FN = ROW_PATH .. "ComponentBoundEvent_4_CommonButtonBaseClicked__DelegateSignature"
+local ROW_UNHOVER_FN = ROW_PATH .. "ComponentBoundEvent_5_CommonButtonBaseClicked__DelegateSignature"
 
 -- geometry of the authored rows, read back at runtime rather than assumed;
 -- these are only the fallback if the read fails
@@ -52,6 +72,10 @@ local hooked = false
 -- widget. The full name is stable for the life of the screen.
 local extraWidget = nil
 local extraScreenName = nil
+-- The screen object itself, to call its handlers for the extra row, and the
+-- row's full name, to recognise it inside the row class's hooks.
+local extraScreen = nil
+local extraWidgetName = nil
 
 local function Log(message)
     print(string.format("[%s] [slot4] %s\n", MOD_NAME, tostring(message)))
@@ -186,15 +210,69 @@ local function ensureExtra(screen)
 
     extraWidget = widget
     extraScreenName = screenName(screen)
+    extraScreen = screen
+    extraWidgetName = nil
+    local okName, errName = pcall(function() extraWidgetName = tostring(widget:GetFullName()) end)
+    if not okName then
+        Log("[WARN] the fourth slot has no readable name, so clicks on it are not forwarded: "
+            .. tostring(errName))
+    end
     if Config.devMode then
         Log(string.format("fourth slot built at (%s, %s)", tostring(x), tostring(y)))
     end
     return widget
 end
 
+--- The Pal the screen shows. BindFromHandle stores the handle before it fills
+--- the rows, so it is already the new Pal when the fill reaches onUpdate.
+local function screenParam(screen)
+    local ok, param = pcall(function()
+        return screen.CachedIndividualHandle:TryGetIndividualParameter()
+    end)
+    if not ok then
+        warnOnce("the Pal on the status screen could not be read: " .. tostring(param))
+        return nil
+    end
+    if param and param:IsValid() then return param end
+    return nil
+end
+
+--- Clears the empty MasteredWaza entries older evolutions left behind.
+--- The swap list reads that array, and each empty entry shows up there as
+--- ACTION_SKILL_None with 999 power. The fill runs before the list can open, so
+--- a Pal is repaired the first time its status screen shows it.
+local function repairMoves(param)
+    local ok, removed, detail = WazaInherit.repair(param)
+    if not ok then
+        warnOnce("empty move entries could not be removed, the swap list may show ACTION_SKILL_None: "
+            .. tostring(detail))
+    elseif removed > 0 then
+        Log(string.format("removed %d empty move entr(ies) from the Pal on the status screen [%s]",
+            removed, tostring(detail)))
+    end
+end
+
+--- Whether this Pal has earned a fourth slot, so an empty one is still shown.
+local function hasEarnedFourth(param)
+    if not (param and param:IsValid()) then return false end
+    local evoOn = Config.evolutionBonusSlot == "active"
+    local prestigeOn = Config.prestigeBonusSlot == "active"
+    if not (evoOn or prestigeOn) then return false end
+    local ok, stages, resolveErr = pcall(PalPassives.resolve, param)
+    if not ok or type(stages) ~= "table" then
+        warnOnce("the Pal's evolution stages could not be read, so an empty fourth slot is not shown: "
+            .. tostring(ok and resolveErr or stages))
+        return false
+    end
+    local evolved = tonumber(stages.evolved and stages.evolved.stage) or 0
+    local prestiged = tonumber(stages.prestige and stages.prestige.stage) or 0
+    return (evoOn and evolved >= 1) or (prestigeOn and prestiged >= 1)
+end
+
 --- Runs before the screen fills its rows. Four moves coming in means the array
---- needs a fourth entry; three means the extra row goes away again, so an
---- ordinary Pal never shows an empty slot it cannot have.
+--- needs a fourth entry. Three mean the same for a Pal that has earned the slot,
+--- which the fill then shows as "Free slot"; any other Pal loses the extra row,
+--- so it never shows a slot it cannot have.
 local function onUpdate(screen, skills)
     local wanted = 0
     local okList = pcall(function() wanted = #skills:get() end)
@@ -220,7 +298,11 @@ local function onUpdate(screen, skills)
     local have = 0
     pcall(function() have = #arr end)
 
-    if wanted <= 3 then
+    local param = screenParam(screen)
+    if param then repairMoves(param) end
+    local earnedEmpty = wanted == 3 and hasEarnedFourth(param)
+
+    if wanted <= 3 and not earnedEmpty then
         local extra = nil
         if extraWidget and extraWidget:IsValid() and extraScreenName == screenName(screen) then
             extra = extraWidget
@@ -261,6 +343,62 @@ local function onUpdate(screen, skills)
     end
 end
 
+--- True when the row a hook fired for is the extra row. Compared by full name:
+--- the userdata for the same widget differs from lookup to lookup.
+local function isExtraRow(rowParam)
+    if not extraWidgetName then return false end
+    local row = nil
+    local okRow, errRow = pcall(function() row = rowParam:get() end)
+    if not okRow then
+        warnOnce("a move row event carried no readable row: " .. tostring(errRow))
+        return false
+    end
+    if not (row and row:IsValid()) then return false end
+    local n = nil
+    local okName, errName = pcall(function() n = tostring(row:GetFullName()) end)
+    if not okName then
+        warnOnce("a move row's name could not be read, so it is not matched to the fourth slot: "
+            .. tostring(errName))
+        return false
+    end
+    return n == extraWidgetName, row
+end
+
+local function liveExtraScreen()
+    if extraScreen and extraScreen:IsValid() and screenName(extraScreen) == extraScreenName then
+        return extraScreen
+    end
+    return nil
+end
+
+local function forwardRowEvent(rowParam, screenFn, label)
+    local mine, row = isExtraRow(rowParam)
+    if not mine then return end
+    local screen = liveExtraScreen()
+    if not screen then
+        Log("[WARN] the fourth slot was " .. label .. " but its screen is gone")
+        return
+    end
+    local ok, err = pcall(function() screen[screenFn](screen, row) end)
+    if not ok then
+        Log("[WARN] the fourth slot " .. label .. " did not reach the screen: " .. tostring(err))
+    elseif Config.devMode then
+        Log("fourth slot " .. label)
+    end
+end
+
+local function onRowClick(self)
+    forwardRowEvent(self, "OpenChangeActiveSkillList", "clicked")
+end
+
+local function onRowHover(self)
+    forwardRowEvent(self, "OnHoveredActiveSkillButtonEvent", "hovered")
+end
+
+local function onRowUnhover(self)
+    forwardRowEvent(self, "OnUnhoveredActiveSkillButtonEvent", "left")
+end
+
 --- Registers the hook. Only ever called once a screen of that class exists:
 --- the widget blueprint is not loaded at startup, and a Blueprint hook
 --- registered while a world loads aborts the process (UE4SS-LESSONS.md 2).
@@ -283,7 +421,20 @@ local function hookNow()
         return
     end
     hooked = true
-    Log("fourth move slot will be drawn when a Pal carries one")
+    -- The rest only adds editing on top of the drawing, so each failure is
+    -- reported and the row stays visible either way.
+    local extras = {
+        { ROW_CLICK_FN, onRowClick, "clicks, so the fourth slot cannot be swapped" },
+        { ROW_HOVER_FN, onRowHover, "hover, so the fourth slot does not light up" },
+        { ROW_UNHOVER_FN, onRowUnhover, "hover end on the fourth slot" },
+    }
+    for _, entry in ipairs(extras) do
+        local okExtra, errExtra = pcall(RegisterHook, entry[1], entry[2])
+        if not okExtra then
+            Log("[WARN] could not hook " .. entry[3] .. ": " .. tostring(errExtra))
+        end
+    end
+    Log("fourth move slot will be drawn when a Pal carries one or has earned it")
 end
 
 function MoveSlot4.init()

@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [1.9.7] - 2026-09-23
+
+### Fixed
+
+- **The fourth move slot can be edited.** From 1.9.4 on it was only shown. Click it and the swap list opens, hover it and the move description comes up, like the other three rows. Reported by SephVII.
+- **An emptied fourth slot stays there.** Remove the fourth move from a Pal that earned the slot and the row now reads "Free slot" instead of disappearing. A Pal that never earned a fourth slot still shows three rows. Reported by SephVII.
+- **The swap list no longer offers "ACTION_SKILL_None" with 999 power.** An evolution could leave empty entries in the Pal's learned moves, and the swap list showed each one as a move. Picking it filled the slot with that same broken entry. New evolutions no longer leave them, and a Pal that already has them is cleaned the next time you open its status screen. Reported by SephVII.
+
+### Changed
+
+- **Players on a server use the server's bonus slot settings.** The server hands out the fourth slot, and your status screen now decides from the server's value whether an emptied slot stays visible. Before, your own setting could show a slot the server never granted, or hide one it did.
+
 ## [1.9.6] - 2026-09-23
 
 ### Fixed
