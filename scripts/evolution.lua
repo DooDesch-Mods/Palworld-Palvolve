@@ -950,9 +950,6 @@ local function disclosedConditions(pair, exactText)
     return Conditions.describe(pair, Config.conditionDisclosure) or exactText
 end
 
--- Normal connections always win. A Pal with anything still ahead of it is not
--- allowed to use prestige as a shortcut around that connection, even while its
--- level or conditions are not met yet.
 --- True when this Pal already wears the last prestige rank.
 ---
 --- Without this a Pal at the top can prestige again: the rank is clamped at the
@@ -982,11 +979,13 @@ end
 
 --- The pairs a Pal is offered, and whether that offer is prestige alone.
 ---
---- A Pal that can still evolve is offered its ordinary pairs and nothing else.
---- One whose only connections are adaptations is at the end of its line, since
---- an adaptation is the same Pal in another element, so it is offered its
---- adaptations and its prestige side by side. The second value is true only
---- when prestige is all there is; a mixed list is marked per pair instead.
+--- A Pal that can still evolve is offered its ordinary pairs and nothing else,
+--- even while their level or conditions are unmet: prestige is no shortcut
+--- around a step that is still ahead. One whose only connections are
+--- adaptations is at the end of its line, since an adaptation is the same Pal
+--- in another element, so it is offered its adaptations and its prestige side
+--- by side. The second value is true only when prestige is all there is; a
+--- mixed list is marked per pair instead.
 local function optionPairsFor(characterId, param)
     local ordinary = Config.findPairs(characterId)
     if Config.hasProgressPair(characterId) then return ordinary, false end
@@ -1318,10 +1317,17 @@ local function findEligibleFor(playerCtx)
                 -- The cost belongs in this loop. Checked only afterwards, a
                 -- species whose first target lacks a stone reported that stone
                 -- and never mentioned the target the player could pay for.
+                -- A cost check that throws leaves the target open: the
+                -- transaction in performEvolution is the authoritative consume
+                -- and refuses what cannot be paid.
                 local affordable = true
-                pcall(function()
+                local okCost, costErr = pcall(function()
                     affordable = (Costs.check(playerCtx, Costs.resolve(cand, level, holder)))
                 end)
+                if not okCost then
+                    Log(string.format("[WARN] cost check for %s -> %s failed, the transaction decides: %s",
+                        tostring(cand.from), tostring(cand.to), tostring(costErr)))
+                end
                 if affordable then
                     local count = conditionCount(cand)
                     if Config.evolutionMode ~= "conditioned" or count > pairConditionCount then
@@ -3150,11 +3156,18 @@ function Evolution.listOptions()
     local options = {}
     local byTarget = {}
     local conditioned = Config.evolutionMode == "conditioned"
-    local conditionedBest, conditionedBestCount, conditionedReason = nil, -1, nil
+    -- "conditioned" keeps the best-matching target, but per kind: a prestige
+    -- and an adaptation are not rivals for the same step. Picked from one pool,
+    -- the adaptation listed first always won the tie against a derived prestige,
+    -- and a Pal at the end of its line was never offered prestige in this mode.
+    local conditionedBest, conditionedBestCount = {}, {}
+    local conditionedReason = nil
     for i, pair in ipairs(pairList) do
-        -- index is the pair's position in Config.findPairs(id) - the compact
-        -- token a connected client sends over the net channel (the host
-        -- re-derives the pair from its own config at this index)
+        -- index is the compact token a connected client sends over the net
+        -- channel: the pair's position in Config.findPairs(id), or a prestige
+        -- pair's own prestigeIndex (pairIndexFor). The host re-derives the pair
+        -- from its own config at this index.
+        --
         -- Beside adaptations a prestige entry is named as what it is. Its target
         -- is the family base, and two species names side by side do not say
         -- which of them starts the Pal over.
@@ -3218,9 +3231,10 @@ function Evolution.listOptions()
         -- variant is blocked the reasons are joined so the player sees all
         -- ways to unlock the target.
         if conditioned then
-            if rulePasses and conditionCount(pair) > conditionedBestCount then
-                conditionedBest = opt
-                conditionedBestCount = conditionCount(pair)
+            local kind = pairIsPrestige and "prestige" or "ordinary"
+            if rulePasses and conditionCount(pair) > (conditionedBestCount[kind] or -1) then
+                conditionedBest[kind] = opt
+                conditionedBestCount[kind] = conditionCount(pair)
             elseif not rulePasses and not conditionedReason then
                 conditionedReason = opt.blocked
             end
@@ -3243,7 +3257,10 @@ function Evolution.listOptions()
         end
     end
     if conditioned then
-        if conditionedBest then return { conditionedBest } end
+        local best = {}
+        if conditionedBest.ordinary then best[#best + 1] = conditionedBest.ordinary end
+        if conditionedBest.prestige then best[#best + 1] = conditionedBest.prestige end
+        if #best > 0 then return best end
         if conditionedReason then return nil, conditionedReason end
         if isPrestige then return nil, I18n.msg("hasNoPrestige", palDisplayName(id)) end
         return nil, I18n.msg("hasNoEvolution", palDisplayName(id))

@@ -133,10 +133,18 @@ end
 
 -- language detection and the localized entry label live in i18n.lua
 
+local labelErrLogged = false
+
 local function labelText()
     if api and api.offerIsPrestige then
         local ok, prestige = pcall(api.offerIsPrestige)
         if ok and prestige == true then return I18n.msg("prestige") end
+        if not ok and not labelErrLogged then
+            -- Once per session: the label is drawn every time the wheel opens.
+            labelErrLogged = true
+            Log("[WARN] could not tell whether the offer is a prestige, the entry reads Evolve: "
+                .. tostring(prestige))
+        end
     end
     return I18n.msg("evolve")
 end
