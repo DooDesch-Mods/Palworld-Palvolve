@@ -7,6 +7,7 @@
 ### Fixed
 
 - **Prestige shows up next to an element variant.** 1.9.5 worked out the prestige connection for a Pal whose only remaining connection is an adaptation, and the editor drew it, but the wheel still hid Prestige as long as the Pal had any connection at all. The wheel now lists the adaptation and a Prestige entry side by side, greyed out with the level it needs until the Pal gets there. Reported by CrimsonStarfall.
+- **A "last ate" condition counts hand feeding again.** Feeding a Pal from the wheel was never recorded on the current UE4SS, so a rule that asks for a specific food never unlocked. The mod now reads the food at the moment you hand it over and writes a log line when it counts. Food a Pal takes from the food pouch on its own still does not count. Reported by xuhefengshuai.
 
 ### Changed
 

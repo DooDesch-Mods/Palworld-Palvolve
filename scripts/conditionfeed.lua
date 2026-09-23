@@ -14,7 +14,6 @@ local HAND_FEED_FN =
 
 local lastFoodByIndividual = {}
 local pendingParty = {}
-local pendingHand = {}
 local hooksArmed = false
 local nativeHookRegistered = false
 local blueprintHookRegistered = false
@@ -113,16 +112,6 @@ end
 
 local function palUtility()
     local ok, util = pcall(palUtilityUnsafe)
-    if ok and objectIsValid(util) then return util end
-    return nil
-end
-
-local function playerUtilityUnsafe()
-    return StaticFindObject("/Script/Pal.Default__PalPlayerUtility")
-end
-
-local function playerUtility()
-    local ok, util = pcall(playerUtilityUnsafe)
     if ok and objectIsValid(util) then return util end
     return nil
 end
@@ -255,9 +244,18 @@ local function consumedFromSnapshot(container, before)
 end
 
 local function remember(key, itemId)
-    if type(key) ~= "string" or key == "" then return end
-    if type(itemId) ~= "string" or itemId == "" or itemId == "None" then return end
+    if type(key) ~= "string" or key == "" then
+        Log("feeding tracker: a feed was seen but the Pal has no usable id, not recorded")
+        return
+    end
+    if type(itemId) ~= "string" or itemId == "" or itemId == "None" then
+        Log("feeding tracker: a feed was seen but no food item could be read, not recorded")
+        return
+    end
     lastFoodByIndividual[key] = itemId
+    -- The condition reads this later, so without a line "fed and recorded" and
+    -- "the hook never fired" look the same in a log someone sends in.
+    Log("feeding tracker: recorded " .. itemId)
 end
 
 local function hookSelf(value)
@@ -309,71 +307,92 @@ local function targetParamUnsafe(action, util)
     return util:GetIndividualCharacterParameterByActor(target)
 end
 
-local function readFeedSlotUnsafe(action, playerUtil, util)
-    local blackboard = action:GetBlackboard()
-    local outSlot = {}
-    local returnedSlot, returnedNum = playerUtil:ReadPlayerFeedItemTo(blackboard, outSlot, 0)
-    local slotId = outSlot
-    if type(returnedSlot) == "table" or type(returnedSlot) == "userdata" then
-        slotId = returnedSlot
-    end
-    local slotIndex = tonumber(slotId.SlotIndex)
-    if slotIndex == nil then return nil end
-    local manager = util:GetItemContainerManager(action)
-    if not objectIsValidUnsafe(manager) then return nil end
+--- The hand-fed food is read where the player hands it over, while it is still
+--- in the slot.
+---
+--- The feed action cannot tell us. By the time BP_ActionPairBehavior_FeedItem
+--- runs OnBeginAction the game has already taken the item out of the slot and
+--- raised the Pal's fullness, and the blackboard it carries reads SlotIndex -1.
+--- Its post hook never fires at all. WritePlayerFeedItemTo is the call that
+--- writes the chosen slot into that blackboard, and at that moment the slot still
+--- holds the food. Measured on Palworld 1.0.5 with UE4SS 2281fa31.
+local FEED_WRITE_FN = "/Script/Pal.PalPlayerUtility:WritePlayerFeedItemTo"
+local HAND_FEED_WINDOW_S = 10
+local pendingHandFeed = nil
+
+local function slotFromIdUnsafe(slotId)
+    local context = worldContextUnsafe()
+    if context == nil then return nil, "no world context" end
+    local util = palUtility()
+    if not util then return nil, "no Pal utility" end
+    local manager = util:GetItemContainerManager(context)
+    if not objectIsValidUnsafe(manager) then return nil, "no item container manager" end
     local container = manager:GetContainer(slotId.ContainerId)
-    if not objectIsValidUnsafe(container) then return nil end
-    local slot = container:Get(slotIndex)
-    if not objectIsValidUnsafe(slot) then return nil end
-    local itemId, count = slotStateUnsafe(slot)
-    return slot, itemId, count, tonumber(returnedNum) or 1
+    if not objectIsValidUnsafe(container) then return nil, "no container for the slot" end
+    local slot = container:Get(slotId.SlotIndex)
+    if not objectIsValidUnsafe(slot) then return nil, "no slot at that index" end
+    return slot
 end
 
-local function captureHandUnsafe(hookParam)
-    local action = hookSelf(hookParam)
-    local util = palUtility()
-    local playerUtil = playerUtility()
-    if not (action and util and playerUtil) then return end
-    local param = targetParamUnsafe(action, util)
-    if not objectIsValidUnsafe(param) then return end
-    local key = individualKey(param)
-    local beforeFullness = fullness(param)
-    local slot, itemId, count = readFeedSlotUnsafe(action, playerUtil, util)
-    if not (key and beforeFullness and slot and itemId and count) then return end
-    pendingHand[key] = {
-        fullness = beforeFullness,
-        slot = slot,
-        itemId = itemId,
-        count = count,
-    }
-end
-
-local function confirmHandUnsafe(hookParam)
-    local action = hookSelf(hookParam)
-    local util = palUtility()
-    if not (action and util) then return end
-    local param = targetParamUnsafe(action, util)
-    if not objectIsValidUnsafe(param) then return end
-    local key = individualKey(param)
-    local pending = key and pendingHand[key] or nil
-    if not pending then return end
-    pendingHand[key] = nil
-    local afterFullness = fullness(param)
-    if not afterFullness or afterFullness <= pending.fullness then return end
-    local afterId, afterCount = slotState(pending.slot)
-    if afterId ~= pending.itemId or (tonumber(afterCount) or 0) < pending.count then
-        remember(key, pending.itemId)
+local function captureHandFeedUnsafe(slotParam)
+    local slotId = unwrap(slotParam)
+    if slotId == nil then
+        Log("hand feed: the handed-over slot is not readable, not tracked")
+        return
     end
+    local slot, why = slotFromIdUnsafe(slotId)
+    if not slot then
+        Log("hand feed: the handed-over slot could not be resolved (" .. tostring(why) .. "), not tracked")
+        return
+    end
+    local itemId, count = slotState(slot)
+    if not (itemId and count) then
+        Log("hand feed: the handed-over slot holds no food, not tracked")
+        return
+    end
+    pendingHandFeed = { slot = slot, itemId = itemId, count = count, at = os.clock() }
 end
 
-local function onHandPre(self)
-    if not hooksArmed then return end
-    pcall(captureHandUnsafe, self)
+--- Records the food once the feed has really happened: the action names the
+--- Pal, and the stack captured a moment earlier has to have shrunk since. A
+--- feed that was chosen and then cancelled leaves the stack as it was.
+local function confirmHandFeedUnsafe(hookParam)
+    local pending = pendingHandFeed
+    pendingHandFeed = nil
+    if not pending then
+        Log("hand feed: a Pal was fed, but no handed-over food was captured before it")
+        return
+    end
+    if os.clock() - pending.at > HAND_FEED_WINDOW_S then
+        Log("hand feed: the captured " .. pending.itemId .. " is too old for this feed, not recorded")
+        return
+    end
+    local action = hookSelf(hookParam)
+    local util = palUtility()
+    if not action then Log("hand feed: the feed action is not readable, not recorded") return end
+    if not util then Log("hand feed: the Pal utility is missing, not recorded") return end
+    local param = targetParamUnsafe(action, util)
+    if not objectIsValidUnsafe(param) then Log("hand feed: the fed Pal is not readable, not recorded") return end
+    local key = individualKey(param)
+    if not key then Log("hand feed: the fed Pal has no id, not recorded") return end
+    local afterId, afterCount = slotState(pending.slot)
+    if afterId == pending.itemId and (tonumber(afterCount) or 0) >= pending.count then
+        Log("hand feed: the " .. pending.itemId .. " stack did not shrink, not recorded")
+        return
+    end
+    remember(key, pending.itemId)
 end
 
-local function onHandPost(self)
+local function onHandFeedWrite(_utility, _blackboard, slotParam)
     if not hooksArmed then return end
-    pcall(confirmHandUnsafe, self)
+    local ok, err = pcall(captureHandFeedUnsafe, slotParam)
+    if not ok then Log("hand feed: capture failed: " .. tostring(err)) end
+end
+
+local function onHandFeedBegin(self)
+    if not hooksArmed then return end
+    local ok, err = pcall(confirmHandFeedUnsafe, self)
+    if not ok then Log("hand feed: confirm failed: " .. tostring(err)) end
 end
 
 local function registerNativeUnsafe()
@@ -381,7 +400,8 @@ local function registerNativeUnsafe()
 end
 
 local function registerBlueprintUnsafe()
-    RegisterHook(HAND_FEED_FN, onHandPre, onHandPost)
+    RegisterHook(FEED_WRITE_FN, onHandFeedWrite)
+    RegisterHook(HAND_FEED_FN, onHandFeedBegin)
 end
 
 local function localPlayerPresentUnsafe()
@@ -404,7 +424,7 @@ local function disarm(reason)
     if not hooksArmed then return end
     hooksArmed = false
     pendingParty = {}
-    pendingHand = {}
+    pendingHandFeed = nil
     worldContext = nil
     Log("feeding tracker disarmed: " .. reason)
 end
