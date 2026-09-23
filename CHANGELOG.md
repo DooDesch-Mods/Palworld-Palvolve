@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [1.9.6] - 2026-09-23
+
+### Fixed
+
+- **Prestige shows up next to an element variant.** 1.9.5 worked out the prestige connection for a Pal whose only remaining connection is an adaptation, and the editor drew it, but the wheel still hid Prestige as long as the Pal had any connection at all. The wheel now lists the adaptation and a Prestige entry side by side, greyed out with the level it needs until the Pal gets there. Reported by CrimsonStarfall.
+
+### Changed
+
+- **Adaptations no longer pay out evolution rewards.** An adaptation is the same Pal in another element, so it no longer grants the Evolved passive, the IV bonus or the extra move slot. Switching back and forth between two element variants was a way to farm the Evolved passive. The Adaptation Stone is still used up. Reported by CrimsonStarfall.
+
 ## [1.9.5] - 2026-09-11
 
 ### Fixed
