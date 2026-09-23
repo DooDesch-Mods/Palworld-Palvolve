@@ -968,11 +968,35 @@ local function prestigeAtMax(param)
     return ceiling > 0 and current >= ceiling
 end
 
-local function optionPairsFor(characterId)
+local function isPrestigePair(pair)
+    return pair ~= nil and pair.category == "prestige"
+end
+
+--- The index a client sends for an option: a prestige pair carries its own
+--- prestigeIndex, any other pair is addressed by its position in
+--- Config.findPairs, which optionPairsFor keeps at the front of its list.
+local function pairIndexFor(pair, position)
+    if isPrestigePair(pair) then return pair.prestigeIndex end
+    return position
+end
+
+--- The pairs a Pal is offered, and whether that offer is prestige alone.
+---
+--- A Pal that can still evolve is offered its ordinary pairs and nothing else.
+--- One whose only connections are adaptations is at the end of its line, since
+--- an adaptation is the same Pal in another element, so it is offered its
+--- adaptations and its prestige side by side. The second value is true only
+--- when prestige is all there is; a mixed list is marked per pair instead.
+local function optionPairsFor(characterId, param)
     local ordinary = Config.findPairs(characterId)
-    if ordinary and #ordinary > 0 then return ordinary, false end
+    if Config.hasProgressPair(characterId) then return ordinary, false end
     local prestige, err = Prestige.forSpecies(Config, characterId)
-    return prestige, true, err
+    if #ordinary == 0 then return prestige, true, err end
+    local offered = {}
+    for _, pair in ipairs(ordinary) do offered[#offered + 1] = pair end
+    if param and prestigeAtMax(param) then return offered, false, err end
+    for _, pair in ipairs(prestige) do offered[#offered + 1] = pair end
+    return offered, false, err
 end
 
 local function requiredLevelFor(pair)
@@ -1250,7 +1274,7 @@ local function findEligibleFor(playerCtx)
     -- pick the first pair that passes EVERY gate (alpha form, level,
     -- conditions), so a branched species whose first target is blocked
     -- still reaches its other options
-    local pairList, isPrestige, prestigeErr = optionPairsFor(id)
+    local pairList, isPrestige, prestigeErr = optionPairsFor(id, param)
     if isPrestige and prestigeAtMax(param) then
         return nil, I18n.msg("prestigeAtMax", palDisplayName(id))
     end
@@ -1285,7 +1309,7 @@ local function findEligibleFor(playerCtx)
             alphaBlockedTo = alphaBlockedTo or cand.to
         elseif level < requiredLevelFor(cand) then
             firstReason = firstReason or I18n.msg(
-                isPrestige and "needsLevelPrestige" or "needsLevel",
+                isPrestigePair(cand) and "needsLevelPrestige" or "needsLevel",
                 palDisplayName(id), requiredLevelFor(cand), level)
         else
             local condOk, unmet = Conditions.evaluate(cand, condCtx)
@@ -1302,7 +1326,7 @@ local function findEligibleFor(playerCtx)
                     local count = conditionCount(cand)
                     if Config.evolutionMode ~= "conditioned" or count > pairConditionCount then
                         pair = cand
-                    pairIndex = isPrestige and cand.prestigeIndex or i
+                        pairIndex = pairIndexFor(cand, i)
                         pairConditionCount = count
                     end
                     if Config.evolutionMode ~= "conditioned" then break end
@@ -1319,15 +1343,15 @@ local function findEligibleFor(playerCtx)
     end
     if not pair and unpaid then
         pair = unpaid
-        pairIndex = isPrestige and unpaid.prestigeIndex or unpaidIndex
+        pairIndex = pairIndexFor(unpaid, unpaidIndex)
     end
     if not pair then
         return nil, firstReason
             or I18n.msg("noAlphaForm", palDisplayName(alphaBlockedTo))
     end
-    -- pairIndex is the position in Config.findPairs(id) - the token a
-    -- connected client sends over the net channel
-    return actor, param, pair, level, holder, isAlpha, pairIndex, isPrestige
+    -- pairIndex is the position in Config.findPairs(id), or a prestige pair's
+    -- own prestigeIndex - the token a connected client sends over the net channel
+    return actor, param, pair, level, holder, isAlpha, pairIndex, isPrestigePair(pair)
 end
 
 local function performEvolution(p)
@@ -1802,20 +1826,29 @@ local function performEvolution(p)
             end
             swapDone = true
             if txn then txn.commit() end
-            applyIvBonus(param)
-            local passiveOk, passiveResult = PalPassives.grantEvolved(param)
-            if passiveOk then
-                Log(string.format("Evolution bonus (passive): %s", passiveResult.id))
-                -- Optional and off by default: an extra slot on top of the ladder
-                -- reward, which a server owner turns on. It fails loudly and
-                -- changes nothing else, because the swap is already committed.
-                local slotOk, slotResult = PalSlots.grantEvolution(param, playerCtx)
-                reportBonusSlot(playerCtx, slotOk, slotResult, "Evolution")
+            -- An adaptation is the same Pal in another element, not a step up,
+            -- so it earns none of the evolution rewards. Paying them out made a
+            -- back-and-forth pair of adaptations a way to farm the Evolved
+            -- passive, the IV bonus and the extra slot.
+            if pair.category == "adaptation" then
+                Log(string.format("Adaptation %s -> %s: no evolution reward, the Pal stays at its stage",
+                    tostring(pair.from), tostring(pair.to)))
             else
-                -- The cost is already committed. Continuing keeps the successful
-                -- species swap at the tradeoff that this reward is not refunded alone.
-                Log("EVOLVED PASSIVE WRITE FAILED after cost commit: "
-                    .. tostring(passiveResult) .. " - evolution remains committed")
+                applyIvBonus(param)
+                local passiveOk, passiveResult = PalPassives.grantEvolved(param)
+                if passiveOk then
+                    Log(string.format("Evolution bonus (passive): %s", passiveResult.id))
+                    -- Optional and off by default: an extra slot on top of the ladder
+                    -- reward, which a server owner turns on. It fails loudly and
+                    -- changes nothing else, because the swap is already committed.
+                    local slotOk, slotResult = PalSlots.grantEvolution(param, playerCtx)
+                    reportBonusSlot(playerCtx, slotOk, slotResult, "Evolution")
+                else
+                    -- The cost is already committed. Continuing keeps the successful
+                    -- species swap at the tradeoff that this reward is not refunded alone.
+                    Log("EVOLVED PASSIVE WRITE FAILED after cost commit: "
+                        .. tostring(passiveResult) .. " - evolution remains committed")
+                end
             end
         end
         pcall(function() param:FullRecoveryHP() end)
@@ -2739,7 +2772,7 @@ function Evolution.canOffer()
             return string.format("pal '%s' is not owned by this player", id),
                 I18n.msg("greyNotYours")
         end
-        local pairList, isPrestige, prestigeErr = optionPairsFor(id)
+        local pairList, isPrestige, prestigeErr = optionPairsFor(id, param)
         -- Before any of the refusals below, not after them. The entry names
         -- itself from this, and every early return left it on the value the
         -- last Pal set - so a Pal whose only step is a prestige was refused
@@ -3101,7 +3134,7 @@ function Evolution.listOptions()
     local param = paramOf(actor)
     if not (param and isOwnedBy(param, playerCtx and playerCtx.playerUId)) then return nil, I18n.msg("noPalSummoned") end
     local id, isAlpha = baseCharacterId(param:GetCharacterID():ToString())
-    local pairList, isPrestige, prestigeErr = optionPairsFor(id)
+    local pairList, isPrestige, prestigeErr = optionPairsFor(id, param)
     if isPrestige and prestigeAtMax(param) then
         return nil, I18n.msg("prestigeAtMax", palDisplayName(id))
     end
@@ -3110,6 +3143,7 @@ function Evolution.listOptions()
         if isPrestige then return nil, I18n.msg("hasNoPrestige", palDisplayName(id)) end
         return nil, I18n.msg("hasNoEvolution", palDisplayName(id))
     end
+    if prestigeErr then Log("Prestige targets unavailable: " .. tostring(prestigeErr)) end
     local level = 0
     pcall(function() level = param:GetLevel() end)
     local condCtx = { actor = actor, param = param, playerCtx = playerCtx, holder = holder }
@@ -3121,11 +3155,16 @@ function Evolution.listOptions()
         -- index is the pair's position in Config.findPairs(id) - the compact
         -- token a connected client sends over the net channel (the host
         -- re-derives the pair from its own config at this index)
+        -- Beside adaptations a prestige entry is named as what it is. Its target
+        -- is the family base, and two species names side by side do not say
+        -- which of them starts the Pal over.
+        local pairIsPrestige = isPrestigePair(pair)
         local opt = {
             pair = pair,
-            index = isPrestige and pair.prestigeIndex or i,
-            label = palDisplayName(pair.to),
-            prestige = isPrestige,
+            index = pairIndexFor(pair, i),
+            label = (pairIsPrestige and not isPrestige) and I18n.msg("prestige")
+                or palDisplayName(pair.to),
+            prestige = pairIsPrestige,
         }
         -- What this target asks for, short enough for a wheel segment and
         -- phrased the same way the guide pages phrase it. Without this the
@@ -3186,9 +3225,12 @@ function Evolution.listOptions()
                 conditionedReason = opt.blocked
             end
         else
-            local existing = byTarget[pair.to]
+            -- A prestige back to the base and an adaptation to that same species
+            -- are two different entries, so they cannot share a key.
+            local targetKey = (pairIsPrestige and "prestige:" or "") .. pair.to
+            local existing = byTarget[targetKey]
             if not existing then
-                byTarget[pair.to] = opt
+                byTarget[targetKey] = opt
                 table.insert(options, opt)
             elseif existing.blocked and not opt.blocked then
                 existing.pair = opt.pair
@@ -3242,9 +3284,10 @@ return false, I18n.msg("selectionOutdated", palDisplayName(id), palDisplayName(f
     -- still lands on whichever variant currently holds.
     local pairList = nil
     if prestigeRequest then
-        -- An enabled ordinary connection is an absolute precedence gate. Its
-        -- level or conditions may be unmet, but prestige cannot bypass it.
-        if #Config.findPairs(id) > 0 then return false, I18n.msg("optionUnavailable") end
+        -- An enabled evolution or funchain is an absolute precedence gate. Its
+        -- level or conditions may be unmet, but prestige cannot bypass it. An
+        -- adaptation is no such gate: it is the same Pal in another element.
+        if Config.hasProgressPair(id) then return false, I18n.msg("optionUnavailable") end
         pairList = Prestige.forSpecies(Config, id)
     else
         pairList = Config.findPairs(id)
@@ -3360,7 +3403,7 @@ local function handleByIndex(playerCtx, pairIndex, prestigeRequest)
         -- Global prestige indices address the host's complete target list.
         -- The source check below prevents an index for another Pal from being
         -- replayed against the one the requester currently has summoned.
-        if #Config.findPairs(baseId) > 0 then return false, I18n.msg("optionUnavailable") end
+        if Config.hasProgressPair(baseId) then return false, I18n.msg("optionUnavailable") end
         local targets = Prestige.targets(Config)
         pair = targets and targets[numericIndex]
         if pair and pair.from ~= baseId then pair = nil end
@@ -4087,8 +4130,8 @@ local function scanAutoControllerUnsafe(pc)
 
     local id, isAlpha = baseCharacterId(param:GetCharacterID():ToString())
     local level = tonumber(param:GetLevel()) or 0
-    local pairList, isPrestige = optionPairsFor(id)
-    local bestIndex = nil
+    local pairList = optionPairsFor(id, param)
+    local bestIndex, bestIsPrestige = nil, false
     local nextDelay = AUTO_SLOW_S
     local condCtx = { actor = actor, param = param, playerCtx = playerCtx, holder = holder }
 
@@ -4111,7 +4154,7 @@ local function scanAutoControllerUnsafe(pc)
                     playerCtx, pair, level, holder)
                 if okCost and affordable then
                     ready[#ready + 1] = {
-                        index = isPrestige and pair.prestigeIndex or i,
+                        index = pairIndexFor(pair, i),
                         pair = pair,
                     }
                 end
@@ -4148,11 +4191,12 @@ local function scanAutoControllerUnsafe(pc)
         -- One evolution is the event that makes the next hold a new one.
         autoHeldTold[guidString(param.IndividualId.InstanceId)] = nil
         bestIndex = ready[1].index
+        bestIsPrestige = isPrestigePair(ready[1].pair)
     end
 
     if bestIndex then
         local started
-        if isPrestige then
+        if bestIsPrestige then
             started = handlePrestigeByIndex(playerCtx, bestIndex)
         else
             started = handleEvolveByIndex(playerCtx, bestIndex)

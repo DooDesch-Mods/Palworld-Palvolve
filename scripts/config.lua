@@ -1764,6 +1764,18 @@ function Config.findPairs(characterId)
     return result
 end
 
+--- Whether a Pal can still move forward: an enabled evolution or funchain leaves
+--- it. An adaptation is the same Pal in another element, not a step forward, so
+--- a Pal whose only connections are adaptations is at the end of its line and
+--- may prestige. prestige.lua and the editor's lib/prestige.ts judge chain ends
+--- by the same rule.
+function Config.hasProgressPair(characterId)
+    for _, pair in ipairs(Config.findPairs(characterId)) do
+        if pair.category ~= "adaptation" then return true end
+    end
+    return false
+end
+
 -- Reverse maps for the egg filter, split by category so eggs follow EVOLUTION
 -- chains only. Funchain links are always excluded. Both maps point at parents:
 -- the walk below only ever moves towards the base of a chain.
