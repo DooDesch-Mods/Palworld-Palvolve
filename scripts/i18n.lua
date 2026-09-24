@@ -118,6 +118,25 @@ function I18n.itemName(id, fallback)
     return fallback or id, false
 end
 
+--- Localized passive skill name, same route as itemName (SkillName = 16, key
+--- PASSIVE_<id>). Returns the id itself while the name cannot be resolved.
+local passiveNameCache = {}
+function I18n.passiveName(id)
+    if type(id) ~= "string" or id == "" then return id end
+    if passiveNameCache[id] then return passiveNameCache[id] end
+    local name = nil
+    local ok, err = pcall(function()
+        local mdt = StaticFindObject("/Script/Pal.Default__PalMasterDataTablesUtility")
+        local ctx = FindFirstOf("PalPlayerCharacter")
+        if not (mdt and mdt:IsValid() and ctx and ctx:IsValid()) then return end
+        local s = mdt:GetLocalizedText(ctx, 16, FName("PASSIVE_" .. id)):ToString()
+        if s and s ~= "" and s:sub(1, 8) ~= "PASSIVE_" then name = s end
+    end)
+    if not ok then print("[Palvolve] [WARN] passive name lookup failed for " .. id .. ": " .. tostring(err) .. "\n") end
+    if name then passiveNameCache[id] = name end
+    return name or id
+end
+
 -- localized label for a boolean condition id (nil when unknown)
 function I18n.condition(id)
     local cat = catalogFor(I18n.lang())

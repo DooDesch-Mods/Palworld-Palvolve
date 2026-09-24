@@ -326,9 +326,16 @@ function Altar.start(playerCtx, choice, opts)
     local merged = {}
     for _, f in ipairs(STAT_FIELDS) do merged[f] = FusionRules.best(recA.fields[f], recB.fields[f]) end
     local picked = nil
-    if choice and type(choice.passives) == "table" then
+    local pool = FusionRules.passivePool(recA.passives, recB.passives)
+    if choice and type(choice.passiveIndexes) == "table" then
+        -- a client sends positions in the pool, which it built the same way
+        picked = {}
+        for _, i in ipairs(choice.passiveIndexes) do
+            if pool[i] and #picked < 4 then picked[#picked + 1] = pool[i] end
+        end
+    elseif choice and type(choice.passives) == "table" then
         local allowed = {}
-        for _, id in ipairs(FusionRules.passivePool(recA.passives, recB.passives)) do allowed[id] = true end
+        for _, id in ipairs(pool) do allowed[id] = true end
         picked = {}
         for _, id in ipairs(choice.passives) do
             if allowed[id] and #picked < 4 then picked[#picked + 1] = id end
@@ -468,6 +475,47 @@ function Altar.start(playerCtx, choice, opts)
         return reply(playerCtx, "evolutionRunning")
     end
     return true
+end
+
+--- What the pick window shows for the nearby altar: both names, the result,
+--- the passive pool in the order Altar.start rebuilds it, and a preset of the
+--- passives the automatic pick would take. Returns info, or nil and a message.
+function Altar.pickInfo(playerCtx)
+    if not api then return nil, I18n.msg("optionUnavailable") end
+    local altar = findAltar(playerCtx, Config.devMode)
+    if not altar then return nil, I18n.msg("fusionNoAltar") end
+    local cage = containerOf(altar)
+    local inside = cage and filledSlots(cage) or {}
+    if #inside ~= 2 then return nil, I18n.msg("fusionAltarNeedsTwo", #inside) end
+    local A, B = inside[1], inside[2]
+    local okA, rawA = pcall(api.characterId, A.param)
+    local okB, rawB = pcall(api.characterId, B.param)
+    if not (okA and okB) then return nil, I18n.msg("optionUnavailable") end
+    local idA, idB = api.baseCharacterId(rawA), api.baseCharacterId(rawB)
+    local levelA, levelB = readNumber(A.param, "Level") or 1, readNumber(B.param, "Level") or 1
+    local target, why = Altar.resolveTarget(idA, idB, levelA, levelB, { param = A.param, playerCtx = playerCtx })
+    if not target then return nil, I18n.msg(why, api.displayName(idA), api.displayName(idB)) end
+    local passA, errA = PalPassives.capture(A.param)
+    local passB, errB = PalPassives.capture(B.param)
+    if not (passA and passB) then
+        Log("[WARN] pick window: passives unreadable: " .. tostring(errA or errB))
+        return nil, I18n.msg("swapStateSnapshotFailed")
+    end
+    local pool = FusionRules.passivePool(passA, passB)
+    local auto = FusionRules.autoPassives(passA, passB, function(id) return PASSIVE_RANK[id] end, 4)
+    local at, preset, ranks = {}, {}, {}
+    for i, id in ipairs(pool) do
+        at[id] = i
+        ranks[i] = tonumber(PASSIVE_RANK[id]) or 0
+    end
+    for _, id in ipairs(auto) do preset[#preset + 1] = at[id] end
+    local costList = Costs.resolve({ from = idA, to = target, stone = "fusionCore" }, levelA, playerCtx.pc)
+    return {
+        nameA = api.displayName(idA), nameB = api.displayName(idB), nameC = api.displayName(target),
+        pool = pool, ranks = ranks, preset = preset,
+        gender = readNumber(A.param, "Gender") or 1,
+        cost = #costList > 0 and Costs.describe(costList) or "",
+    }
 end
 
 --- The wheel entry for a nearby altar, or nil when no altar is in reach. Reads

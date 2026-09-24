@@ -110,6 +110,16 @@ local function logMissingPak(how)
         .. "<install>\\Pal\\Content\\Paks\\LogicMods\\ - reinstall the mod if that file is gone")
 end
 
+--- The browser window class and the input helpers, for other pages that open
+--- the same widget (the fusion pick window).
+function M.loadWebClass()
+    local cls, how = loadClass(WEB_PKG, WEB_ASSET)
+    if not cls then logMissingPak(how) end
+    return cls
+end
+M.grabInput = grabInput
+M.releaseInput = releaseInput
+
 local treeWebWidget = nil
 local treeWebBrowser = nil
 local treeWebStop = false

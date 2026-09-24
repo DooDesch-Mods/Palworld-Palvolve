@@ -3564,7 +3564,31 @@ function Evolution.executeOption(opt)
             Log(I18n.msg("noLocalPlayer"))
             return
         end
-        if Role.hasWorldAuthority() then
+        local authority = Role.hasWorldAuthority()
+        if opt.fusion == "altar" and not opt.blocked then
+            -- the pick comes first; the fusion runs from its confirm
+            local Altar = require("altar")
+            local info, why = Altar.pickInfo(fuseCtx)
+            if not info then
+                Log(tostring(why))
+                Role.chat(fuseCtx, why, "reply")
+                return
+            end
+            local opened = require("fusepick").open(info, function(choice)
+                if authority then
+                    Altar.start(fuseCtx, choice, { allowCage = Config.devMode })
+                elseif not remoteTransmitReady(fuseCtx) then
+                    Log("[WARN] altar pick confirmed, but the host is not reachable")
+                elseif not NetChannel.sendFuseAltarChoice(fuseCtx, choice.passiveIndexes, choice.gender) then
+                    local msg = I18n.msg("serverUnreachable")
+                    Log(msg)
+                    Role.chat(fuseCtx, msg, "reply")
+                end
+            end)
+            if opened then return end
+            Log("[WARN] the pick window did not open, the altar picks by itself")
+        end
+        if authority then
             if opt.fusion == "altar" then
                 require("altar").start(fuseCtx, nil, { allowCage = Config.devMode })
             else
@@ -4438,6 +4462,12 @@ function Evolution.init()
     -- and run them through the fully-revalidating index handler. The hook
     -- fires only where the game routes _ToServer RPCs (the authority); on a
     -- pure client it registers but never fires.
+    -- altar picks a client sent ahead of its altar request, by player
+    local fusePicks = {}
+    local function fusePickKey(ctx)
+        local g = ctx and ctx.playerUId
+        return g and string.format("%s-%s-%s-%s", tostring(g.A), tostring(g.B), tostring(g.C), tostring(g.D)) or "?"
+    end
     NetChannel.initHost(function(senderCtx, request)
         local pairIndex = type(request) == "table" and request.index or request
         local opcode = type(request) == "table" and request.opcode or NetChannel.OP_EVOLVE_LEGACY
@@ -4452,6 +4482,12 @@ function Evolution.init()
         end
         -- The fusion modules answer the player themselves, so a refusal is only
         -- logged here; passing it on would put the same line in the chat twice.
+        if opcode == NetChannel.OP_FUSE_PICK then
+            -- held for the altar request that follows it
+            fusePicks[fusePickKey(senderCtx)] = { mask = pairIndex, at = os.clock() }
+            Log(string.format("Fusion pick received (mask %d)", pairIndex))
+            return true
+        end
         if opcode == NetChannel.OP_FUSE_BATTLE or opcode == NetChannel.OP_FUSE_ALTAR then
             local ok, msg
             if opcode == NetChannel.OP_FUSE_BATTLE then
@@ -4461,7 +4497,23 @@ function Evolution.init()
             else
                 local Altar = package.loaded["altar"]
                 if not Altar then return false, "the fusion altar is not loaded" end
-                ok, msg = Altar.start(senderCtx, nil, { allowCage = Config.devMode })
+                local choice = nil
+                if pairIndex == 2 or pairIndex == 3 then
+                    choice = { gender = pairIndex - 1, passiveIndexes = {} }
+                    local key = fusePickKey(senderCtx)
+                    local pick = fusePicks[key]
+                    fusePicks[key] = nil
+                    if pick and os.clock() - pick.at < 30 then
+                        for i = 1, 8 do
+                            if pick.mask & (1 << (i - 1)) ~= 0 then
+                                choice.passiveIndexes[#choice.passiveIndexes + 1] = i
+                            end
+                        end
+                    elseif pick then
+                        Log("[WARN] fusion pick expired, the altar keeps no passives from it")
+                    end
+                end
+                ok, msg = Altar.start(senderCtx, choice, { allowCage = Config.devMode })
             end
             if not ok then Log("Fusion request refused: " .. tostring(msg or "no reason given")) end
             return true

@@ -35,8 +35,13 @@ local OP_AUTOLOCK = 10
 -- and 1 for the altar (the altar knows its two Pals itself).
 local OP_FUSE_BATTLE = 11
 local OP_FUSE_ALTAR = 12
+-- The altar pick travels ahead of the altar request: the index byte of
+-- OP_FUSE_PICK is a bit mask over the passive pool (at most eight entries),
+-- and OP_FUSE_ALTAR then says 1 = no pick, 2 = pick + male, 3 = pick + female.
+local OP_FUSE_PICK = 13
 NetChannel.OP_FUSE_BATTLE = OP_FUSE_BATTLE
 NetChannel.OP_FUSE_ALTAR = OP_FUSE_ALTAR
+NetChannel.OP_FUSE_PICK = OP_FUSE_PICK
 NetChannel.OP_EVOLVE_LEGACY = OP_EVOLVE_LEGACY
 NetChannel.OP_PRESTIGE = OP_PRESTIGE
 NetChannel.OP_EVOLVE_V3 = OP_EVOLVE_V3
@@ -142,6 +147,39 @@ end
 --- Asks the host to run the fusion at the player's nearby altar.
 function NetChannel.sendFuseAltar(playerCtx)
     return sendRequest(playerCtx, OP_FUSE_ALTAR, 1)
+end
+
+-- The second half of a picked altar fusion, sent once the host's rate limit
+-- lets the next request through.
+local pendingAltar = nil
+local function altarTick()
+    local p = pendingAltar
+    if not p then return true end
+    if os.clock() < p.at then return false end
+    pendingAltar = nil
+    if not sendRequest(p.ctx, OP_FUSE_ALTAR, p.gender == 2 and 3 or 2) then
+        Log("[net] altar request after the pick could not be sent")
+    end
+    return true
+end
+NetChannel._altarTick = altarTick -- held by the module so the callback is never collected
+
+--- Sends the pick (pool positions and gender) and then the altar request.
+function NetChannel.sendFuseAltarChoice(playerCtx, passiveIndexes, gender)
+    local mask = 0
+    for _, i in ipairs(passiveIndexes or {}) do
+        if i >= 1 and i <= 8 then mask = mask | (1 << (i - 1)) end
+    end
+    if mask == 0 then
+        -- no passive picked: the gender still has to travel, and a zero mask
+        -- is not a valid index, so the pick is left out and the host keeps none
+        return sendRequest(playerCtx, OP_FUSE_ALTAR, gender == 2 and 3 or 2)
+    end
+    if not sendRequest(playerCtx, OP_FUSE_PICK, mask) then return false end
+    local gap = (Config.net and Config.net.rateLimitSeconds) or 2
+    pendingAltar = { ctx = playerCtx, gender = gender, at = os.clock() + gap + 0.3 }
+    LoopAsync(100, NetChannel._altarTick)
+    return true
 end
 
 -- The "do you run Palvolve?" handshake is host-driven, not a client ping: no
@@ -326,6 +364,7 @@ function NetChannel.initHost(handler)
                         or opcode == OP_PRESTIGE or opcode == OP_EVOLVE_V3
                         or opcode == OP_AUTOLOCK
                         or opcode == OP_FUSE_BATTLE or opcode == OP_FUSE_ALTAR
+                        or opcode == OP_FUSE_PICK
                     if not knownOpcode then
                         Log(string.format("Request dropped: unknown opcode %d", opcode))
                         return
