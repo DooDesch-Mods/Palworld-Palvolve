@@ -6,13 +6,17 @@ A world that used Palvolve keeps references to the mod's items in places you can
 
 The Save Cleaner takes them out: **[palvolve.doodesch.de/save-cleaner](https://palvolve.doodesch.de/save-cleaner)**. It runs in your browser, on the PC where the save lives, and it works on a world that already refuses to load. Nothing below can lose your world.
 
+## Empty the Fusion Altar first
+
+Take both Pals out of every Fusion Altar before you uninstall. The Save Cleaner removes the altar, and a Pal still inside it would lose its place in the world.
+
 ## Run the Save Cleaner
 
 Close Palworld, then open [palvolve.doodesch.de/save-cleaner](https://palvolve.doodesch.de/save-cleaner) on the PC where the game is installed.
 
 1. Choose the folder that holds your world folders.
 2. Pick the world.
-3. Read what it found: item stacks, the placed Pal Alchemy Workbench, its work assignment, the crafting records and the technology unlock, each with its own item icon.
+3. Read what it found: item stacks, the placed Pal Alchemy Workbench and Fusion Altar, the workbench assignment, the crafting records and the technology unlock, each with its own item icon.
 4. Start it: "Back up and clean" in Chrome and Edge, "Clean and download" in Firefox and Safari.
 5. Start the game and load the world.
 
