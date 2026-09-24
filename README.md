@@ -104,7 +104,7 @@ A hand-written `config_user.lua` uses `conditions = { "night", "knowsMove:Dragon
 
 - `playerLevel:<n>` - trainer level, 1-80
 - `trustRank:<n>` - trust rank, 1-10
-- `ivTotal:<n>` - sum of the three IVs (HP, Attack, Defense), 1-300
+- `ivTotal:<n>` - sum of the three IVs (HP, Attack, Defense), 1-300. Older rules above 300 count as 300
 - `ivEach:<n>` - every IV, 1-100
 - `ivHP:<n>` / `ivShot:<n>` / `ivDefense:<n>` - one specific IV, 1-100. `ivShot` is the Attack IV; older `ivMelee` rules count it too.
 

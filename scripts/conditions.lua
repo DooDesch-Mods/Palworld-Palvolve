@@ -619,7 +619,7 @@ local NUMERIC_PARAM_BOUNDS = {
     soulAttack = { min = 1, max = 20 },
     soulDefense = { min = 1, max = 20 },
     soulCraftSpeed = { min = 1, max = 20 },
-    ivTotal = { min = 1, max = 300 },
+    ivTotal = { min = 1, max = 400 },
     ivEach = { min = 1, max = 100 },
     ivHP = { min = 1, max = 100 },
     ivMelee = { min = 1, max = 100 },
@@ -789,10 +789,15 @@ local function readIv(ctx, field)
     return nil
 end
 
+-- The three talents reach 300. The editor used to offer 400, so a threshold above
+-- 300 is read as 300: all three talents at 100.
+local IV_TOTAL_REACHABLE = 300
+
 -- "ivTotal:<n>": the three talents sum to at least n
 PARAM_EVAL.ivTotal = function(ctx, value)
     local need = tonumber(value)
     if not need then return false end
+    need = math.min(need, IV_TOTAL_REACHABLE)
     local total = 0
     for _, field in ipairs(IV_FIELDS) do
         local v = readIv(ctx, field)
