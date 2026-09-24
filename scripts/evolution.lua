@@ -572,20 +572,24 @@ local function readTalents(param)
     local t = {}
     for _, field in ipairs(TALENT_FIELDS) do
         local v = -1
-        pcall(function() v = param.SaveParameter[field] end)
+        local ok, err = pcall(function() v = param.SaveParameter[field] end)
+        if not ok then Log("IV read for " .. field .. " failed: " .. tostring(err)) end
         t[field] = v
     end
     return t
 end
 
 local TALENT_LABELS = {
-    Talent_HP = "HP", Talent_Melee = "Melee",
-    Talent_Shot = "Shot", Talent_Defense = "Defense",
+    Talent_HP = "HP", Talent_Shot = "Attack", Talent_Defense = "Defense",
 }
+
+-- The talents the game shows. Talent_Melee stays in TALENT_FIELDS so a rollback
+-- restores it as it was, but raising it would change nothing the player sees.
+local BONUS_TALENTS = { "Talent_HP", "Talent_Shot", "Talent_Defense" }
 
 local function applyIvBonus(param)
     local parts = {}
-    for _, field in ipairs(TALENT_FIELDS) do
+    for _, field in ipairs(BONUS_TALENTS) do
         local ok = pcall(function()
             local cur = param.SaveParameter[field]
             local new = math.min(cur + Config.ivBonusPerStage, Config.ivCap)
@@ -3994,10 +3998,13 @@ function Evolution.rollbackLast(playerCtx)
                     }
                     for field, v in pairs(restore) do
                         if v and v >= 0 then
-                            pcall(function()
+                            local ok, err = pcall(function()
                                 p.SaveParameter[field] = v
                                 p.SaveParameterMirror[field] = v
                             end)
+                            if not ok then
+                                Log("Rollback: " .. field .. " could not be restored: " .. tostring(err))
+                            end
                         end
                     end
                     local levelRestored = true

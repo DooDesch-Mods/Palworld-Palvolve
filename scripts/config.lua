@@ -37,7 +37,7 @@ local Config = {
 
     -- Mod version, reported to connected clients by the host handshake. Keep in
     -- sync with Info.json (the release flow checks this).
-    modVersion = "1.9.7",
+    modVersion = "1.9.8",
 
     -- Unlock the catch-gated technologies (saddle, Pal gear) of the target species when a
     -- pal evolves, the same way capturing one would. Needs the native companion in
@@ -167,7 +167,7 @@ local Config = {
         rateLimitSeconds = 2, -- minimum spacing between evolve requests
     },
 
-    -- IV bonus per evolution stage (applied to Talent_HP/Melee/Shot/Defense, capped)
+    -- IV bonus per evolution stage (applied to Talent_HP/Shot/Defense, capped)
     ivBonusPerStage = 5,
     ivCap = 100,
 

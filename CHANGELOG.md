@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [1.9.8] - 2026-09-24
+
+### Fixed
+
+- **IV conditions count the three IVs the game has.** The game rolls and shows HP, Attack and Defense. The save also holds a Melee IV that the game never rolls or uses, so it is 0 on every Pal, and Palvolve counted it anyway. "Each IV at least" failed on every Pal, and "IV total at least" could never go past 300. Both now look at HP, Attack and Defense, and the total tops out at 300. Reported by Cold Baka.
+- **"Shot IV" is called "Attack IV".** It is the attack IV you see in game. A rule that asks for "Melee IV" counts the attack IV now, and the editor no longer offers Melee IV for new rules.
+- **The evolution bonus no longer raises the Melee IV.** Nothing in the game reads it.
+
 ## [1.9.7] - 2026-09-23
 
 ### Fixed

@@ -104,9 +104,9 @@ A hand-written `config_user.lua` uses `conditions = { "night", "knowsMove:Dragon
 
 - `playerLevel:<n>` - trainer level, 1-80
 - `trustRank:<n>` - trust rank, 1-10
-- `ivTotal:<n>` - sum of the four IVs, 1-400
+- `ivTotal:<n>` - sum of the three IVs (HP, Attack, Defense), 1-300
 - `ivEach:<n>` - every IV, 1-100
-- `ivHP:<n>` / `ivMelee:<n>` / `ivShot:<n>` / `ivDefense:<n>` - one specific IV, 1-100
+- `ivHP:<n>` / `ivShot:<n>` / `ivDefense:<n>` - one specific IV, 1-100. `ivShot` is the Attack IV; older `ivMelee` rules count it too.
 
 A leading `!` inverts a condition. `"!night"` requires anything except night. `"!knowsMove:Dragon"` requires no Dragon move. An inverted threshold means strictly below the number. `"!trustRank:4"` means trust rank 1-3. `"!ivEach:70"` means at least one IV is below 70. Use one `!` per condition. Two pairs such as `{ "trustRank:4" }` and `{ "!trustRank:4" }` split one Pal into a high-trust and a low-trust branch. Mod versions before 1.3.10 ignore `!` conditions (the pair still works, without that requirement).
 

@@ -619,7 +619,7 @@ local NUMERIC_PARAM_BOUNDS = {
     soulAttack = { min = 1, max = 20 },
     soulDefense = { min = 1, max = 20 },
     soulCraftSpeed = { min = 1, max = 20 },
-    ivTotal = { min = 1, max = 400 },
+    ivTotal = { min = 1, max = 300 },
     ivEach = { min = 1, max = 100 },
     ivHP = { min = 1, max = 100 },
     ivMelee = { min = 1, max = 100 },
@@ -773,7 +773,10 @@ PARAM_EVAL.soulAttack = saveRankEval("Rank_Attack")
 PARAM_EVAL.soulDefense = saveRankEval("Rank_Defence")
 PARAM_EVAL.soulCraftSpeed = saveRankEval("Rank_CraftSpeed")
 
-local IV_FIELDS = { "Talent_HP", "Talent_Melee", "Talent_Shot", "Talent_Defense" }
+-- The game rolls, shows and uses three talents: HP, attack and defense. Attack is
+-- stored as Talent_Shot. The save struct also carries Talent_Melee, but the game
+-- never rolls or reads it, so it is 0 on every Pal and is left out here.
+local IV_FIELDS = { "Talent_HP", "Talent_Shot", "Talent_Defense" }
 
 -- reads one talent; nil when unavailable so the callers stay fail closed
 local function readIvUnsafe(ctx, field)
@@ -786,7 +789,7 @@ local function readIv(ctx, field)
     return nil
 end
 
--- "ivTotal:<n>": the four talents sum to at least n
+-- "ivTotal:<n>": the three talents sum to at least n
 PARAM_EVAL.ivTotal = function(ctx, value)
     local need = tonumber(value)
     if not need then return false end
@@ -799,7 +802,7 @@ PARAM_EVAL.ivTotal = function(ctx, value)
     return total >= need
 end
 
--- "ivEach:<n>": every one of the four talents is at least n
+-- "ivEach:<n>": every one of the three talents is at least n
 PARAM_EVAL.ivEach = function(ctx, value)
     local need = tonumber(value)
     if not need then return false end
@@ -823,7 +826,9 @@ local function ivStatEval(field)
     end
 end
 PARAM_EVAL.ivHP = ivStatEval("Talent_HP")
-PARAM_EVAL.ivMelee = ivStatEval("Talent_Melee")
+-- Older trees carry "ivMelee", which the editor offered as a talent of its own.
+-- The only attack talent the game has is Talent_Shot, so both read that field.
+PARAM_EVAL.ivMelee = ivStatEval("Talent_Shot")
 PARAM_EVAL.ivShot = ivStatEval("Talent_Shot")
 PARAM_EVAL.ivDefense = ivStatEval("Talent_Defense")
 
