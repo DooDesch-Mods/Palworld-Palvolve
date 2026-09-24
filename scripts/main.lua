@@ -119,6 +119,8 @@ if Evolution and not Role.isDedicated() then
             -- fail loudly: the label falls back to the evolve wording and a
             -- prestige option reads as an ordinary evolution.
             offerIsPrestige = Evolution.offerIsPrestige,
+            -- names the entry "Fusion" when only fusions are on offer
+            offerIsFusionOnly = Evolution.offerIsFusionOnly,
             listOptions = Evolution.listOptions,
             executeOption = Evolution.executeOption,
             -- so the auto-evolve entry can say whether it is on for this Pal

@@ -2776,6 +2776,13 @@ local function offerVerdict(reason, playerMsg)
     return reason
 end
 
+--- True when the last canOffer offered the entry for fusions alone, so the
+--- wheel can name it for what it opens.
+local lastOfferFusionOnly = false
+function Evolution.offerIsFusionOnly()
+    return lastOfferFusionOnly
+end
+
 --- Why the wheel entry is greyed, in the player's language, or nil when it is
 --- not. Set by the last canOffer, which the wheel calls on every rebuild.
 function Evolution.offerReason()
@@ -2911,8 +2918,10 @@ function Evolution.canOffer()
     end
     -- No evolution, or no Pal out at all, still leaves a fusion: a party
     -- partner or the altar next to the player.
+    lastOfferFusionOnly = false
     if reason ~= nil and #fusionOptions(Role.localPlayerCtx()) > 0 then
         reason, playerMsg = nil, nil
+        lastOfferFusionOnly = true
     end
     offerVerdict(reason, playerMsg)
     return reason == nil

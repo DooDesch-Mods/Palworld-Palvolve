@@ -136,6 +136,10 @@ end
 local labelErrLogged = false
 
 local function labelText()
+    if api and api.offerIsFusionOnly then
+        local okF, fusionOnly = pcall(api.offerIsFusionOnly)
+        if okF and fusionOnly == true then return I18n.msg("fusionEntry") end
+    end
     if api and api.offerIsPrestige then
         local ok, prestige = pcall(api.offerIsPrestige)
         if ok and prestige == true then return I18n.msg("prestige") end
