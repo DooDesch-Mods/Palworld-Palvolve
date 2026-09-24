@@ -20,7 +20,9 @@
         "ITEM_NAME_Palvolve_Essence_Dark": "Karanlık Özü",
         "ITEM_NAME_Palvolve_AdaptationStone_Dark": "Adaptasyon Taşı (Karanlık)",
         "ITEM_NAME_Palvolve_Essence_Dragon": "Ejderha Özü",
-        "ITEM_NAME_Palvolve_AdaptationStone_Dragon": "Adaptasyon Taşı (Ejderha)"
+        "ITEM_NAME_Palvolve_AdaptationStone_Dragon": "Adaptasyon Taşı (Ejderha)",
+        "ITEM_NAME_Palvolve_FusionShard": "Füzyon Parçası",
+        "ITEM_NAME_Palvolve_FusionCore": "Füzyon Çekirdeği"
     },
     "DT_ItemDescriptionText": {
         "ITEM_DESC_Palvolve_EvolutionStone": "Yaşam enerjisiyle hafifçe titreşen gizemli bir taş. Gerekli seviyeye ulaşan bağlı bir Pal'ın daha güçlü, akraba bir forma evrimleşmesini sağlar.",
@@ -43,6 +45,8 @@
         "ITEM_DESC_Palvolve_Essence_Dark": "Beceri Meyvelerinden veya element malzemelerinden çıkarılmış yoğun karanlık enerji. Eşleşen Adaptasyon Taşı'nı üretmek için kullanılır.",
         "ITEM_DESC_Palvolve_AdaptationStone_Dark": "Karanlık enerjiye uyumlanmış ışıltılı bir taş. Gerekli seviyeye ulaşan bağlı bir Pal'ın karanlık formuna adapte olmasını sağlar.",
         "ITEM_DESC_Palvolve_Essence_Dragon": "Beceri Meyvelerinden veya element malzemelerinden çıkarılmış yoğun ejderha enerjisi. Eşleşen Adaptasyon Taşı'nı üretmek için kullanılır.",
-        "ITEM_DESC_Palvolve_AdaptationStone_Dragon": "Ejderha enerjisine uyumlanmış ışıltılı bir taş. Gerekli seviyeye ulaşan bağlı bir Pal'ın ejderha formuna adapte olmasını sağlar."
+        "ITEM_DESC_Palvolve_AdaptationStone_Dragon": "Ejderha enerjisine uyumlanmış ışıltılı bir taş. Gerekli seviyeye ulaşan bağlı bir Pal'ın ejderha formuna adapte olmasını sağlar.",
+        "ITEM_DESC_Palvolve_FusionShard": "Kırılıp Pal Sıvısı ile bağlanmış bir Evrim Taşı. Çağırdığın Pal ile takımındaki başka bir Pal'ın bir dövüş boyunca birleşmesini, ardından tekrar ayrılmasını sağlar.",
+        "ITEM_DESC_Palvolve_FusionCore": "Bir Prestij Taşı'nın etrafında sıkıca tutunana kadar preslenmiş beş Füzyon Parçası. Füzyon Sunağı'nda iki Pal'ı kalıcı olarak tek Pal yapar."
     }
 }

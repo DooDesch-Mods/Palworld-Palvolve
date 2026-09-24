@@ -18,7 +18,9 @@
         "PASSIVE_Palvolve_Evolved_2_Locked": "Ewolucja II",
         "PASSIVE_Palvolve_Evolved_3_Locked": "Ewolucja III",
         "PASSIVE_Palvolve_Evolved_4_Locked": "Ewolucja IV",
-        "PASSIVE_Palvolve_NoAutoEvolve": "Autoewolucja"
+        "PASSIVE_Palvolve_NoAutoEvolve": "Autoewolucja",
+        "PASSIVE_Palvolve_Fused": "Po fuzji",
+        "PASSIVE_Palvolve_FusionActive": "W fuzji"
     },
     "DT_SkillDescText": {
         "PASSIVE_Palvolve_Prestige_1": "Rozpoczyna się wywyższenie.\r\nAtak +{EffectValue1}%\r\nObrona +{EffectValue2}%\r\nSzybkość pracy +{EffectValue3}%",
@@ -39,6 +41,8 @@
         "PASSIVE_Palvolve_Evolved_2_Locked": "Maks. PŻ +{EffectValue1}%\nPrędkość ruchu +{EffectValue2}%\nSzybkość pracy +{EffectValue3}%\nAutoewolucja: Wyłączone",
         "PASSIVE_Palvolve_Evolved_3_Locked": "Maks. PŻ +{EffectValue1}%\nPrędkość ruchu +{EffectValue2}%\nSzybkość pracy +{EffectValue3}%\nAutoewolucja: Wyłączone",
         "PASSIVE_Palvolve_Evolved_4_Locked": "Maks. PŻ +{EffectValue1}%\nPrędkość ruchu +{EffectValue2}%\nSzybkość pracy +{EffectValue3}%\nAutoewolucja: Wyłączone",
-        "PASSIVE_Palvolve_NoAutoEvolve": "Wyłączone"
+        "PASSIVE_Palvolve_NoAutoEvolve": "Wyłączone",
+        "PASSIVE_Palvolve_Fused": "Powstał z dwóch Pal na Ołtarzu fuzji.",
+        "PASSIVE_Palvolve_FusionActive": "Połączony na czas tej walki. Rozdzieli się ponownie po zakończeniu fuzji."
     }
 }

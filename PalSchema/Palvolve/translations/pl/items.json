@@ -20,7 +20,9 @@
         "ITEM_NAME_Palvolve_Essence_Dark": "Esencja mroku",
         "ITEM_NAME_Palvolve_AdaptationStone_Dark": "Kamień adaptacji (Mrok)",
         "ITEM_NAME_Palvolve_Essence_Dragon": "Esencja smoka",
-        "ITEM_NAME_Palvolve_AdaptationStone_Dragon": "Kamień adaptacji (Smok)"
+        "ITEM_NAME_Palvolve_AdaptationStone_Dragon": "Kamień adaptacji (Smok)",
+        "ITEM_NAME_Palvolve_FusionShard": "Odłamek fuzji",
+        "ITEM_NAME_Palvolve_FusionCore": "Rdzeń fuzji"
     },
     "DT_ItemDescriptionText": {
         "ITEM_DESC_Palvolve_EvolutionStone": "Tajemniczy kamień, który drży od życiowej energii. Pozwala związanemu Palowi ewoluować w silniejszą pokrewną formę po osiągnięciu wymaganego poziomu.",
@@ -43,6 +45,8 @@
         "ITEM_DESC_Palvolve_Essence_Dark": "Skondensowana energia mroku, wydobyta z owoców umiejętności lub materiałów żywiołów. Służy do wytworzenia odpowiedniego Kamienia adaptacji.",
         "ITEM_DESC_Palvolve_AdaptationStone_Dark": "Migoczący kamień dostrojony do energii mroku. Pozwala związanemu Palowi przyjąć mroczną formę po osiągnięciu wymaganego poziomu.",
         "ITEM_DESC_Palvolve_Essence_Dragon": "Skondensowana energia smoka, wydobyta z owoców umiejętności lub materiałów żywiołów. Służy do wytworzenia odpowiedniego Kamienia adaptacji.",
-        "ITEM_DESC_Palvolve_AdaptationStone_Dragon": "Migoczący kamień dostrojony do energii smoka. Pozwala związanemu Palowi przyjąć smoczą formę po osiągnięciu wymaganego poziomu."
+        "ITEM_DESC_Palvolve_AdaptationStone_Dragon": "Migoczący kamień dostrojony do energii smoka. Pozwala związanemu Palowi przyjąć smoczą formę po osiągnięciu wymaganego poziomu.",
+        "ITEM_DESC_Palvolve_FusionShard": "Pęknięty Kamień ewolucji spojony płynem Pal. Pozwala przywołanemu Pal i jednemu Pal z drużyny połączyć się na jedną walkę, a potem ponownie rozdzielić.",
+        "ITEM_DESC_Palvolve_FusionCore": "Pięć Odłamków fuzji mocno sprasowanych wokół Kamienia prestiżu. Na Ołtarzu fuzji trwale łączy dwa Pal w jednego."
     }
 }

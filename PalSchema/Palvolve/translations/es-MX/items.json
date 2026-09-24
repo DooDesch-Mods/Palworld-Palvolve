@@ -20,7 +20,9 @@
         "ITEM_NAME_Palvolve_Essence_Dark": "Esencia de oscuridad",
         "ITEM_NAME_Palvolve_AdaptationStone_Dark": "Piedra de adaptación (Oscuridad)",
         "ITEM_NAME_Palvolve_Essence_Dragon": "Esencia de dragón",
-        "ITEM_NAME_Palvolve_AdaptationStone_Dragon": "Piedra de adaptación (Dragón)"
+        "ITEM_NAME_Palvolve_AdaptationStone_Dragon": "Piedra de adaptación (Dragón)",
+        "ITEM_NAME_Palvolve_FusionShard": "Fragmento de fusión",
+        "ITEM_NAME_Palvolve_FusionCore": "Núcleo de fusión"
     },
     "DT_ItemDescriptionText": {
         "ITEM_DESC_Palvolve_EvolutionStone": "Una piedra misteriosa que vibra con energía vital. Permite que un Pal vinculado evolucione a una forma afín más fuerte cuando alcanza el nivel requerido.",
@@ -43,6 +45,8 @@
         "ITEM_DESC_Palvolve_Essence_Dark": "Energía de oscuridad concentrada, extraída de frutas técnicas o materiales elementales. Se usa para crear la piedra de adaptación correspondiente.",
         "ITEM_DESC_Palvolve_AdaptationStone_Dark": "Una piedra brillante afinada con energía de oscuridad. Permite que un Pal vinculado se adapte a su forma de oscuridad cuando alcanza el nivel requerido.",
         "ITEM_DESC_Palvolve_Essence_Dragon": "Energía de dragón concentrada, extraída de frutas técnicas o materiales elementales. Se usa para crear la piedra de adaptación correspondiente.",
-        "ITEM_DESC_Palvolve_AdaptationStone_Dragon": "Una piedra brillante afinada con energía de dragón. Permite que un Pal vinculado se adapte a su forma de dragón cuando alcanza el nivel requerido."
+        "ITEM_DESC_Palvolve_AdaptationStone_Dragon": "Una piedra brillante afinada con energía de dragón. Permite que un Pal vinculado se adapte a su forma de dragón cuando alcanza el nivel requerido.",
+        "ITEM_DESC_Palvolve_FusionShard": "Una Piedra evolutiva partida y unida con fluidos de Pal. Permite que tu Pal invocado y otro de tu equipo se fusionen durante un combate y después vuelvan a separarse.",
+        "ITEM_DESC_Palvolve_FusionCore": "Cinco Fragmentos de fusión prensados alrededor de una Piedra de prestigio hasta quedar unidos. En el Altar de fusión convierte dos Pals en uno para siempre."
     }
 }

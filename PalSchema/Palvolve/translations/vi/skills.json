@@ -18,7 +18,9 @@
         "PASSIVE_Palvolve_Evolved_2_Locked": "Tiến hóa II",
         "PASSIVE_Palvolve_Evolved_3_Locked": "Tiến hóa III",
         "PASSIVE_Palvolve_Evolved_4_Locked": "Tiến hóa IV",
-        "PASSIVE_Palvolve_NoAutoEvolve": "Tự tiến hóa"
+        "PASSIVE_Palvolve_NoAutoEvolve": "Tự tiến hóa",
+        "PASSIVE_Palvolve_Fused": "Đã hợp nhất",
+        "PASSIVE_Palvolve_FusionActive": "Đang hợp nhất"
     },
     "DT_SkillDescText": {
         "PASSIVE_Palvolve_Prestige_1": "Hành trình thăng tiến bắt đầu.\r\nTấn công +{EffectValue1}%\r\nPhòng thủ +{EffectValue2}%\r\nTốc độ làm việc +{EffectValue3}%",
@@ -39,6 +41,8 @@
         "PASSIVE_Palvolve_Evolved_2_Locked": "HP tối đa +{EffectValue1}%\nTốc độ di chuyển +{EffectValue2}%\nTốc độ làm việc +{EffectValue3}%\nTự tiến hóa: Đã tắt",
         "PASSIVE_Palvolve_Evolved_3_Locked": "HP tối đa +{EffectValue1}%\nTốc độ di chuyển +{EffectValue2}%\nTốc độ làm việc +{EffectValue3}%\nTự tiến hóa: Đã tắt",
         "PASSIVE_Palvolve_Evolved_4_Locked": "HP tối đa +{EffectValue1}%\nTốc độ di chuyển +{EffectValue2}%\nTốc độ làm việc +{EffectValue3}%\nTự tiến hóa: Đã tắt",
-        "PASSIVE_Palvolve_NoAutoEvolve": "Đã tắt"
+        "PASSIVE_Palvolve_NoAutoEvolve": "Đã tắt",
+        "PASSIVE_Palvolve_Fused": "Được tạo thành từ hai Pal tại Bàn thờ Hợp nhất.",
+        "PASSIVE_Palvolve_FusionActive": "Hợp nhất trong trận đấu này. Tách ra trở lại khi hợp nhất kết thúc."
     }
 }

@@ -20,7 +20,9 @@
         "ITEM_NAME_Palvolve_Essence_Dark": "Esensi Gelap",
         "ITEM_NAME_Palvolve_AdaptationStone_Dark": "Batu Adaptasi (Gelap)",
         "ITEM_NAME_Palvolve_Essence_Dragon": "Esensi Naga",
-        "ITEM_NAME_Palvolve_AdaptationStone_Dragon": "Batu Adaptasi (Naga)"
+        "ITEM_NAME_Palvolve_AdaptationStone_Dragon": "Batu Adaptasi (Naga)",
+        "ITEM_NAME_Palvolve_FusionShard": "Serpihan Fusi",
+        "ITEM_NAME_Palvolve_FusionCore": "Inti Fusi"
     },
     "DT_ItemDescriptionText": {
         "ITEM_DESC_Palvolve_EvolutionStone": "Batu misterius yang berdengung dengan energi kehidupan. Memungkinkan Pal yang terikat berevolusi menjadi bentuk kerabat yang lebih kuat setelah mencapai level yang diperlukan.",
@@ -43,6 +45,8 @@
         "ITEM_DESC_Palvolve_Essence_Dark": "Energi gelap pekat, diekstrak dari Buah Skill atau material elemen. Digunakan untuk membuat Batu Adaptasi yang sesuai.",
         "ITEM_DESC_Palvolve_AdaptationStone_Dark": "Batu berkilau yang selaras dengan energi gelap. Memungkinkan Pal yang terikat beradaptasi menjadi bentuk gelapnya setelah mencapai level yang diperlukan.",
         "ITEM_DESC_Palvolve_Essence_Dragon": "Energi naga pekat, diekstrak dari Buah Skill atau material elemen. Digunakan untuk membuat Batu Adaptasi yang sesuai.",
-        "ITEM_DESC_Palvolve_AdaptationStone_Dragon": "Batu berkilau yang selaras dengan energi naga. Memungkinkan Pal yang terikat beradaptasi menjadi bentuk naganya setelah mencapai level yang diperlukan."
+        "ITEM_DESC_Palvolve_AdaptationStone_Dragon": "Batu berkilau yang selaras dengan energi naga. Memungkinkan Pal yang terikat beradaptasi menjadi bentuk naganya setelah mencapai level yang diperlukan.",
+        "ITEM_DESC_Palvolve_FusionShard": "Batu Evolusi yang dipecahkan lalu direkatkan dengan Cairan Pal. Memungkinkan Pal yang kamu panggil dan satu Pal dari tim berfusi untuk satu pertarungan, lalu berpisah lagi.",
+        "ITEM_DESC_Palvolve_FusionCore": "Lima Serpihan Fusi dipadatkan mengelilingi Batu Prestise hingga menyatu erat. Di Altar Fusi, inti ini menjadikan dua Pal satu selamanya."
     }
 }

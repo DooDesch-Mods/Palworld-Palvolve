@@ -18,7 +18,9 @@
         "PASSIVE_Palvolve_Evolved_2_Locked": "进化 II",
         "PASSIVE_Palvolve_Evolved_3_Locked": "进化 III",
         "PASSIVE_Palvolve_Evolved_4_Locked": "进化 IV",
-        "PASSIVE_Palvolve_NoAutoEvolve": "自动进化"
+        "PASSIVE_Palvolve_NoAutoEvolve": "自动进化",
+        "PASSIVE_Palvolve_Fused": "已融合",
+        "PASSIVE_Palvolve_FusionActive": "融合中"
     },
     "DT_SkillDescText": {
         "PASSIVE_Palvolve_Prestige_1": "飞升开始。\r\n攻击 +{EffectValue1}%\r\n防御 +{EffectValue2}%\r\n工作速度 +{EffectValue3}%",
@@ -39,6 +41,8 @@
         "PASSIVE_Palvolve_Evolved_2_Locked": "最大生命值 +{EffectValue1}%\n移动速度 +{EffectValue2}%\n工作速度 +{EffectValue3}%\n自动进化: 已禁用",
         "PASSIVE_Palvolve_Evolved_3_Locked": "最大生命值 +{EffectValue1}%\n移动速度 +{EffectValue2}%\n工作速度 +{EffectValue3}%\n自动进化: 已禁用",
         "PASSIVE_Palvolve_Evolved_4_Locked": "最大生命值 +{EffectValue1}%\n移动速度 +{EffectValue2}%\n工作速度 +{EffectValue3}%\n自动进化: 已禁用",
-        "PASSIVE_Palvolve_NoAutoEvolve": "已禁用"
+        "PASSIVE_Palvolve_NoAutoEvolve": "已禁用",
+        "PASSIVE_Palvolve_Fused": "由两只帕鲁在融合祭坛融合而生。",
+        "PASSIVE_Palvolve_FusionActive": "在本场战斗中融合。融合结束时会再次分开。"
     }
 }

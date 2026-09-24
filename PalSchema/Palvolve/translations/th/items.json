@@ -20,7 +20,9 @@
         "ITEM_NAME_Palvolve_Essence_Dark": "แก่นแท้ธาตุมืด",
         "ITEM_NAME_Palvolve_AdaptationStone_Dark": "หินปรับตัว (มืด)",
         "ITEM_NAME_Palvolve_Essence_Dragon": "แก่นแท้ธาตุมังกร",
-        "ITEM_NAME_Palvolve_AdaptationStone_Dragon": "หินปรับตัว (มังกร)"
+        "ITEM_NAME_Palvolve_AdaptationStone_Dragon": "หินปรับตัว (มังกร)",
+        "ITEM_NAME_Palvolve_FusionShard": "สะเก็ดหลอมรวม",
+        "ITEM_NAME_Palvolve_FusionCore": "แกนหลอมรวม"
     },
     "DT_ItemDescriptionText": {
         "ITEM_DESC_Palvolve_EvolutionStone": "หินลึกลับที่สั่นไหวด้วยพลังชีวิต ช่วยให้พัลที่ผูกพันวิวัฒนาการเป็นร่างสายเดียวกันที่แข็งแกร่งขึ้นเมื่อถึงเลเวลที่กำหนด",
@@ -43,6 +45,8 @@
         "ITEM_DESC_Palvolve_Essence_Dark": "พลังมืดเข้มข้น สกัดจากผลไม้สกิลหรือวัตถุดิบธาตุ ใช้สร้างหินปรับตัวที่ตรงกัน",
         "ITEM_DESC_Palvolve_AdaptationStone_Dark": "หินส่องประกายที่สอดคล้องกับพลังมืด ช่วยให้พัลที่ผูกพันปรับตัวเป็นร่างมืดเมื่อถึงเลเวลที่กำหนด",
         "ITEM_DESC_Palvolve_Essence_Dragon": "พลังมังกรเข้มข้น สกัดจากผลไม้สกิลหรือวัตถุดิบธาตุ ใช้สร้างหินปรับตัวที่ตรงกัน",
-        "ITEM_DESC_Palvolve_AdaptationStone_Dragon": "หินส่องประกายที่สอดคล้องกับพลังมังกร ช่วยให้พัลที่ผูกพันปรับตัวเป็นร่างมังกรเมื่อถึงเลเวลที่กำหนด"
+        "ITEM_DESC_Palvolve_AdaptationStone_Dragon": "หินส่องประกายที่สอดคล้องกับพลังมังกร ช่วยให้พัลที่ผูกพันปรับตัวเป็นร่างมังกรเมื่อถึงเลเวลที่กำหนด",
+        "ITEM_DESC_Palvolve_FusionShard": "หินวิวัฒนาการที่แตกออกและยึดติดกันด้วยของเหลวพัลทำให้พัลที่เรียกออกมากับอีกหนึ่งตัวในทีมหลอมรวมกันในการต่อสู้ครั้งเดียว แล้วแยกจากกันอีกครั้ง",
+        "ITEM_DESC_Palvolve_FusionCore": "สะเก็ดหลอมรวมห้าชิ้นที่อัดรอบหินเกียรติยศจนยึดติดกัน ใช้ที่แท่นบูชาหลอมรวมเพื่อเปลี่ยนพัลสองตัวให้เป็นหนึ่งตัวอย่างถาวร"
     }
 }

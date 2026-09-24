@@ -18,7 +18,9 @@
         "PASSIVE_Palvolve_Evolved_2_Locked": "進化 II",
         "PASSIVE_Palvolve_Evolved_3_Locked": "進化 III",
         "PASSIVE_Palvolve_Evolved_4_Locked": "進化 IV",
-        "PASSIVE_Palvolve_NoAutoEvolve": "自動進化"
+        "PASSIVE_Palvolve_NoAutoEvolve": "自動進化",
+        "PASSIVE_Palvolve_Fused": "融合済み",
+        "PASSIVE_Palvolve_FusionActive": "融合中"
     },
     "DT_SkillDescText": {
         "PASSIVE_Palvolve_Prestige_1": "昇華が始まる。\r\n攻撃 +{EffectValue1}%\r\n防御 +{EffectValue2}%\r\n作業速度 +{EffectValue3}%",
@@ -39,6 +41,8 @@
         "PASSIVE_Palvolve_Evolved_2_Locked": "最大HP +{EffectValue1}%\n移動速度 +{EffectValue2}%\n作業速度 +{EffectValue3}%\n自動進化: 無効化",
         "PASSIVE_Palvolve_Evolved_3_Locked": "最大HP +{EffectValue1}%\n移動速度 +{EffectValue2}%\n作業速度 +{EffectValue3}%\n自動進化: 無効化",
         "PASSIVE_Palvolve_Evolved_4_Locked": "最大HP +{EffectValue1}%\n移動速度 +{EffectValue2}%\n作業速度 +{EffectValue3}%\n自動進化: 無効化",
-        "PASSIVE_Palvolve_NoAutoEvolve": "無効化"
+        "PASSIVE_Palvolve_NoAutoEvolve": "無効化",
+        "PASSIVE_Palvolve_Fused": "融合の祭壇で2体のパルから生まれた。",
+        "PASSIVE_Palvolve_FusionActive": "この戦闘の間だけ融合している。融合が終わると再び分離する。"
     }
 }

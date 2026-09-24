@@ -1,14 +1,18 @@
 {
     "DT_MapObjectNameText": {
-        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "パル錬金作業台"
+        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "パル錬金作業台",
+        "MAPOBJECT_NAME_Palvolve_FusionAltar": "融合の祭壇"
     },
     "DT_BuildObjectDescText": {
-        "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "技の実や属性素材を純粋なエッセンスへ分解し、進化の石と適応の石を鍛造する。"
+        "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "技の実や属性素材を純粋なエッセンスへ分解し、進化の石と適応の石を鍛造する。",
+        "BUILDOBJECT_DESC_Palvolve_FusionAltar": "ここにパルを2体配置すると、永続的に1体に融合する。融合の核を1つ消費する。"
     },
     "DT_TechnologyNameText": {
-        "NAME_RECIPE_Palvolve_ElementExtractor": "パル錬金作業台"
+        "NAME_RECIPE_Palvolve_ElementExtractor": "パル錬金作業台",
+        "NAME_RECIPE_Palvolve_FusionAltar": "融合の祭壇"
     },
     "DT_TechnologyDescText": {
-        "DESC_RECIPE_Palvolve_ElementExtractor": "パル錬金作業台をアンロックする。エキス抽出、進化石、適応石を生み出す拠点だ。"
+        "DESC_RECIPE_Palvolve_ElementExtractor": "パル錬金作業台をアンロックする。エキス抽出、進化石、適応石を生み出す拠点だ。",
+        "DESC_RECIPE_Palvolve_FusionAltar": "2体のパルを永続的に1体にする融合の祭壇をアンロックする。"
     }
 }

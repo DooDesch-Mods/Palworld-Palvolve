@@ -18,7 +18,9 @@
         "PASSIVE_Palvolve_Evolved_2_Locked": "Evrilmiş II",
         "PASSIVE_Palvolve_Evolved_3_Locked": "Evrilmiş III",
         "PASSIVE_Palvolve_Evolved_4_Locked": "Evrilmiş IV",
-        "PASSIVE_Palvolve_NoAutoEvolve": "Otomatik evrim"
+        "PASSIVE_Palvolve_NoAutoEvolve": "Otomatik evrim",
+        "PASSIVE_Palvolve_Fused": "Birleşmiş",
+        "PASSIVE_Palvolve_FusionActive": "Birleşik"
     },
     "DT_SkillDescText": {
         "PASSIVE_Palvolve_Prestige_1": "Yükseliş başlıyor.\r\nSaldırı +{EffectValue1}%\r\nSavunma +{EffectValue2}%\r\nÇalışma hızı +{EffectValue3}%",
@@ -39,6 +41,8 @@
         "PASSIVE_Palvolve_Evolved_2_Locked": "Maks. Can +{EffectValue1}%\nHareket hızı +{EffectValue2}%\nÇalışma hızı +{EffectValue3}%\nOtomatik evrim: Devre dışı bırakıldı",
         "PASSIVE_Palvolve_Evolved_3_Locked": "Maks. Can +{EffectValue1}%\nHareket hızı +{EffectValue2}%\nÇalışma hızı +{EffectValue3}%\nOtomatik evrim: Devre dışı bırakıldı",
         "PASSIVE_Palvolve_Evolved_4_Locked": "Maks. Can +{EffectValue1}%\nHareket hızı +{EffectValue2}%\nÇalışma hızı +{EffectValue3}%\nOtomatik evrim: Devre dışı bırakıldı",
-        "PASSIVE_Palvolve_NoAutoEvolve": "Devre dışı bırakıldı"
+        "PASSIVE_Palvolve_NoAutoEvolve": "Devre dışı bırakıldı",
+        "PASSIVE_Palvolve_Fused": "Füzyon Sunağı'nda iki Pal'dan doğdu.",
+        "PASSIVE_Palvolve_FusionActive": "Bu dövüş için birleşmiş durumda. Füzyon sona erdiğinde tekrar ayrılır."
     }
 }

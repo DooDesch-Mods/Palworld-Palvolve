@@ -18,7 +18,9 @@
         "PASSIVE_Palvolve_Evolved_2_Locked": "Эволюция II",
         "PASSIVE_Palvolve_Evolved_3_Locked": "Эволюция III",
         "PASSIVE_Palvolve_Evolved_4_Locked": "Эволюция IV",
-        "PASSIVE_Palvolve_NoAutoEvolve": "Автоэволюция"
+        "PASSIVE_Palvolve_NoAutoEvolve": "Автоэволюция",
+        "PASSIVE_Palvolve_Fused": "Слитый",
+        "PASSIVE_Palvolve_FusionActive": "В слиянии"
     },
     "DT_SkillDescText": {
         "PASSIVE_Palvolve_Prestige_1": "Возвышение начинается.\r\nАтака +{EffectValue1}%\r\nЗащита +{EffectValue2}%\r\nСкорость работы +{EffectValue3}%",
@@ -39,6 +41,8 @@
         "PASSIVE_Palvolve_Evolved_2_Locked": "Макс. ОЗ +{EffectValue1}%\nСкорость передвижения +{EffectValue2}%\nСкорость работы +{EffectValue3}%\nАвтоэволюция: Отключено",
         "PASSIVE_Palvolve_Evolved_3_Locked": "Макс. ОЗ +{EffectValue1}%\nСкорость передвижения +{EffectValue2}%\nСкорость работы +{EffectValue3}%\nАвтоэволюция: Отключено",
         "PASSIVE_Palvolve_Evolved_4_Locked": "Макс. ОЗ +{EffectValue1}%\nСкорость передвижения +{EffectValue2}%\nСкорость работы +{EffectValue3}%\nАвтоэволюция: Отключено",
-        "PASSIVE_Palvolve_NoAutoEvolve": "Отключено"
+        "PASSIVE_Palvolve_NoAutoEvolve": "Отключено",
+        "PASSIVE_Palvolve_Fused": "Рождён из двух Палов на Алтаре слияния.",
+        "PASSIVE_Palvolve_FusionActive": "Слит на время этого боя. Снова разделится, когда слияние закончится."
     }
 }

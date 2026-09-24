@@ -1,14 +1,18 @@
 {
     "DT_MapObjectNameText": {
-        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "팰 연금 작업대"
+        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "팰 연금 작업대",
+        "MAPOBJECT_NAME_Palvolve_FusionAltar": "융합의 제단"
     },
     "DT_BuildObjectDescText": {
-        "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "기술 열매와 원소 소재를 순수한 정수로 분해하고, 진화의 돌과 적응의 돌을 제련한다."
+        "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "기술 열매와 원소 소재를 순수한 정수로 분해하고, 진화의 돌과 적응의 돌을 제련한다.",
+        "BUILDOBJECT_DESC_Palvolve_FusionAltar": "여기에 두 마리의 팰을 배치하면 영구적으로 하나로 융합합니다. 융합의 핵 하나를 소모합니다."
     },
     "DT_TechnologyNameText": {
-        "NAME_RECIPE_Palvolve_ElementExtractor": "팰 연금 작업대"
+        "NAME_RECIPE_Palvolve_ElementExtractor": "팰 연금 작업대",
+        "NAME_RECIPE_Palvolve_FusionAltar": "융합의 제단"
     },
     "DT_TechnologyDescText": {
-        "DESC_RECIPE_Palvolve_ElementExtractor": "팰 연금 작업대를 해제한다. 정수 추출과 진화석, 적응석 제작이 이루어지는 곳이다."
+        "DESC_RECIPE_Palvolve_ElementExtractor": "팰 연금 작업대를 해제한다. 정수 추출과 진화석, 적응석 제작이 이루어지는 곳이다.",
+        "DESC_RECIPE_Palvolve_FusionAltar": "두 마리의 팰을 영구적으로 하나로 만드는 융합의 제단을 해금합니다."
     }
 }

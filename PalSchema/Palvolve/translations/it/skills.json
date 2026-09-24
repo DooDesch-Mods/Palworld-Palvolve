@@ -18,7 +18,9 @@
         "PASSIVE_Palvolve_Evolved_2_Locked": "Evoluto II",
         "PASSIVE_Palvolve_Evolved_3_Locked": "Evoluto III",
         "PASSIVE_Palvolve_Evolved_4_Locked": "Evoluto IV",
-        "PASSIVE_Palvolve_NoAutoEvolve": "Evoluzione auto"
+        "PASSIVE_Palvolve_NoAutoEvolve": "Evoluzione auto",
+        "PASSIVE_Palvolve_Fused": "Fuso",
+        "PASSIVE_Palvolve_FusionActive": "In fusione"
     },
     "DT_SkillDescText": {
         "PASSIVE_Palvolve_Prestige_1": "L'ascesa ha inizio.\r\nAttacco +{EffectValue1}%\r\nDifesa +{EffectValue2}%\r\nVelocità di lavoro +{EffectValue3}%",
@@ -39,6 +41,8 @@
         "PASSIVE_Palvolve_Evolved_2_Locked": "PS max +{EffectValue1}%\nVelocità di movimento +{EffectValue2}%\nVelocità di lavoro +{EffectValue3}%\nEvoluzione auto: Disabilitato",
         "PASSIVE_Palvolve_Evolved_3_Locked": "PS max +{EffectValue1}%\nVelocità di movimento +{EffectValue2}%\nVelocità di lavoro +{EffectValue3}%\nEvoluzione auto: Disabilitato",
         "PASSIVE_Palvolve_Evolved_4_Locked": "PS max +{EffectValue1}%\nVelocità di movimento +{EffectValue2}%\nVelocità di lavoro +{EffectValue3}%\nEvoluzione auto: Disabilitato",
-        "PASSIVE_Palvolve_NoAutoEvolve": "Disabilitato"
+        "PASSIVE_Palvolve_NoAutoEvolve": "Disabilitato",
+        "PASSIVE_Palvolve_Fused": "Nato da due Pal all'Altare della fusione.",
+        "PASSIVE_Palvolve_FusionActive": "Fuso per questo scontro. Si separa di nuovo quando la fusione termina."
     }
 }

@@ -1,14 +1,18 @@
 {
     "DT_MapObjectNameText": {
-        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "Établi d'alchimie Pal"
+        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "Établi d'alchimie Pal",
+        "MAPOBJECT_NAME_Palvolve_FusionAltar": "Autel de fusion"
     },
     "DT_BuildObjectDescText": {
-        "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "Décompose les fruits de maîtrise et les matériaux élémentaires en essences pures, puis forge des pierres d'évolution et d'adaptation."
+        "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "Décompose les fruits de maîtrise et les matériaux élémentaires en essences pures, puis forge des pierres d'évolution et d'adaptation.",
+        "BUILDOBJECT_DESC_Palvolve_FusionAltar": "Placez deux Pals ici pour les fusionner en un seul pour toujours. Coûte un Noyau de fusion."
     },
     "DT_TechnologyNameText": {
-        "NAME_RECIPE_Palvolve_ElementExtractor": "Établi d'alchimie Pal"
+        "NAME_RECIPE_Palvolve_ElementExtractor": "Établi d'alchimie Pal",
+        "NAME_RECIPE_Palvolve_FusionAltar": "Autel de fusion"
     },
     "DT_TechnologyDescText": {
-        "DESC_RECIPE_Palvolve_ElementExtractor": "Débloque l'établi d'alchimie Pal, consacré à l'extraction d'extraits ainsi qu'aux Pierres d'évolution et d'adaptation."
+        "DESC_RECIPE_Palvolve_ElementExtractor": "Débloque l'établi d'alchimie Pal, consacré à l'extraction d'extraits ainsi qu'aux Pierres d'évolution et d'adaptation.",
+        "DESC_RECIPE_Palvolve_FusionAltar": "Débloque l'Autel de fusion, où deux Pals deviennent un seul pour toujours."
     }
 }

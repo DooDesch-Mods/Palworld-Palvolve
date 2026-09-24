@@ -18,7 +18,9 @@
         "PASSIVE_Palvolve_Evolved_2_Locked": "Berevolusi II",
         "PASSIVE_Palvolve_Evolved_3_Locked": "Berevolusi III",
         "PASSIVE_Palvolve_Evolved_4_Locked": "Berevolusi IV",
-        "PASSIVE_Palvolve_NoAutoEvolve": "Evolusi otomatis"
+        "PASSIVE_Palvolve_NoAutoEvolve": "Evolusi otomatis",
+        "PASSIVE_Palvolve_Fused": "Menyatu",
+        "PASSIVE_Palvolve_FusionActive": "Berfusi"
     },
     "DT_SkillDescText": {
         "PASSIVE_Palvolve_Prestige_1": "Pendakian dimulai.\r\nSerangan +{EffectValue1}%\r\nPertahanan +{EffectValue2}%\r\nKecepatan kerja +{EffectValue3}%",
@@ -39,6 +41,8 @@
         "PASSIVE_Palvolve_Evolved_2_Locked": "HP Maks +{EffectValue1}%\nKecepatan bergerak +{EffectValue2}%\nKecepatan kerja +{EffectValue3}%\nEvolusi otomatis: Dinonaktifkan",
         "PASSIVE_Palvolve_Evolved_3_Locked": "HP Maks +{EffectValue1}%\nKecepatan bergerak +{EffectValue2}%\nKecepatan kerja +{EffectValue3}%\nEvolusi otomatis: Dinonaktifkan",
         "PASSIVE_Palvolve_Evolved_4_Locked": "HP Maks +{EffectValue1}%\nKecepatan bergerak +{EffectValue2}%\nKecepatan kerja +{EffectValue3}%\nEvolusi otomatis: Dinonaktifkan",
-        "PASSIVE_Palvolve_NoAutoEvolve": "Dinonaktifkan"
+        "PASSIVE_Palvolve_NoAutoEvolve": "Dinonaktifkan",
+        "PASSIVE_Palvolve_Fused": "Lahir dari dua Pal di Altar Fusi.",
+        "PASSIVE_Palvolve_FusionActive": "Menyatu untuk pertarungan ini. Berpisah lagi saat fusi berakhir."
     }
 }

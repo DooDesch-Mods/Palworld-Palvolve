@@ -1,14 +1,18 @@
 {
     "DT_MapObjectNameText": {
-        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "Алхимический верстак Палов"
+        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "Алхимический верстак Палов",
+        "MAPOBJECT_NAME_Palvolve_FusionAltar": "Алтарь слияния"
     },
     "DT_BuildObjectDescText": {
-        "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "Расщепляет плоды мастерства и стихийные материалы на чистые эссенции и куёт Камни эволюции и Камни адаптации."
+        "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "Расщепляет плоды мастерства и стихийные материалы на чистые эссенции и куёт Камни эволюции и Камни адаптации.",
+        "BUILDOBJECT_DESC_Palvolve_FusionAltar": "Поместите сюда двух Палов, чтобы навсегда слить их в одного. Расходует одно Ядро слияния."
     },
     "DT_TechnologyNameText": {
-        "NAME_RECIPE_Palvolve_ElementExtractor": "Алхимический верстак Палов"
+        "NAME_RECIPE_Palvolve_ElementExtractor": "Алхимический верстак Палов",
+        "NAME_RECIPE_Palvolve_FusionAltar": "Алтарь слияния"
     },
     "DT_TechnologyDescText": {
-        "DESC_RECIPE_Palvolve_ElementExtractor": "Открывает алхимический верстак Палов, предназначенный для извлечения эссенции и создания Камней эволюции и Камней адаптации."
+        "DESC_RECIPE_Palvolve_ElementExtractor": "Открывает алхимический верстак Палов, предназначенный для извлечения эссенции и создания Камней эволюции и Камней адаптации.",
+        "DESC_RECIPE_Palvolve_FusionAltar": "Открывает Алтарь слияния, где два Пала навсегда становятся одним."
     }
 }

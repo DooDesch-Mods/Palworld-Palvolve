@@ -20,7 +20,9 @@
         "ITEM_NAME_Palvolve_Essence_Dark": "暗屬性精華",
         "ITEM_NAME_Palvolve_AdaptationStone_Dark": "適應石（暗）",
         "ITEM_NAME_Palvolve_Essence_Dragon": "龍屬性精華",
-        "ITEM_NAME_Palvolve_AdaptationStone_Dragon": "適應石（龍）"
+        "ITEM_NAME_Palvolve_AdaptationStone_Dragon": "適應石（龍）",
+        "ITEM_NAME_Palvolve_FusionShard": "融合碎片",
+        "ITEM_NAME_Palvolve_FusionCore": "融合核心"
     },
     "DT_ItemDescriptionText": {
         "ITEM_DESC_Palvolve_EvolutionStone": "一塊神祕的石頭，微微鳴動著生命能量。可讓達到所需等級的羈絆帕魯進化為更強的近緣形態。",
@@ -43,6 +45,8 @@
         "ITEM_DESC_Palvolve_Essence_Dark": "從技能果實或屬性素材中提取的濃縮暗屬性能量。用於製作對應的適應石。",
         "ITEM_DESC_Palvolve_AdaptationStone_Dark": "一塊與暗屬性能量共鳴的閃耀石頭。可讓達到所需等級的羈絆帕魯適應為暗屬性形態。",
         "ITEM_DESC_Palvolve_Essence_Dragon": "從技能果實或屬性素材中提取的濃縮龍屬性能量。用於製作對應的適應石。",
-        "ITEM_DESC_Palvolve_AdaptationStone_Dragon": "一塊與龍屬性能量共鳴的閃耀石頭。可讓達到所需等級的羈絆帕魯適應為龍屬性形態。"
+        "ITEM_DESC_Palvolve_AdaptationStone_Dragon": "一塊與龍屬性能量共鳴的閃耀石頭。可讓達到所需等級的羈絆帕魯適應為龍屬性形態。",
+        "ITEM_DESC_Palvolve_FusionShard": "用帕魯的體液黏合破裂的進化石製成。可使已召喚的帕魯與隊伍中的另一隻帕魯融合一場戰鬥，之後再分開。",
+        "ITEM_DESC_Palvolve_FusionCore": "將五枚融合碎片壓在一塊轉生石周圍，直至牢固成形。可在融合祭壇讓兩隻帕魯永久合為一隻。"
     }
 }

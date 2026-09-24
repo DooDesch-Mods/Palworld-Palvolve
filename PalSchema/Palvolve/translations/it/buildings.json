@@ -1,14 +1,18 @@
 {
     "DT_MapObjectNameText": {
-        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "Banco da lavoro di alchimia Pal"
+        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "Banco da lavoro di alchimia Pal",
+        "MAPOBJECT_NAME_Palvolve_FusionAltar": "Altare della fusione"
     },
     "DT_BuildObjectDescText": {
-        "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "Scompone frutti della tecnica e materiali elementali in essenze pure, poi forgia pietre evolutive e pietre dell'adattamento."
+        "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "Scompone frutti della tecnica e materiali elementali in essenze pure, poi forgia pietre evolutive e pietre dell'adattamento.",
+        "BUILDOBJECT_DESC_Palvolve_FusionAltar": "Colloca qui due Pal per fonderli in uno solo per sempre. Consuma un Nucleo di fusione."
     },
     "DT_TechnologyNameText": {
-        "NAME_RECIPE_Palvolve_ElementExtractor": "Banco da lavoro di alchimia Pal"
+        "NAME_RECIPE_Palvolve_ElementExtractor": "Banco da lavoro di alchimia Pal",
+        "NAME_RECIPE_Palvolve_FusionAltar": "Altare della fusione"
     },
     "DT_TechnologyDescText": {
-        "DESC_RECIPE_Palvolve_ElementExtractor": "Sblocca il banco da lavoro di alchimia Pal, il centro per l'estrazione dell'essenza e la creazione di Pietre evolutive e Pietre di adattamento."
+        "DESC_RECIPE_Palvolve_ElementExtractor": "Sblocca il banco da lavoro di alchimia Pal, il centro per l'estrazione dell'essenza e la creazione di Pietre evolutive e Pietre di adattamento.",
+        "DESC_RECIPE_Palvolve_FusionAltar": "Sblocca l'Altare della fusione, dove due Pal diventano uno solo per sempre."
     }
 }

@@ -20,7 +20,9 @@
         "ITEM_NAME_Palvolve_Essence_Dark": "어둠 정수",
         "ITEM_NAME_Palvolve_AdaptationStone_Dark": "적응의 돌(어둠)",
         "ITEM_NAME_Palvolve_Essence_Dragon": "용 정수",
-        "ITEM_NAME_Palvolve_AdaptationStone_Dragon": "적응의 돌(용)"
+        "ITEM_NAME_Palvolve_AdaptationStone_Dragon": "적응의 돌(용)",
+        "ITEM_NAME_Palvolve_FusionShard": "융합의 파편",
+        "ITEM_NAME_Palvolve_FusionCore": "융합의 핵"
     },
     "DT_ItemDescriptionText": {
         "ITEM_DESC_Palvolve_EvolutionStone": "생명 에너지가 낮게 울리는 신비한 돌. 필요한 레벨에 도달한 유대 맺은 팰을 더 강한 근연 형태로 진화시킨다.",
@@ -43,6 +45,8 @@
         "ITEM_DESC_Palvolve_Essence_Dark": "기술 열매나 원소 소재에서 추출한 응축된 어둠 에너지. 대응하는 적응의 돌 제작에 사용된다.",
         "ITEM_DESC_Palvolve_AdaptationStone_Dark": "어둠 에너지에 조율된 반짝이는 돌. 필요한 레벨에 도달한 유대 맺은 팰을 어둠 형태로 적응시킨다.",
         "ITEM_DESC_Palvolve_Essence_Dragon": "기술 열매나 원소 소재에서 추출한 응축된 용 에너지. 대응하는 적응의 돌 제작에 사용된다.",
-        "ITEM_DESC_Palvolve_AdaptationStone_Dragon": "용 에너지에 조율된 반짝이는 돌. 필요한 레벨에 도달한 유대 맺은 팰을 용 형태로 적응시킨다."
+        "ITEM_DESC_Palvolve_AdaptationStone_Dragon": "용 에너지에 조율된 반짝이는 돌. 필요한 레벨에 도달한 유대 맺은 팰을 용 형태로 적응시킨다.",
+        "ITEM_DESC_Palvolve_FusionShard": "진화의 돌을 깨뜨려 팰의 체액으로 결합한 파편. 소환한 팰과 파티의 다른 팰 한 마리를 한 번의 전투 동안 융합한 뒤 다시 분리합니다.",
+        "ITEM_DESC_Palvolve_FusionCore": "환생의 돌 주위에 융합의 파편 다섯 개를 단단히 압착한 핵. 융합의 제단에서 두 마리의 팰을 영구적으로 하나로 만듭니다."
     }
 }

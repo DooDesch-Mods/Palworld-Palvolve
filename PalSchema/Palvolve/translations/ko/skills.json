@@ -18,7 +18,9 @@
         "PASSIVE_Palvolve_Evolved_2_Locked": "진화 II",
         "PASSIVE_Palvolve_Evolved_3_Locked": "진화 III",
         "PASSIVE_Palvolve_Evolved_4_Locked": "진화 IV",
-        "PASSIVE_Palvolve_NoAutoEvolve": "자동 진화"
+        "PASSIVE_Palvolve_NoAutoEvolve": "자동 진화",
+        "PASSIVE_Palvolve_Fused": "융합체",
+        "PASSIVE_Palvolve_FusionActive": "융합 중"
     },
     "DT_SkillDescText": {
         "PASSIVE_Palvolve_Prestige_1": "상승이 시작됩니다.\r\n공격 +{EffectValue1}%\r\n방어 +{EffectValue2}%\r\n작업 속도 +{EffectValue3}%",
@@ -39,6 +41,8 @@
         "PASSIVE_Palvolve_Evolved_2_Locked": "최대 HP +{EffectValue1}%\n이동 속도 +{EffectValue2}%\n작업 속도 +{EffectValue3}%\n자동 진화: 비활성화됨",
         "PASSIVE_Palvolve_Evolved_3_Locked": "최대 HP +{EffectValue1}%\n이동 속도 +{EffectValue2}%\n작업 속도 +{EffectValue3}%\n자동 진화: 비활성화됨",
         "PASSIVE_Palvolve_Evolved_4_Locked": "최대 HP +{EffectValue1}%\n이동 속도 +{EffectValue2}%\n작업 속도 +{EffectValue3}%\n자동 진화: 비활성화됨",
-        "PASSIVE_Palvolve_NoAutoEvolve": "비활성화됨"
+        "PASSIVE_Palvolve_NoAutoEvolve": "비활성화됨",
+        "PASSIVE_Palvolve_Fused": "융합의 제단에서 두 마리의 팰이 하나가 되어 태어났습니다.",
+        "PASSIVE_Palvolve_FusionActive": "이번 전투 동안 융합한 상태입니다. 융합이 끝나면 다시 분리됩니다."
     }
 }

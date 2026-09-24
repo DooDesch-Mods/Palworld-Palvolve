@@ -20,7 +20,9 @@
         "ITEM_NAME_Palvolve_Essence_Dark": "Essência Sombria",
         "ITEM_NAME_Palvolve_AdaptationStone_Dark": "Pedra de Adaptação (Sombrio)",
         "ITEM_NAME_Palvolve_Essence_Dragon": "Essência de Dragão",
-        "ITEM_NAME_Palvolve_AdaptationStone_Dragon": "Pedra de Adaptação (Dragão)"
+        "ITEM_NAME_Palvolve_AdaptationStone_Dragon": "Pedra de Adaptação (Dragão)",
+        "ITEM_NAME_Palvolve_FusionShard": "Fragmento de Fusão",
+        "ITEM_NAME_Palvolve_FusionCore": "Núcleo de Fusão"
     },
     "DT_ItemDescriptionText": {
         "ITEM_DESC_Palvolve_EvolutionStone": "Uma pedra misteriosa que pulsa com energia vital. Permite que um Pal vinculado evolua para uma forma aparentada mais forte ao atingir o nível necessário.",
@@ -43,6 +45,8 @@
         "ITEM_DESC_Palvolve_Essence_Dark": "Energia sombria concentrada, extraída de Frutos de Técnica ou materiais elementais. Usada para criar a Pedra de Adaptação correspondente.",
         "ITEM_DESC_Palvolve_AdaptationStone_Dark": "Uma pedra cintilante sintonizada com energia sombria. Permite que um Pal vinculado se adapte à sua forma sombria ao atingir o nível necessário.",
         "ITEM_DESC_Palvolve_Essence_Dragon": "Energia de dragão concentrada, extraída de Frutos de Técnica ou materiais elementais. Usada para criar a Pedra de Adaptação correspondente.",
-        "ITEM_DESC_Palvolve_AdaptationStone_Dragon": "Uma pedra cintilante sintonizada com energia de dragão. Permite que um Pal vinculado se adapte à sua forma de dragão ao atingir o nível necessário."
+        "ITEM_DESC_Palvolve_AdaptationStone_Dragon": "Uma pedra cintilante sintonizada com energia de dragão. Permite que um Pal vinculado se adapte à sua forma de dragão ao atingir o nível necessário.",
+        "ITEM_DESC_Palvolve_FusionShard": "Uma Pedra de Evolução partida e unida com Fluidos de Pal. Permite que seu Pal invocado e outro da equipe se fundam por uma luta e depois se separem novamente.",
+        "ITEM_DESC_Palvolve_FusionCore": "Cinco Fragmentos de Fusão prensados ao redor de uma Pedra de Prestígio até se firmarem. No Altar de Fusão, transforma dois Pals em um só para sempre."
     }
 }

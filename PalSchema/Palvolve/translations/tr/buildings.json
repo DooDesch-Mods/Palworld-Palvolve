@@ -1,14 +1,18 @@
 {
     "DT_MapObjectNameText": {
-        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "Pal Simya Tezgâhı"
+        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "Pal Simya Tezgâhı",
+        "MAPOBJECT_NAME_Palvolve_FusionAltar": "Füzyon Sunağı"
     },
     "DT_BuildObjectDescText": {
-        "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "Beceri Meyvelerini ve element malzemelerini saf özlere ayırır, Evrim ve Adaptasyon Taşları döver."
+        "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "Beceri Meyvelerini ve element malzemelerini saf özlere ayırır, Evrim ve Adaptasyon Taşları döver.",
+        "BUILDOBJECT_DESC_Palvolve_FusionAltar": "Buraya iki Pal yerleştirerek onları kalıcı olarak birleştir. Bir Füzyon Çekirdeği tüketir."
     },
     "DT_TechnologyNameText": {
-        "NAME_RECIPE_Palvolve_ElementExtractor": "Pal Simya Tezgâhı"
+        "NAME_RECIPE_Palvolve_ElementExtractor": "Pal Simya Tezgâhı",
+        "NAME_RECIPE_Palvolve_FusionAltar": "Füzyon Sunağı"
     },
     "DT_TechnologyDescText": {
-        "DESC_RECIPE_Palvolve_ElementExtractor": "Öz çıkarma, Evrim Taşları ve Adaptasyon Taşlarının üretim merkezi olan Pal Simya Tezgâhı'nın kilidini açar."
+        "DESC_RECIPE_Palvolve_ElementExtractor": "Öz çıkarma, Evrim Taşları ve Adaptasyon Taşlarının üretim merkezi olan Pal Simya Tezgâhı'nın kilidini açar.",
+        "DESC_RECIPE_Palvolve_FusionAltar": "İki Pal'ı kalıcı olarak tek Pal yapan Füzyon Sunağı'nın kilidini açar."
     }
 }

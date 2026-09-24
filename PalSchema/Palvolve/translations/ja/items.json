@@ -20,7 +20,9 @@
         "ITEM_NAME_Palvolve_Essence_Dark": "闇エッセンス",
         "ITEM_NAME_Palvolve_AdaptationStone_Dark": "適応の石（闇）",
         "ITEM_NAME_Palvolve_Essence_Dragon": "竜エッセンス",
-        "ITEM_NAME_Palvolve_AdaptationStone_Dragon": "適応の石（竜）"
+        "ITEM_NAME_Palvolve_AdaptationStone_Dragon": "適応の石（竜）",
+        "ITEM_NAME_Palvolve_FusionShard": "融合の欠片",
+        "ITEM_NAME_Palvolve_FusionCore": "融合の核"
     },
     "DT_ItemDescriptionText": {
         "ITEM_DESC_Palvolve_EvolutionStone": "生命エネルギーを帯びて微かに鳴る、不思議な石。必要レベルに達した絆あるパルを、より強い近縁の姿へ進化させる。",
@@ -43,6 +45,8 @@
         "ITEM_DESC_Palvolve_Essence_Dark": "技の実や属性素材から抽出した、凝縮された闇エネルギー。対応する適応の石の作成に使う。",
         "ITEM_DESC_Palvolve_AdaptationStone_Dark": "闇エネルギーと共鳴する、きらめく石。必要レベルに達した絆あるパルを、闇の姿へ適応させる。",
         "ITEM_DESC_Palvolve_Essence_Dragon": "技の実や属性素材から抽出した、凝縮された竜エネルギー。対応する適応の石の作成に使う。",
-        "ITEM_DESC_Palvolve_AdaptationStone_Dragon": "竜エネルギーと共鳴する、きらめく石。必要レベルに達した絆あるパルを、竜の姿へ適応させる。"
+        "ITEM_DESC_Palvolve_AdaptationStone_Dragon": "竜エネルギーと共鳴する、きらめく石。必要レベルに達した絆あるパルを、竜の姿へ適応させる。",
+        "ITEM_DESC_Palvolve_FusionShard": "割った進化の石をパルの体液で結び合わせた欠片。召喚中のパルと手持ちのパル1体を戦闘中だけ融合させ、終了後に再び分離させる。",
+        "ITEM_DESC_Palvolve_FusionCore": "転生の石の周りに融合の欠片を5つ押し固めたもの。融合の祭壇で2体のパルを永続的に1体にする。"
     }
 }

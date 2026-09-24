@@ -18,7 +18,9 @@
         "PASSIVE_Palvolve_Evolved_2_Locked": "Évolué II",
         "PASSIVE_Palvolve_Evolved_3_Locked": "Évolué III",
         "PASSIVE_Palvolve_Evolved_4_Locked": "Évolué IV",
-        "PASSIVE_Palvolve_NoAutoEvolve": "Évolution auto"
+        "PASSIVE_Palvolve_NoAutoEvolve": "Évolution auto",
+        "PASSIVE_Palvolve_Fused": "Fusionné",
+        "PASSIVE_Palvolve_FusionActive": "En fusion"
     },
     "DT_SkillDescText": {
         "PASSIVE_Palvolve_Prestige_1": "L'ascension commence.\r\nAttaque +{EffectValue1}%\r\nDéfense +{EffectValue2}%\r\nVitesse de travail +{EffectValue3}%",
@@ -39,6 +41,8 @@
         "PASSIVE_Palvolve_Evolved_2_Locked": "PV max +{EffectValue1}%\nVitesse de déplacement +{EffectValue2}%\nVitesse de travail +{EffectValue3}%\nÉvolution auto: Désactivé",
         "PASSIVE_Palvolve_Evolved_3_Locked": "PV max +{EffectValue1}%\nVitesse de déplacement +{EffectValue2}%\nVitesse de travail +{EffectValue3}%\nÉvolution auto: Désactivé",
         "PASSIVE_Palvolve_Evolved_4_Locked": "PV max +{EffectValue1}%\nVitesse de déplacement +{EffectValue2}%\nVitesse de travail +{EffectValue3}%\nÉvolution auto: Désactivé",
-        "PASSIVE_Palvolve_NoAutoEvolve": "Désactivé"
+        "PASSIVE_Palvolve_NoAutoEvolve": "Désactivé",
+        "PASSIVE_Palvolve_Fused": "Né de deux Pals à l'Autel de fusion.",
+        "PASSIVE_Palvolve_FusionActive": "Fusionné pour ce combat. Se sépare à nouveau quand la fusion prend fin."
     }
 }
