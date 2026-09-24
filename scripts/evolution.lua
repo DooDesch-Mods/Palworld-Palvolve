@@ -2782,6 +2782,48 @@ function Evolution.offerReason()
     return lastOfferPlayerMsg
 end
 
+-- Fusion entries for the wheel: one per party partner of the summoned Pal and
+-- one for a nearby altar. Both modules only read here.
+local function fusionOptions(playerCtx)
+    local out = {}
+    if not (Config.fusion and Config.fusion.enabled and playerCtx) then return out end
+    local Fusion, Altar = package.loaded["fusion"], package.loaded["altar"]
+    if Fusion then
+        local holder = findHolderFor(playerCtx, nil)
+        local actor = nil
+        if holder then pcall(function() actor = holder:TryGetSpawnedOtomo() end) end
+        local param = actor and actor:IsValid() and paramOf(actor) or nil
+        if param and isOwnedBy(param, playerCtx.playerUId) then
+            local ok, list = pcall(Fusion.wheelOptions, playerCtx, holder, param)
+            if ok then
+                for _, o in ipairs(list) do out[#out + 1] = o end
+            else
+                Log("[WARN] fusion wheel entries failed: " .. tostring(list))
+            end
+        end
+    end
+    if Altar then
+        local ok, opt = pcall(Altar.wheelOption, playerCtx)
+        if not ok then
+            Log("[WARN] altar wheel entry failed: " .. tostring(opt))
+        elseif opt then
+            -- a client's request rides on the summoned Pal (netchannel.lua), so
+            -- without one there is no way to reach the host
+            if not opt.blocked and not Role.hasWorldAuthority() then
+                local holder = findHolderFor(playerCtx, nil)
+                local actor = nil
+                if holder then pcall(function() actor = holder:TryGetSpawnedOtomo() end) end
+                if not (actor and actor:IsValid()) then
+                    opt.blocked = I18n.msg("noPalSummoned")
+                    opt.requirement = opt.blocked
+                end
+            end
+            out[#out + 1] = opt
+        end
+    end
+    return out
+end
+
 -- Light-weight availability for the radial label: an owned pal is
 -- summoned and has at least one configured option. Level and costs are
 -- only checked in the submenu - this runs on every wheel rebuild.
@@ -2866,6 +2908,11 @@ function Evolution.canOffer()
     if not ok then
         offerVerdict("availability check failed: " .. tostring(reason))
         return false
+    end
+    -- No evolution, or no Pal out at all, still leaves a fusion: a party
+    -- partner or the altar next to the player.
+    if reason ~= nil and #fusionOptions(Role.localPlayerCtx()) > 0 then
+        reason, playerMsg = nil, nil
     end
     offerVerdict(reason, playerMsg)
     return reason == nil
@@ -3171,7 +3218,7 @@ local function requirementLine(pair, level, worldCtx)
     return table.concat(lines, "\n")
 end
 
-function Evolution.listOptions()
+local function evolutionOptions()
     if ServerCheck.blocked() then return nil, I18n.msg("serverNoPalvolveShort") end
     if lockBusy() then return nil, I18n.msg("evolutionRunning") end
     local playerCtx = Role.localPlayerCtx()
@@ -3308,6 +3355,17 @@ function Evolution.listOptions()
         return nil, I18n.msg("hasNoEvolution", palDisplayName(id))
     end
     return options
+end
+
+function Evolution.listOptions()
+    local options, reason = evolutionOptions()
+    if ServerCheck.blocked() or lockBusy() then return options, reason end
+    local extras = fusionOptions(Role.localPlayerCtx())
+    if #extras == 0 then return options, reason end
+    local merged = {}
+    for _, o in ipairs(options or {}) do merged[#merged + 1] = o end
+    for _, o in ipairs(extras) do merged[#merged + 1] = o end
+    return merged
 end
 
 -- Authoritative evolve request: re-derives and re-validates EVERYTHING from
@@ -3500,6 +3558,34 @@ end
 -- confirmation. Only the pair names travel; the authority re-derives
 -- fresh handles and re-validates.
 function Evolution.executeOption(opt)
+    if opt and opt.fusion then
+        local fuseCtx = Role.localPlayerCtx()
+        if not fuseCtx then
+            Log(I18n.msg("noLocalPlayer"))
+            return
+        end
+        if Role.hasWorldAuthority() then
+            if opt.fusion == "altar" then
+                require("altar").start(fuseCtx, nil, { allowCage = Config.devMode })
+            else
+                require("fusion").startBattle(fuseCtx, opt.partnerSlot)
+            end
+            return
+        end
+        if not remoteTransmitReady(fuseCtx) then return end
+        local sent
+        if opt.fusion == "altar" then
+            sent = NetChannel.sendFuseAltar(fuseCtx)
+        else
+            sent = NetChannel.sendFuseBattle(fuseCtx, opt.partnerSlot)
+        end
+        if not sent then
+            local msg = I18n.msg("serverUnreachable")
+            Log(msg)
+            Role.chat(fuseCtx, msg, "reply")
+        end
+        return
+    end
     -- The lock entry is not an evolution and carries no pair, so it is answered
     -- before the pair check that every other path relies on. It still takes the
     -- same role split as every other path: the passive lives on the Pal, and a
@@ -4363,6 +4449,22 @@ function Evolution.init()
             -- lock is written on the host's own Pal, by the player who owns it.
             -- toggleAutoLock reads the current state here, where it is true.
             return Evolution.toggleAutoLock(senderCtx)
+        end
+        -- The fusion modules answer the player themselves, so a refusal is only
+        -- logged here; passing it on would put the same line in the chat twice.
+        if opcode == NetChannel.OP_FUSE_BATTLE or opcode == NetChannel.OP_FUSE_ALTAR then
+            local ok, msg
+            if opcode == NetChannel.OP_FUSE_BATTLE then
+                local Fusion = package.loaded["fusion"]
+                if not Fusion then return false, "fusion is not loaded" end
+                ok, msg = Fusion.startBattle(senderCtx, pairIndex - 1)
+            else
+                local Altar = package.loaded["altar"]
+                if not Altar then return false, "the fusion altar is not loaded" end
+                ok, msg = Altar.start(senderCtx, nil, { allowCage = Config.devMode })
+            end
+            if not ok then Log("Fusion request refused: " .. tostring(msg or "no reason given")) end
+            return true
         end
         return handleEvolveByIndex(senderCtx, pairIndex)
     end)

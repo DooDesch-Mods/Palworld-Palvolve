@@ -470,6 +470,53 @@ function Altar.start(playerCtx, choice, opts)
     return true
 end
 
+--- The wheel entry for a nearby altar, or nil when no altar is in reach. Reads
+--- only; Altar.start checks everything again.
+function Altar.wheelOption(playerCtx)
+    if not (Config.fusion.enabled and Config.fusion.altarEnabled) then return nil end
+    if not api then
+        Log("[WARN] altar wheel entry skipped: not set up")
+        return nil
+    end
+    local altar = findAltar(playerCtx, Config.devMode)
+    if not altar then return nil end
+    local opt = { fusion = "altar", index = 1, label = I18n.msg("fusionAltarEntry") }
+    local cage = containerOf(altar)
+    local inside = cage and filledSlots(cage) or {}
+    if #inside ~= 2 then
+        opt.blocked = I18n.msg("fusionAltarNeedsTwo", #inside)
+    else
+        local A, B = inside[1], inside[2]
+        local okA, rawA = pcall(api.characterId, A.param)
+        local okB, rawB = pcall(api.characterId, B.param)
+        if not (okA and okB) then
+            Log("[WARN] altar wheel entry: species unreadable")
+            opt.blocked = I18n.msg("optionUnavailable")
+        elseif not (api.isOwnedBy(A.param, playerCtx.playerUId) and api.isOwnedBy(B.param, playerCtx.playerUId)) then
+            opt.blocked = I18n.msg("fusionAltarNotYours")
+        else
+            local idA, idB = api.baseCharacterId(rawA), api.baseCharacterId(rawB)
+            local nameA, nameB = api.displayName(idA), api.displayName(idB)
+            local levelA, levelB = readNumber(A.param, "Level") or 1, readNumber(B.param, "Level") or 1
+            local target, why = Altar.resolveTarget(idA, idB, levelA, levelB,
+                { param = A.param, playerCtx = playerCtx })
+            if not target then
+                opt.blocked = I18n.msg(why, nameA, nameB)
+            else
+                local costList = Costs.resolve({ from = idA, to = target, stone = "fusionCore" }, levelA, playerCtx.pc)
+                local costOk, missing = Costs.check(playerCtx, costList)
+                if not costOk then
+                    opt.blocked = I18n.msg("fusionMissing", Costs.describeMissing(missing))
+                else
+                    opt.requirement = I18n.msg("fusionAltarPreview", nameA, nameB, api.displayName(target))
+                end
+            end
+        end
+    end
+    opt.requirement = opt.requirement or opt.blocked
+    return opt
+end
+
 function Altar.init(evolution)
     api = evolution.fusionApi
     if not api then Log("[ERROR] Evolution.fusionApi missing, the altar stays off") end

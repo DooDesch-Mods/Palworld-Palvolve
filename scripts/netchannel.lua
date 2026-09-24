@@ -31,6 +31,12 @@ local OP_EVOLVE_V3 = 9
 -- write lands on a replica the host never sees. The index byte carries the
 -- wanted state instead of a pair.
 local OP_AUTOLOCK = 10
+-- Fusions: the index byte is the partner party slot + 1 for a battle fusion,
+-- and 1 for the altar (the altar knows its two Pals itself).
+local OP_FUSE_BATTLE = 11
+local OP_FUSE_ALTAR = 12
+NetChannel.OP_FUSE_BATTLE = OP_FUSE_BATTLE
+NetChannel.OP_FUSE_ALTAR = OP_FUSE_ALTAR
 NetChannel.OP_EVOLVE_LEGACY = OP_EVOLVE_LEGACY
 NetChannel.OP_PRESTIGE = OP_PRESTIGE
 NetChannel.OP_EVOLVE_V3 = OP_EVOLVE_V3
@@ -126,6 +132,16 @@ end
 -- 2 and 3, and neither has a caller yet.
 function NetChannel.sendAutoLock(playerCtx)
     return sendRequest(playerCtx, OP_AUTOLOCK, 1)
+end
+
+--- Asks the host to fuse the summoned Pal with the one in party slot partnerSlot (0-based).
+function NetChannel.sendFuseBattle(playerCtx, partnerSlot)
+    return sendRequest(playerCtx, OP_FUSE_BATTLE, (tonumber(partnerSlot) or -1) + 1)
+end
+
+--- Asks the host to run the fusion at the player's nearby altar.
+function NetChannel.sendFuseAltar(playerCtx)
+    return sendRequest(playerCtx, OP_FUSE_ALTAR, 1)
 end
 
 -- The "do you run Palvolve?" handshake is host-driven, not a client ping: no
@@ -309,6 +325,7 @@ function NetChannel.initHost(handler)
                     local knownOpcode = opcode == OP_EVOLVE_LEGACY
                         or opcode == OP_PRESTIGE or opcode == OP_EVOLVE_V3
                         or opcode == OP_AUTOLOCK
+                        or opcode == OP_FUSE_BATTLE or opcode == OP_FUSE_ALTAR
                     if not knownOpcode then
                         Log(string.format("Request dropped: unknown opcode %d", opcode))
                         return

@@ -583,6 +583,77 @@ function Fusion.startBattle(playerCtx, partnerSlot)
     return true
 end
 
+--- Wheel entries for the summoned Pal: one per party partner, with what the
+--- fusion gives or why it is closed. Reads only; the host checks everything
+--- again when the entry is picked.
+function Fusion.wheelOptions(playerCtx, holder, paramA)
+    local out = {}
+    if not (Config.fusion.enabled and Config.fusion.battleEnabled) then return out end
+    if not (api and holder and paramA) then
+        Log("[WARN] fusion wheel entries skipped: " .. (api and "no holder or Pal" or "not set up"))
+        return out
+    end
+    local okA, rawA = pcall(api.characterId, paramA)
+    if not okA then
+        Log("[WARN] fusion wheel entries skipped: species unreadable")
+        return out
+    end
+    local idA = api.baseCharacterId(rawA)
+    local nameA = api.displayName(idA)
+    local keyA = api.individualKey(paramA)
+    local levelA = 1
+    pcall(function() levelA = paramA:GetLevel() end)
+    local uid = playerCtx and playerCtx.playerUId and string.format("%s-%s-%s-%s",
+        tostring(playerCtx.playerUId.A), tostring(playerCtx.playerUId.B),
+        tostring(playerCtx.playerUId.C), tostring(playerCtx.playerUId.D)) or "local"
+    for slot = 0, 4 do
+        local paramB = nil
+        pcall(function()
+            local h = holder:GetOtomoIndividualHandle(slot)
+            if h and h:IsValid() then paramB = h:TryGetIndividualParameter() end
+        end)
+        if paramB and paramB:IsValid() and api.individualKey(paramB) ~= keyA then
+            local okB, rawB = pcall(api.characterId, paramB)
+            if okB then
+                local idB = api.baseCharacterId(rawB)
+                local nameB = api.displayName(idB)
+                local opt = { fusion = "battle", partnerSlot = slot, index = slot + 1,
+                    label = I18n.msg("fusionWithShort", nameB) }
+                local levelB = 1
+                pcall(function() levelB = paramB:GetLevel() end)
+                if active[keyA] or Fusion.isFused(paramB) then
+                    opt.blocked = I18n.msg("fusionAlreadyActive")
+                elseif hpOf(paramB) <= 0 then
+                    opt.blocked = I18n.msg("fusionPartnerFainted")
+                else
+                    local condCtx = { param = paramA, playerCtx = playerCtx, holder = holder }
+                    local target, why = Fusion.resolveTarget(idA, idB, levelA, levelB, condCtx)
+                    if not target then
+                        opt.blocked = I18n.msg(why, nameA, nameB)
+                    else
+                        local cdEnd = cooldowns[FusionRules.pairKey(idA, idB) .. "|" .. uid]
+                        local costList = Costs.resolve({ from = idA, to = target, stone = "fusionShard" }, levelA, holder)
+                        local costOk, missing = Costs.check(playerCtx, costList)
+                        if cdEnd and os.clock() < cdEnd then
+                            opt.blocked = I18n.msg("fusionCooldown", math.ceil(cdEnd - os.clock()))
+                        elseif not costOk then
+                            opt.blocked = I18n.msg("fusionMissing", Costs.describeMissing(missing))
+                        else
+                            opt.requirement = I18n.msg("fusionIntoShort", api.displayName(target),
+                                Config.fusion.durationSeconds or 60)
+                        end
+                    end
+                end
+                opt.requirement = opt.requirement or opt.blocked
+                out[#out + 1] = opt
+            else
+                Log("[WARN] fusion wheel: partner in slot " .. slot .. " unreadable")
+            end
+        end
+    end
+    return out
+end
+
 --- Whether this parameter is half of a running fusion (evolution, prestige and
 --- rollback refuse it while it is).
 function Fusion.isFused(param)

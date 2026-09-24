@@ -251,6 +251,10 @@ return {
             ["fusionAltarNotReady"] = "The Pals in the altar are not there yet, try again in a moment",
             ["fusionAltarFailed"] = "The fusion could not finish and was undone. The Fusion Core was returned.",
             ["fusionAltarDone"] = "%s and %s became %s",
+            ["fusionWithShort"] = "Fuse with %s",
+            ["fusionIntoShort"] = "Becomes %s for %d s",
+            ["fusionAltarEntry"] = "Fusion Altar",
+            ["fusionAltarPreview"] = "%s + %s = %s, for good",
         },
         palNames = {
             ["PlantSlime_Flower"] = "Gumoss Botan",
@@ -509,6 +513,10 @@ return {
             ["fusionAltarNotReady"] = "Die Pals im Altar sind noch nicht da, gleich noch einmal versuchen",
             ["fusionAltarFailed"] = "Die Fusion ließ sich nicht abschließen und wurde zurückgenommen. Der Fusionskern ist zurück.",
             ["fusionAltarDone"] = "%s und %s wurden zu %s",
+            ["fusionWithShort"] = "Fusion mit %s",
+            ["fusionIntoShort"] = "Wird zu %s für %d s",
+            ["fusionAltarEntry"] = "Fusions-Altar",
+            ["fusionAltarPreview"] = "%s + %s = %s, dauerhaft",
         },
         palNames = {
             ["PlantSlime_Flower"] = "Gumoss Botan",
