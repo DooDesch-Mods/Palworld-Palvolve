@@ -29,6 +29,9 @@ end
 TreeSync.PREFIX_V2 = "PVLV2|tree|"
 TreeSync.PREFIX_V3 = "PVLV3|tree|"
 TreeSync.PREFIX = TreeSync.PREFIX_V3
+-- Fusion rules travel in a frame of their own. A client from before 2.0 reads
+-- only the two tree prefixes and drops this one unread.
+TreeSync.PREFIX_FUSE = "PVLV3|fuse|"
 
 -- Refuses to send anything near the size that kills the process. 32 KB is half
 -- of what was proven to arrive whole, and about three times what the largest
@@ -403,7 +406,90 @@ function TreeSync.decode(body, version)
     return pairsOut, globals
 end
 
+-- Fusion rule records: a|b|to|kind|minLevel|conditions, species by dictionary
+-- index as in the tree frame.
+local KIND_CODE = { both = "B", permanent = "P", temporary = "T" }
+local KIND_WORD = { B = "both", P = "permanent", T = "temporary" }
+
+function TreeSync.encodeFusions(list)
+    local dict, dictIndex = {}, {}
+    local function idOf(name)
+        local at = dictIndex[name]
+        if at then return at end
+        dict[#dict + 1] = name
+        dictIndex[name] = #dict - 1
+        return #dict - 1
+    end
+    local out = {}
+    for _, r in ipairs(list or {}) do
+        if r.enabled ~= false and idSafe(r.a) and idSafe(r.b) and idSafe(r.to) then
+            local conds = ""
+            if type(r.conditions) == "table" and #r.conditions > 0 then
+                conds = table.concat(r.conditions, CS)
+            end
+            out[#out + 1] = table.concat({
+                b36(idOf(r.a)), b36(idOf(r.b)), b36(idOf(r.to)),
+                KIND_CODE[r.kind or "both"] or "B",
+                tostring(tonumber(r.minLevel) or 1), conds,
+            }, FS)
+        end
+    end
+    local body = table.concat(dict, ",") .. RS .. table.concat(out, RS)
+    return body, hashOf(body), #out
+end
+
+function TreeSync.decodeFusions(body)
+    body = tostring(body or "")
+    local brk = body:find(RS, 1, true)
+    local dictLine = brk and body:sub(1, brk - 1) or body
+    local dict = {}
+    for name in dictLine:gmatch("[^,]+") do dict[#dict + 1] = name end
+    local rules = {}
+    if not brk then return rules end
+    for line in body:sub(brk + 1):gmatch("[^" .. RS .. "]+") do
+        local a, b, to, kind, lvl, conds = line:match("^([^|]+)|([^|]+)|([^|]+)|([^|]*)|([^|]*)|(.*)$")
+        local ai, bi, ti = a and unb36(a), b and unb36(b), to and unb36(to)
+        local r = {
+            a = ai and dict[ai + 1], b = bi and dict[bi + 1], to = ti and dict[ti + 1],
+            kind = KIND_WORD[kind] or "both", minLevel = tonumber(lvl) or 1, enabled = true,
+        }
+        if r.a and r.b and r.to then
+            if conds and conds ~= "" then
+                local cl = {}
+                for c in conds:gmatch("[^;]+") do cl[#cl + 1] = c end
+                if #cl > 0 then r.conditions = cl end
+            end
+            rules[#rules + 1] = r
+        end
+    end
+    return rules
+end
+
 -- ------------------------------------------------------------------- host
+
+local function sendFusions(playerCtx)
+    local okEnc, body, hash, count = pcall(TreeSync.encodeFusions, Config.fusions)
+    if not okEnc then
+        Log("[ERROR] fusion rule sync encoding failed: " .. tostring(body))
+        return false
+    end
+    local frame = TreeSync.PREFIX_FUSE .. hash .. "|" .. count .. "|" .. body
+    if #frame > MAX_PAYLOAD then
+        Log(string.format("[ERROR] fusion rule sync NOT issued: %d rules are %d bytes, over the %d byte cap",
+            count, #frame, MAX_PAYLOAD))
+        return false
+    end
+    local issued, issueErr = pcall(function()
+        playerCtx.pc:SendScreenLogToClient(frame,
+            { R = 0.2, G = 1.0, B = 0.4, A = 1.0 }, 0.1, FName("PalvolveTree"))
+    end)
+    if issued then
+        Log(string.format("[INFO] fusion rule sync call issued: %d rules, %d bytes, %s", count, #frame, hash))
+    else
+        Log("[ERROR] fusion rule sync call failed: " .. tostring(issueErr))
+    end
+    return issued
+end
 
 local function sendVersion(playerCtx, version, prefix)
     local encoded, body, hash, count, encodeErr = pcall(TreeSync.encode, Config.map, version)
@@ -462,7 +548,8 @@ function TreeSync.sendTo(playerCtx)
     end
     local legacyOk = sendVersion(playerCtx, 2, TreeSync.PREFIX_V2)
     local v3Ok = sendVersion(playerCtx, 3, TreeSync.PREFIX_V3)
-    return legacyOk and v3Ok
+    local fuseOk = sendFusions(playerCtx)
+    return legacyOk and v3Ok and fuseOk
 end
 
 -- ----------------------------------------------------------------- client
@@ -471,6 +558,7 @@ end
 -- does not leave the player's own tree overwritten for the rest of the session.
 local localMap = nil
 local localGlobals = nil
+local localFusions = nil
 local activeHash = nil
 local activeVersion = nil
 local activeGeneration = nil
@@ -597,8 +685,36 @@ end
 --- Applies a received tree. Returns false when nothing usable came out of it,
 --- in which case the client keeps its previous tree rather than showing an empty
 --- tree that claims to be the server's.
+local function applyFusionFrame(frame)
+    local hash, count, body = frame:match("^" .. TreeSync.PREFIX_FUSE:gsub("|", "%%|") .. "(%x+)|(%d+)|(.*)$")
+    if not (hash and body) then
+        Log("[WARN] server fusion rules rejected: malformed header")
+        return false
+    end
+    if hashOf(body) ~= hash:lower() then
+        Log("[WARN] server fusion rules checksum mismatch, keeping the current ones")
+        return false
+    end
+    local rules = TreeSync.decodeFusions(body)
+    if #rules ~= tonumber(count) then
+        Log(string.format("[WARN] server fusion rules incomplete: %d of %s, keeping the current ones", #rules, count))
+        return false
+    end
+    if localFusions == nil then localFusions = Config.fusions or {} end
+    Config.fusions = rules
+    Log(string.format("[INFO] server fusion rules active: %d rules, %s", #rules, hash))
+    return true
+end
+
 function TreeSync.applyFrame(frame)
     frame = tostring(frame or "")
+    if frame:sub(1, #TreeSync.PREFIX_FUSE) == TreeSync.PREFIX_FUSE then
+        if #frame > MAX_PAYLOAD then
+            Log("[WARN] server fusion rules rejected: over the size cap")
+            return false
+        end
+        return applyFusionFrame(frame)
+    end
     if #frame > MAX_PAYLOAD then
         Log(string.format("[WARN] server tree rejected: %d bytes exceeds the %d byte cap",
             #frame, MAX_PAYLOAD))
@@ -693,6 +809,11 @@ end
 
 --- Back to the player's own tree, for when this client leaves the server.
 function TreeSync.restoreLocal()
+    if localFusions ~= nil then
+        Config.fusions = localFusions
+        localFusions = nil
+        Log("[INFO] back to the local fusion rules")
+    end
     if localMap == nil then
         Log("[INFO] local tree restore skipped: no server tree is active")
         return

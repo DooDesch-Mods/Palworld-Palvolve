@@ -800,7 +800,8 @@ local function handleClientMessage(_, Message)
     local okText, text = pcall(readMessageText, Message)
     if not okText or type(text) ~= "string" then return end
 
-    if text:sub(1, 11) == "PVLV2|tree|" or text:sub(1, 11) == "PVLV3|tree|" then
+    if text:sub(1, 11) == "PVLV2|tree|" or text:sub(1, 11) == "PVLV3|tree|"
+        or text:sub(1, 11) == "PVLV3|fuse|" then
         queueTreeFrame(text)
         return
     end
