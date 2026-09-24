@@ -1,14 +1,18 @@
 {
     "DT_MapObjectNameText": {
-        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "Pal Alchemy Workbench"
+        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "Pal Alchemy Workbench",
+        "MAPOBJECT_NAME_Palvolve_FusionAltar": "Fusion Altar"
     },
     "DT_BuildObjectDescText": {
-        "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "Breaks skill fruits and elemental materials down into pure essences and forges Evolution and Adaptation Stones."
+        "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "Breaks skill fruits and elemental materials down into pure essences and forges Evolution and Adaptation Stones.",
+        "BUILDOBJECT_DESC_Palvolve_FusionAltar": "Place two Pals here and they fuse into one for good. Costs a Fusion Core."
     },
     "DT_TechnologyNameText": {
-        "NAME_RECIPE_Palvolve_ElementExtractor": "Pal Alchemy Workbench"
+        "NAME_RECIPE_Palvolve_ElementExtractor": "Pal Alchemy Workbench",
+        "NAME_RECIPE_Palvolve_FusionAltar": "Fusion Altar"
     },
     "DT_TechnologyDescText": {
-        "DESC_RECIPE_Palvolve_ElementExtractor": "Unlocks the Pal Alchemy Workbench - the home of essence extraction, Evolution Stones and Adaptation Stones."
+        "DESC_RECIPE_Palvolve_ElementExtractor": "Unlocks the Pal Alchemy Workbench - the home of essence extraction, Evolution Stones and Adaptation Stones.",
+        "DESC_RECIPE_Palvolve_FusionAltar": "Unlocks the Fusion Altar, where two Pals become one for good."
     }
 }

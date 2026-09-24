@@ -34,5 +34,29 @@
         "MaxStackCount": 99,
         "SortId": 999002,
         "Weight": 1.0
+    },
+    "Palvolve_FusionShard": {
+        "Type": "Generic",
+        "IconTexture": "$resource/Palvolve/evolutionstone",
+        "TypeA": "Material",
+        "TypeB": "Palvolve_Craft",
+        "Rank": 1,
+        "Rarity": 3,
+        "Price": 8000,
+        "MaxStackCount": 99,
+        "SortId": 999003,
+        "Weight": 1.0
+    },
+    "Palvolve_FusionCore": {
+        "Type": "Generic",
+        "IconTexture": "$resource/Palvolve/prestigestone",
+        "TypeA": "Material",
+        "TypeB": "Palvolve_Craft",
+        "Rank": 1,
+        "Rarity": 4,
+        "Price": 40000,
+        "MaxStackCount": 99,
+        "SortId": 999004,
+        "Weight": 1.0
     }
 }

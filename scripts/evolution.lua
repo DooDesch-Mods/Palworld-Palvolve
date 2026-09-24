@@ -1471,6 +1471,9 @@ local function performEvolution(p)
     -- passed in, so the client side gets the same answer from the synced tree
     -- without another field on the wire.
     ctx.isPrestige = (pair and pair.category == "prestige") or false
+    -- A fusion runs the same swap. p.fusion carries what differs: how the Pal is
+    -- rewritten, how that is undone, and what happens once it stands.
+    ctx.fusionKind = p.fusion and p.fusion.kind or nil
     -- Which prestige programme plays: the Pal's own stage, so the Nth prestige
     -- outdoes the N-1th. Unknown reads as 1 rather than as nothing.
     -- The host's number wins where it is available: the local passive list can
@@ -1773,7 +1776,25 @@ local function performEvolution(p)
             finishAbort()
         end
 
-        if isPrestige then
+        if p.fusion then
+            local okMutate, mutateErr = pcall(p.fusion.mutate, param, targetId)
+            if not okMutate or mutateErr then
+                local reason = okMutate and mutateErr or ("fusion mutate raised: " .. tostring(mutateErr))
+                local okRestore, restoreErr = pcall(p.fusion.restore, param)
+                if okRestore and not restoreErr then
+                    Log("Fusion mutation failed and was rolled back: " .. tostring(reason))
+                else
+                    Log("FUSION ROLLBACK FAILED after mutation error: " .. tostring(reason)
+                        .. "; restore=" .. tostring(okRestore and restoreErr or restoreErr))
+                end
+                Role.chat(playerCtx, I18n.msg("swapStateMutationFailed"), "reply")
+                refundCost("fusion mutation failed")
+                finishAbort()
+                return
+            end
+            swapDone = true
+            if txn then txn.commit() end
+        elseif isPrestige then
             local mutationOk, passiveResult = applyPrestigeMutation(param, targetId, playerCtx)
             if not mutationOk then
                 restoreFailedMutation(passiveResult)
@@ -1865,44 +1886,57 @@ local function performEvolution(p)
                 end
             end
         end
-        pcall(function() param:FullRecoveryHP() end)
+        -- The split at the end of a fusion hands both Pals their share of the
+        -- fused Pal's HP; healing here would undo exactly that.
+        if not (p.fusion and p.fusion.keepHp) then
+            pcall(function() param:FullRecoveryHP() end)
+        end
         refreshWorkSuitability(param, playerCtx, actor, pair.from)
 
-        -- Snapshot only AFTER a successful swap (no phantom rollback entries);
-        -- stores the RAW ids (BOSS_ included) so a rollback restores the alpha
-        table.insert(snapshots, {
-            kind = isPrestige and "prestige" or "evolution",
-            key = key, from = isAlpha and (BOSS_PREFIX .. pair.from) or pair.from,
-            to = targetId, level = level,
-            exp = isPrestige and prestigeState.exp or nil,
-            mirrorLevel = isPrestige and prestigeState.mirrorLevel or nil,
-            mirrorExp = isPrestige and prestigeState.mirrorExp or nil,
-            nickname = nickname,
-            ivHP = talentsBefore.Talent_HP, ivMelee = talentsBefore.Talent_Melee,
-            ivShot = talentsBefore.Talent_Shot, ivDefense = talentsBefore.Talent_Defense,
-            passives = passivesBefore,
-            skin = skinBefore,
-            waza = wazaBefore,
-            -- owning player (additive; multiplayer rollback needs to know
-            -- whose pal the snapshot belongs to)
-            uid = playerCtx and playerCtx.playerUId
-                and guidString(playerCtx.playerUId) or nil,
-            -- what this evolution actually cost, so a rollback can hand it
-            -- back. Recorded here rather than re-derived later: material costs
-            -- depend on the pal's level at the time, which has since moved on.
-            cost = (function()
-                local paid = {}
-                for _, c in ipairs(costList or {}) do
-                    if c.id and c.count then
-                        table.insert(paid, { id = c.id, count = c.count })
+        -- A fusion keeps its own record (fusion.lua): an evolution rollback must
+        -- never turn a fused Pal back into one of its two halves.
+        if p.fusion then
+            local okCommitted, committedErr = pcall(p.fusion.onCommitted, param, actor)
+            if not okCommitted then
+                Log("[ERROR] fusion commit hook failed: " .. tostring(committedErr))
+            end
+        else
+            -- Snapshot only AFTER a successful swap (no phantom rollback entries);
+            -- stores the RAW ids (BOSS_ included) so a rollback restores the alpha
+            table.insert(snapshots, {
+                kind = isPrestige and "prestige" or "evolution",
+                key = key, from = isAlpha and (BOSS_PREFIX .. pair.from) or pair.from,
+                to = targetId, level = level,
+                exp = isPrestige and prestigeState.exp or nil,
+                mirrorLevel = isPrestige and prestigeState.mirrorLevel or nil,
+                mirrorExp = isPrestige and prestigeState.mirrorExp or nil,
+                nickname = nickname,
+                ivHP = talentsBefore.Talent_HP, ivMelee = talentsBefore.Talent_Melee,
+                ivShot = talentsBefore.Talent_Shot, ivDefense = talentsBefore.Talent_Defense,
+                passives = passivesBefore,
+                skin = skinBefore,
+                waza = wazaBefore,
+                -- owning player (additive; multiplayer rollback needs to know
+                -- whose pal the snapshot belongs to)
+                uid = playerCtx and playerCtx.playerUId
+                    and guidString(playerCtx.playerUId) or nil,
+                -- what this evolution actually cost, so a rollback can hand it
+                -- back. Recorded here rather than re-derived later: material costs
+                -- depend on the pal's level at the time, which has since moved on.
+                cost = (function()
+                    local paid = {}
+                    for _, c in ipairs(costList or {}) do
+                        if c.id and c.count then
+                            table.insert(paid, { id = c.id, count = c.count })
+                        end
                     end
-                end
-                return paid
-            end)(),
-        })
-        -- Always the unprefixed id: the capture record is keyed by EPalTribeID, which has one
-        -- entry per species and none for the BOSS_ (alpha) rows, exactly like the Palpedia.
-        unlockCatchTech(pair.to, playerCtx)
+                    return paid
+                end)(),
+            })
+            -- Always the unprefixed id: the capture record is keyed by EPalTribeID, which has one
+            -- entry per species and none for the BOSS_ (alpha) rows, exactly like the Palpedia.
+            unlockCatchTech(pair.to, playerCtx)
+        end
 
         -- Headless (dedicated server): the authoritative param swap is done.
         -- Do NOT touch the otomo lifecycle - on this path the pal was never
@@ -3299,6 +3333,12 @@ local function handleEvolveRequest(playerCtx, fromId, toId, exactPairIndex, pres
     if not (param and isOwnedBy(param, playerCtx.playerUId)) then
         return false, I18n.msg("noPalSummoned")
     end
+    -- A fused Pal is two Pals for as long as the fusion lasts; evolving or
+    -- prestiging it would write over the species the split has to restore.
+    local okFusion, Fusion = pcall(require, "fusion")
+    if okFusion and Fusion.isFused(param) then
+        return false, I18n.msg("fusionBusy")
+    end
     local id, isAlpha = baseCharacterId(param:GetCharacterID():ToString())
     if id ~= fromId then
 return false, I18n.msg("selectionOutdated", palDisplayName(id), palDisplayName(fromId))
@@ -4165,6 +4205,9 @@ local function scanAutoControllerUnsafe(pc)
 
     -- A Pal the player has locked is left alone entirely: no scan, no unlock.
     if AutoLock.isLocked(param) then return AUTO_SLOW_S, false end
+    -- Nor is a fused one: it goes back to being two Pals when the fusion ends.
+    local okFusion, Fusion = pcall(require, "fusion")
+    if okFusion and Fusion.isFused(param) then return AUTO_SLOW_S, false end
 
     -- EVERY ready candidate is collected, not the first one. The old loop broke
     -- out on the first match in `selected` mode, so which of several possible
@@ -4998,5 +5041,37 @@ function Evolution.init()
             Config.confirmKey))
     end
 end
+
+-- What fusion.lua shares with the evolution path. A fusion in a fight is the
+-- same despawn, swap and respawn with a different rewrite in the middle, so it
+-- runs through performEvolution rather than a copy of it; these are the pieces
+-- a request has to resolve before it gets there.
+Evolution.fusionApi = {
+    run = function(p) return performEvolution(p) end,
+    busy = function() return lockBusy() end,
+    findHolder = function(playerCtx) return findHolderFor(playerCtx, nil) end,
+    paramOf = paramOf,
+    isOwnedBy = isOwnedBy,
+    baseCharacterId = baseCharacterId,
+    individualKey = individualKey,
+    characterId = function(param) return characterIdUnsafe(param) end,
+    hasAuthority = function(pc) return controllerHasAuthority(pc) end,
+    displayName = palDisplayName,
+    --- The transform-safe freeze the MP reveal uses: movement tick, AI and
+    --- queued actions stop, the transform stays writable from Lua.
+    freeze = function(actor, frozen) setRevealFrozen(actor, frozen) end,
+    --- Writes the species to both save halves and reads it back.
+    --- Returns nil on success, or the reason it did not land.
+    writeSpecies = function(param, id)
+        local okWrite, writeErr = pcall(writeSpeciesUnsafe, param, id)
+        if not okWrite then return "species write failed: " .. tostring(writeErr) end
+        local okRead, now = pcall(characterIdUnsafe, param)
+        if not okRead then return "species read-back failed: " .. tostring(now) end
+        if Config.canonicalId(now) ~= Config.canonicalId(id) then
+            return string.format("species read back as %s, expected %s", tostring(now), tostring(id))
+        end
+        return nil
+    end,
+}
 
 return Evolution

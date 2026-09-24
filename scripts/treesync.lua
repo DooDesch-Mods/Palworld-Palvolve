@@ -148,6 +148,19 @@ local GLOBALS = {
     { key = "evolutionBonusSlot", kind = "enum", values = { off = true, active = true } },
     { key = "prestigeBonusSlot", kind = "enum", values = { off = true, active = true } },
 
+    -- Fusion: whether the wheel and the altar offer it, which species a pair
+    -- without a rule turns into, and what it costs. The client builds its wheel
+    -- entry and its preview from these, the host applies its own values when
+    -- the request arrives. The timer and the cooldown stay on the host.
+    -- Not gated: an older client has no entry for these keys and drops them.
+    { key = "fusion.enabled", kind = "bool" },
+    { key = "fusion.battleEnabled", kind = "bool" },
+    { key = "fusion.altarEnabled", kind = "bool" },
+    { key = "fusion.fallback", kind = "bool" },
+    { key = "fusion.fallbackPercent", kind = "number" },
+    { key = "fusion.shardCount", kind = "number" },
+    { key = "fusion.coreCount", kind = "number" },
+
     -- How the transformation looks, so a server decides what its players see
     -- rather than each of them running their own cut. These are read per
     -- evolution (finale.lua finaleCfg/timings, fx.lua digimonCfg,

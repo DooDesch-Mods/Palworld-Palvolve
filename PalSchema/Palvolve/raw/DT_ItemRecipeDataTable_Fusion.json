@@ -1,0 +1,28 @@
+{
+    "DT_ItemRecipeDataTable": {
+        "Palvolve_Craft_A03_FusionShard": {
+            "Product_Id": "Palvolve_FusionShard",
+            "Product_Count": 1,
+            "WorkAmount": 300,
+            "Material1_Id": "Palvolve_EvolutionStone",
+            "Material1_Count": 1,
+            "Material2_Id": "PalFluid",
+            "Material2_Count": 5,
+            "Material3_Id": "Pal_crystal_S",
+            "Material3_Count": 10
+        },
+        "Palvolve_Craft_A04_FusionCore": {
+            "Product_Id": "Palvolve_FusionCore",
+            "Product_Count": 1,
+            "WorkAmount": 1200,
+            "Material1_Id": "Palvolve_PrestigeStone",
+            "Material1_Count": 1,
+            "Material2_Id": "Palvolve_FusionShard",
+            "Material2_Count": 5,
+            "Material3_Id": "MeteorDrop",
+            "Material3_Count": 10,
+            "Material4_Id": "NightStone",
+            "Material4_Count": 3
+        }
+    }
+}

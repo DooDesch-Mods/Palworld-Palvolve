@@ -23,6 +23,10 @@ local PRESTIGE_FIRST = { spinUpMs = 3200, shrinkMs = 2600, growMs = 3700, finale
 local PRESTIGE_LAST  = { spinUpMs = 4800, shrinkMs = 3700, growMs = 5200, finaleHoldMs = 6300 }
 local PRESTIGE_MAX_STAGE = 10
 
+-- A fusion in a fight has to be over before the fight moves on: about three
+-- seconds from the flash to the fused Pal standing there.
+local FUSION_BATTLE = { spinUpMs = 600, shrinkMs = 500, growMs = 900, finaleHoldMs = 600 }
+
 local function round100(v)
     return math.floor(v / 100 + 0.5) * 100
 end
@@ -62,8 +66,15 @@ end
 --- @param isPrestige boolean
 --- @param stage number|nil prestige stage, 1 when unknown
 --- @return table immutable timing, in milliseconds unless the name says otherwise
-function Timing.resolve(isPrestige, stage)
+function Timing.resolve(isPrestige, stage, fusionBattle)
     local phases = isPrestige and prestigePhases(stage) or evolutionPhases()
+    if fusionBattle then
+        phases = {
+            spinUpMs = FUSION_BATTLE.spinUpMs, shrinkMs = FUSION_BATTLE.shrinkMs,
+            growMs = FUSION_BATTLE.growMs, finaleHoldMs = FUSION_BATTLE.finaleHoldMs,
+            peakDegPerSec = evolutionPhases().peakDegPerSec,
+        }
+    end
 
     local dissolveMs = phases.spinUpMs + phases.shrinkMs
     local revealTotalMs = phases.growMs + phases.finaleHoldMs
@@ -106,7 +117,8 @@ end
 function Timing.forContext(ctx)
     if type(ctx) ~= "table" then return Timing.resolve(false, nil) end
     if not ctx.timing then
-        ctx.timing = Timing.resolve(ctx.isPrestige == true, ctx.prestigeStage)
+        ctx.timing = Timing.resolve(ctx.isPrestige == true, ctx.prestigeStage,
+            ctx.fusionKind == "temporary")
     end
     return ctx.timing
 end

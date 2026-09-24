@@ -1,14 +1,18 @@
 {
     "DT_MapObjectNameText": {
-        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "Pal-Alchemiewerkbank"
+        "MAPOBJECT_NAME_Palvolve_ElementExtractor": "Pal-Alchemiewerkbank",
+        "MAPOBJECT_NAME_Palvolve_FusionAltar": "Fusions-Altar"
     },
     "DT_BuildObjectDescText": {
-        "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "Zerlegt Technikfrüchte und elementare Materialien in reine Essenzen und schmiedet Entwicklungs- und Adaptionssteine."
+        "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "Zerlegt Technikfrüchte und elementare Materialien in reine Essenzen und schmiedet Entwicklungs- und Adaptionssteine.",
+        "BUILDOBJECT_DESC_Palvolve_FusionAltar": "Lege zwei Pals hinein, und sie verschmelzen dauerhaft zu einem. Kostet einen Fusionskern."
     },
     "DT_TechnologyNameText": {
-        "NAME_RECIPE_Palvolve_ElementExtractor": "Pal-Alchemiewerkbank"
+        "NAME_RECIPE_Palvolve_ElementExtractor": "Pal-Alchemiewerkbank",
+        "NAME_RECIPE_Palvolve_FusionAltar": "Fusions-Altar"
     },
     "DT_TechnologyDescText": {
-        "DESC_RECIPE_Palvolve_ElementExtractor": "Schaltet die Pal-Alchemiewerkbank frei - das Zuhause der Essenz-Gewinnung, Entwicklungs- und Adaptionssteine."
+        "DESC_RECIPE_Palvolve_ElementExtractor": "Schaltet die Pal-Alchemiewerkbank frei - das Zuhause der Essenz-Gewinnung, Entwicklungs- und Adaptionssteine.",
+        "DESC_RECIPE_Palvolve_FusionAltar": "Schaltet den Fusions-Altar frei, an dem zwei Pals dauerhaft zu einem werden."
     }
 }

@@ -1,0 +1,36 @@
+{
+    "Palvolve_FusionAltar": {
+        "BlueprintClassName": "BP_BuildObject_DisplayCharacter",
+        "BlueprintClassSoft": "/Game/Pal/Blueprint/MapObject/BuildObject/BP_BuildObject_DisplayCharacter.BP_BuildObject_DisplayCharacter_C",
+        "IconTexture": "$resource/Palvolve/extractor_bench",
+        "Hp": 3000,
+        "Defense": 10,
+        "MaterialType": "Stone",
+        "MaterialSubType": "Stone",
+        "bBelongToBaseCamp": true,
+        "DeteriorationDamage": 0.08,
+        "BuildingData": {
+            "TypeA": "Pal",
+            "TypeB": "Pal_Modify",
+            "TypeUIDisplay": "PalOther",
+            "Rank": 1,
+            "RequiredBuildWorkAmount": 3000.0,
+            "Material1_Id": "PalCrystal_Ex",
+            "Material1_Count": 10,
+            "Material2_Id": "StealIngot",
+            "Material2_Count": 20,
+            "Material3_Id": "Pal_crystal_S",
+            "Material3_Count": 50
+        },
+        "Technology": {
+            "UnlockBuildObjects": [
+                "Palvolve_FusionAltar"
+            ],
+            "IconName": "Palvolve_FusionAltar",
+            "IsBossTechnology": false,
+            "LevelCap": 45,
+            "Tier": 1,
+            "Cost": 3
+        }
+    }
+}

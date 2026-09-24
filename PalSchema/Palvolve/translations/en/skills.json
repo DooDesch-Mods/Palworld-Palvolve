@@ -18,7 +18,9 @@
         "PASSIVE_Palvolve_Evolved_2_Locked": "Evolved II",
         "PASSIVE_Palvolve_Evolved_3_Locked": "Evolved III",
         "PASSIVE_Palvolve_Evolved_4_Locked": "Evolved IV",
-        "PASSIVE_Palvolve_NoAutoEvolve": "Auto-Evo"
+        "PASSIVE_Palvolve_NoAutoEvolve": "Auto-Evo",
+        "PASSIVE_Palvolve_Fused": "Fused",
+        "PASSIVE_Palvolve_FusionActive": "Fusing"
     },
     "DT_SkillDescText": {
         "PASSIVE_Palvolve_Prestige_1": "The ascent begins.\r\nAttack +{EffectValue1}%\r\nDefense +{EffectValue2}%\r\nWork speed +{EffectValue3}%",
@@ -39,6 +41,8 @@
         "PASSIVE_Palvolve_Evolved_2_Locked": "Max HP +{EffectValue1}%\nMovement speed +{EffectValue2}%\nWork speed +{EffectValue3}%\nAuto-Evo: Disabled",
         "PASSIVE_Palvolve_Evolved_3_Locked": "Max HP +{EffectValue1}%\nMovement speed +{EffectValue2}%\nWork speed +{EffectValue3}%\nAuto-Evo: Disabled",
         "PASSIVE_Palvolve_Evolved_4_Locked": "Max HP +{EffectValue1}%\nMovement speed +{EffectValue2}%\nWork speed +{EffectValue3}%\nAuto-Evo: Disabled",
-        "PASSIVE_Palvolve_NoAutoEvolve": "Disabled"
+        "PASSIVE_Palvolve_NoAutoEvolve": "Disabled",
+        "PASSIVE_Palvolve_Fused": "Born from two Pals at the Fusion Altar.",
+        "PASSIVE_Palvolve_FusionActive": "Fused for this fight. Splits again when the fusion ends."
     }
 }

@@ -297,7 +297,9 @@ function Costs.resolve(pair, level, worldCtx)
     if pairCache and pairCache[levelKey] then return pairCache[levelKey] end
 
     local list = {}
-    if Config.requireStone then
+    -- "none" is the split at the end of a fusion in a fight: the two Pals take
+    -- back what they were, and nothing is charged for that.
+    if Config.requireStone and pair.stone ~= "none" then
         if pair.stone == "adaptation" then
             local element = Elements.adaptationElement(pair, worldCtx)
             local stoneId = element and Config.stoneItemIds.adaptation[element] or nil
@@ -309,6 +311,16 @@ function Costs.resolve(pair, level, worldCtx)
             table.insert(list, {
                 id = stoneId, count = Config.stoneCount,
                 element = element, fallbackLabel = Config.stoneNames.adaptation,
+            })
+        elseif pair.stone == "fusionShard" or pair.stone == "fusionCore" then
+            -- A fusion is paid with its own item alone: the Shard in a fight,
+            -- the Core at the altar. Both already carry an evolution or a
+            -- prestige stone in their recipe.
+            local shard = pair.stone == "fusionShard"
+            table.insert(list, {
+                id = shard and Config.stoneItemIds.fusionShard or Config.stoneItemIds.fusionCore,
+                count = shard and Config.fusion.shardCount or Config.fusion.coreCount,
+                fallbackLabel = shard and Config.stoneNames.fusionShard or Config.stoneNames.fusionCore,
             })
         elseif pair.stone == "prestige" then
             -- Its own stone and its own count. The prestige stone is crafted
@@ -325,7 +337,8 @@ function Costs.resolve(pair, level, worldCtx)
             })
         end
     end
-    if Config.costs.enabled then
+    local isFusion = pair.stone == "fusionShard" or pair.stone == "fusionCore" or pair.stone == "none"
+    if Config.costs.enabled and not isFusion then
         -- adaptation prices from the TARGET form, evolutions from the BASE
         local matSource = (pair.stone == "adaptation") and pair.to or pair.from
         local mats = pair.materials or materialsFor(matSource, level, worldCtx)

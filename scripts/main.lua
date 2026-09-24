@@ -84,6 +84,19 @@ if not okCore then
     Log("core failed to load: " .. tostring(errCore))
 end
 
+-- Fusion runs on top of the evolution core: it borrows its swap. Host and
+-- single player drive it; the tick itself stays idle without world authority.
+if Evolution then
+    local okFusion, errFusion = pcall(function() require("fusion").init(Evolution) end)
+    if not okFusion then
+        Log("fusion could not be set up: " .. tostring(errFusion))
+    end
+    local okAltar, errAltar = pcall(function() require("altar").init(Evolution) end)
+    if not okAltar then
+        Log("fusion altar could not be set up: " .. tostring(errAltar))
+    end
+end
+
 -- Server check: a connected client asks the host whether Palvolve runs there and,
 -- if not, disables evolution for the session and tells the player why. The
 -- authority (host/single-player) runs the mod itself, so it never pings.

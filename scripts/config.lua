@@ -143,6 +143,24 @@ local Config = {
     -- of them anyway.
     prestigeAutoLink = true,
 
+    -- Fusion: two Pals become one stronger species. In a fight it lasts
+    -- durationSeconds and costs a Fusion Shard; at the Fusion Altar it is
+    -- permanent, consumes both Pals and costs a Fusion Core. Rules come from
+    -- `fusions` below; `fallback` lets any other pair fuse by the breeding
+    -- formula in fusionrules.lua, weighted by fallbackPercent
+    -- (20 = 0.2: how much the weaker Pal pulls the result up).
+    fusion = {
+        enabled = true,
+        battleEnabled = true,
+        altarEnabled = true,
+        fallback = true,
+        fallbackPercent = 20,
+        durationSeconds = 60,
+        cooldownSeconds = 300,
+        shardCount = 1,
+        coreCount = 1,
+    },
+
     -- Selected keeps the explicit target wheel. Conditioned resolves the
     -- strongest passing rule deterministically and puts only that target on it.
     evolutionMode = "selected",
@@ -198,11 +216,17 @@ local Config = {
         -- legacy generic stone: kept for stones already in inventories,
         -- accepted whenever the target element cannot be resolved
         adaptationFallback = "Palvolve_AdaptionStone",
+        -- fusion items: the Shard pays for a fusion in a fight, the Core
+        -- (crafted from a Prestige Stone and five Shards) for one at the altar
+        fusionShard = "Palvolve_FusionShard",
+        fusionCore = "Palvolve_FusionCore",
     },
     stoneNames = {
         evolution = "Evolution Stone",
         adaptation = "Adaptation Stone",
-        prestige = "Prestige Stone"
+        prestige = "Prestige Stone",
+        fusionShard = "Fusion Shard",
+        fusionCore = "Fusion Core",
     },
 
     -- Material costs on top of the stone. Materials derive from drop tables
@@ -251,6 +275,11 @@ local Config = {
     -- author picked and label may be empty, so whatever draws a frame needs a
     -- fallback for a color it does not know.
     arrangement = { positions = {}, frames = {}, copies = {} },
+
+    -- Fusion rules: { a, b, to, kind = "permanent"|"temporary"|"both",
+    -- minLevel, conditions, enabled }. a and b are interchangeable, minLevel
+    -- and conditions apply to both Pals. A rule beats the fallback formula.
+    fusions = {},
     -- Palworld revision: the last five digits of the title-screen version
     -- (v1.0.3.101283 -> 1283), the identifier the official mod loader uses.
     -- Five, not three: v1.0.1.100619 gave 619 either way, which hid the rule
@@ -1776,6 +1805,61 @@ function Config.hasProgressPair(characterId)
     return false
 end
 
+local FUSION_KINDS = { permanent = true, temporary = true, both = true }
+
+--- Fusion rules from a config file, checked field by field. A rule with an
+--- unknown species name stays in (the canonical lookup may still know it), but
+--- one without its three species, or with conditions this build cannot read,
+--- is dropped with a log line, the same fail-closed way pairs are treated.
+function Config.cleanFusions(list)
+    local cleaned = {}
+    for i, r in ipairs(list) do
+        if type(r) ~= "table" or type(r.a) ~= "string" or type(r.b) ~= "string"
+            or type(r.to) ~= "string" then
+            print(string.format("[Palvolve] fusion rule %d: needs a, b and to, skipped\n", i))
+        else
+            local rule = {
+                a = r.a, b = r.b, to = r.to,
+                kind = FUSION_KINDS[r.kind] and r.kind or "both",
+                minLevel = math.max(1, math.floor(tonumber(r.minLevel) or 1)),
+                enabled = r.enabled ~= false,
+            }
+            if r.kind ~= nil and not FUSION_KINDS[r.kind] then
+                print(string.format("[Palvolve] fusion %s + %s: unknown kind %s, reading it as both\n",
+                    r.a, r.b, tostring(r.kind)))
+            end
+            local keep = true
+            if r.conditions ~= nil then
+                local clean, dropped = Conditions.sanitize(r.conditions)
+                if #dropped > 0 then
+                    keep = false
+                    print(string.format("[Palvolve] fusion %s + %s: dropped, unknown conditions: %s\n",
+                        r.a, r.b, table.concat(dropped, ", ")))
+                end
+                rule.conditions = (#clean > 0) and clean or nil
+            end
+            if keep then cleaned[#cleaned + 1] = rule end
+        end
+    end
+    print(string.format("[Palvolve] fusion rules loaded: %d of %d\n", #cleaned, #list))
+    return cleaned
+end
+
+--- Enabled fusion rules for two species and a fusion kind ("permanent" or
+--- "temporary"), in authored order. Species go through the canonical lookup so a
+--- rule written with other capitalisation still matches.
+function Config.findFusions(a, b, kind)
+    local FusionRules = require("fusionrules")
+    local rules = {}
+    for _, r in ipairs(Config.fusions or {}) do
+        rules[#rules + 1] = {
+            a = Config.canonicalId(r.a), b = Config.canonicalId(r.b), to = Config.canonicalId(r.to),
+            kind = r.kind, minLevel = r.minLevel, conditions = r.conditions, enabled = r.enabled,
+        }
+    end
+    return FusionRules.findRules(rules, Config.canonicalId(a), Config.canonicalId(b), kind)
+end
+
 -- Reverse maps for the egg filter, split by category so eggs follow EVOLUTION
 -- chains only. Funchain links are always excluded. Both maps point at parents:
 -- the walk below only ever moves towards the base of a chain.
@@ -1969,6 +2053,16 @@ local function installSavedDir()
     end
     if not palDir then return nil end
     return palDir .. "\\Saved\\Palvolve"
+end
+
+--- Where the mod keeps state that has to outlive a crash: the same folder a
+--- config_user.lua goes into, %LocalAppData% on a player's machine and the
+--- install's own Saved folder on a dedicated server.
+function Config.stateDir()
+    if Role.isDedicated() then return installSavedDir() end
+    local base = os.getenv("LOCALAPPDATA")
+    if base and base ~= "" then return base .. "\\Pal\\Saved\\Palvolve" end
+    return installSavedDir()
 end
 
 -- Existence is probed separately from loadfile so a file that IS there but
@@ -2432,6 +2526,15 @@ local USER_KEYS = {
     { path = "moveInheritance", kind = "enum", values = { "off", "equipped", "known" } },
     { path = "ivBonusPerStage", kind = "int", min = 0, max = 100 },
     { path = "ivCap", kind = "int", min = 0, max = 100 },
+    { path = "fusion.enabled", kind = "bool" },
+    { path = "fusion.battleEnabled", kind = "bool" },
+    { path = "fusion.altarEnabled", kind = "bool" },
+    { path = "fusion.fallback", kind = "bool" },
+    { path = "fusion.fallbackPercent", kind = "int", min = 0, max = 100 },
+    { path = "fusion.durationSeconds", kind = "int", min = 10, max = 600 },
+    { path = "fusion.cooldownSeconds", kind = "int", min = 0, max = 3600 },
+    { path = "fusion.shardCount", kind = "int", min = 1, max = 99 },
+    { path = "fusion.coreCount", kind = "int", min = 1, max = 99 },
 
     -- costs
     { path = "stoneCount", kind = "int", min = 1, max = 99 },
@@ -2659,6 +2762,9 @@ if user then
         if unknownPairCount > 0 then
             Role.announce(I18n.msg("unknownConditionsLoad", unknownPairCount), "warning")
         end
+    end
+    if type(user.fusions) == "table" then
+        Config.fusions = Config.cleanFusions(user.fusions)
     end
     -- Renames first, so a file that sets both is decided by applyUserKeys and
     -- not by whichever ran last.

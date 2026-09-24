@@ -493,6 +493,40 @@
             "AddAccessory": false,
             "IsStackablePartnerSkillBySameTribe": false,
             "Category": "EPalPassiveCategory::SortDisplayable"
+        },
+        "Palvolve_Fused": {
+            "Rank": 0,
+            "LotteryWeight": 0,
+            "OverrideDescMsgID": "PASSIVE_Palvolve_Fused",
+            "TargetElementType": "EPalElementType::None",
+            "InvokeAlways": true,
+            "AddPal": true,
+            "AddRarePal": false,
+            "AddWorldTreePal": false,
+            "AddMutationPal": false,
+            "AddShotWeapon": false,
+            "AddMeleeWeapon": false,
+            "AddArmor": false,
+            "AddAccessory": false,
+            "IsStackablePartnerSkillBySameTribe": false,
+            "Category": "EPalPassiveCategory::SortDisplayable"
+        },
+        "Palvolve_FusionActive": {
+            "Rank": 0,
+            "LotteryWeight": 0,
+            "OverrideDescMsgID": "PASSIVE_Palvolve_FusionActive",
+            "TargetElementType": "EPalElementType::None",
+            "InvokeAlways": true,
+            "AddPal": true,
+            "AddRarePal": false,
+            "AddWorldTreePal": false,
+            "AddMutationPal": false,
+            "AddShotWeapon": false,
+            "AddMeleeWeapon": false,
+            "AddArmor": false,
+            "AddAccessory": false,
+            "IsStackablePartnerSkillBySameTribe": false,
+            "Category": "EPalPassiveCategory::SortDisplayable"
         }
     }
 }

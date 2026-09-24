@@ -340,6 +340,14 @@ local function teachRepertoire(param, ...)
     return true, added, message, tonumber(cleared) or 0
 end
 
+--- Adds every move in the given name lists to MasteredWaza (a fusion keeps the
+--- repertoire of both Pals). Returns ok, added count or the reason it failed.
+function WazaInherit.teach(param, ...)
+    local ok, added, detail = teachRepertoire(param, ...)
+    if not ok then return false, added end
+    return true, added, detail
+end
+
 --- Removes empty entries from both MasteredWaza halves, and nothing else.
 --- Returns ok, removed count, detail.
 function WazaInherit.repair(param)

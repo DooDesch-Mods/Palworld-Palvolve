@@ -44,5 +44,9 @@
         "ITEM_DESC_Palvolve_AdaptationStone_Dark": "A shimmering stone attuned to dark energy. Lets a bonded Pal adapt into its dark form once it has reached the required level.",
         "ITEM_DESC_Palvolve_Essence_Dragon": "Concentrated dragon energy, extracted from skill fruits or elemental materials. Used to craft the matching Adaptation Stone.",
         "ITEM_DESC_Palvolve_AdaptationStone_Dragon": "A shimmering stone attuned to dragon energy. Lets a bonded Pal adapt into its dragon form once it has reached the required level."
-    }
+    },
+    "ITEM_NAME_Palvolve_FusionShard": "Fusion Shard",
+    "ITEM_NAME_Palvolve_FusionCore": "Fusion Core",
+    "ITEM_DESC_Palvolve_FusionShard": "An Evolution Stone cracked open and bound with Pal Fluid. Lets your summoned Pal and one from your party fuse for one fight, then split again.",
+    "ITEM_DESC_Palvolve_FusionCore": "Five Fusion Shards pressed around a Prestige Stone until they hold. At the Fusion Altar it makes two Pals one for good."
 }
