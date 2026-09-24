@@ -263,6 +263,11 @@ return {
             ["fusePickGender"] = "Gender",
             ["fusePickMale"] = "Male",
             ["fusePickFemale"] = "Female",
+            ["fuseTitle"] = "Fusions",
+            ["fuseKindAltar"] = "Altar",
+            ["fuseKindBattle"] = "Battle",
+            ["fuseKindBoth"] = "Altar and battle",
+            ["fuseMore"] = "+%d more",
         },
         palNames = {
             ["PlantSlime_Flower"] = "Gumoss Botan",
@@ -533,6 +538,11 @@ return {
             ["fusePickGender"] = "Geschlecht",
             ["fusePickMale"] = "Männlich",
             ["fusePickFemale"] = "Weiblich",
+            ["fuseTitle"] = "Fusionen",
+            ["fuseKindAltar"] = "Altar",
+            ["fuseKindBattle"] = "Kampf",
+            ["fuseKindBoth"] = "Altar und Kampf",
+            ["fuseMore"] = "+%d weitere",
         },
         palNames = {
             ["PlantSlime_Flower"] = "Gumoss Botan",

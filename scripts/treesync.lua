@@ -702,6 +702,10 @@ local function applyFusionFrame(frame)
     end
     if localFusions == nil then localFusions = Config.fusions or {} end
     Config.fusions = rules
+    -- the Palpedia lists the rules, so its cached pages are stale now
+    if not invalidateViews() then
+        Log("[WARN] server fusion rules active, but the cached pages did not refresh")
+    end
     Log(string.format("[INFO] server fusion rules active: %d rules, %s", #rules, hash))
     return true
 end

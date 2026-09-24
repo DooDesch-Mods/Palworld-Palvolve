@@ -561,6 +561,23 @@ a{text-decoration:none;color:inherit}
            font-size:calc(var(--base) * 2.8);letter-spacing:.22em;color:#ffffff;
            opacity:.06;font-weight:300;pointer-events:none;text-transform:uppercase}
 body.docked .watermark{left:26px}
+/* The fusion strip: every authored rule this Pal takes part in, on one line
+   above the footer. Only rules - the fallback formula is left for the game to
+   surprise with. */
+.fuse{flex:0 0 auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+     padding:8px 20px;border-top:1px solid #26344a;background:#0f161f}
+.fuse .fh{font-size:var(--small);letter-spacing:.1em;text-transform:uppercase;
+     color:#0d131b;background:#6f8ba6;padding:2px 8px}
+.fz{display:flex;align-items:center;gap:6px;padding:3px 10px 3px 4px;
+     border:1px solid #26344a;background:#141d29;font-size:var(--small)}
+.fz:hover{border-color:#6f8ba6}
+.fz .op{color:#6f8ba6}
+.fz .nm{color:#e6edf6}
+.fz .to{color:#f2b33d}
+.fz .k{margin-left:4px;color:#9fb2c8}
+.fz img,.fz .mono{width:26px;height:26px;border-radius:50%;object-fit:cover}
+.fz .mono{display:inline-flex;align-items:center;justify-content:center;background:#26344a;font-size:11px}
+.fuse .more{color:#9fb2c8;font-size:var(--small)}
 .foot{height:42px;flex:0 0 42px;display:flex;align-items:center;gap:16px;padding:0 20px;
       background:#131a24;border-top:1px solid #24303e;font-size:calc(var(--base) - 2px);color:#8296ab}
 .foot .hint{margin-left:auto;color:#7e91a6}
@@ -850,6 +867,42 @@ function M.page(centerId)
             title, dir, rows, table.concat(parts))
     end
 
+    -- Fusion rules with this Pal on either side, as a strip above the footer.
+    local fuseStrip = ""
+    if Config.fusion and Config.fusion.enabled then
+        local chips, total = {}, 0
+        local function mini(id)
+            local img = icon(id)
+            local pic = img and string.format('<img src="%s" alt="">', img)
+                or string.format('<span class="mono">%s</span>', esc(nameOf(id):sub(1, 2)))
+            return pic
+        end
+        for _, r in ipairs(Config.fusions or {}) do
+            if r.enabled ~= false and (r.a == centerId or r.b == centerId or r.to == centerId) then
+                total = total + 1
+                if #chips < 8 then
+                    local kind = t(r.kind == "permanent" and "fuseKindAltar"
+                        or r.kind == "temporary" and "fuseKindBattle" or "fuseKindBoth")
+                    local lvl = (tonumber(r.minLevel) or 1) > 1 and (" &middot; Lv " .. tostring(r.minLevel)) or ""
+                    local other = (r.a == centerId) and r.b or r.a
+                    local link = (r.to == centerId) and r.a or ((other ~= centerId) and other or r.to)
+                    chips[#chips + 1] = string.format(
+                        '<a class="fz" href="#pick/%s">%s<span class="nm">%s</span><span class="op">+</span>'
+                        .. '%s<span class="nm">%s</span><span class="op">=</span>%s<span class="to">%s</span>'
+                        .. '<span class="k">%s%s</span></a>',
+                        esc(link), mini(r.a), esc(nameOf(r.a)), mini(r.b), esc(nameOf(r.b)),
+                        mini(r.to), esc(nameOf(r.to)), esc(kind), lvl)
+                end
+            end
+        end
+        if total > 0 then
+            local more = total > #chips
+                and string.format('<span class="more">%s</span>', esc(t("fuseMore", total - #chips))) or ""
+            fuseStrip = '<div class="fuse"><span class="fh">' .. esc(t("fuseTitle")) .. '</span>'
+                .. table.concat(chips) .. more .. '</div>'
+        end
+    end
+
     local html = table.concat({
         '<!doctype html><html><head><meta charset="utf-8"><style>', CSS,
         '</style></head><body', docked and ' class="docked"' or '', '>',
@@ -876,6 +929,7 @@ function M.page(centerId)
             portrait(centerId, "var(--hub)", "center", nil)),
         wing(outgoing, "out", t("treeEvolvesInto"), t("treeNoOutgoing")),
         '</div></div>',
+        fuseStrip,
         '<div class="watermark">Palvolve</div>',
         string.format('<div class="foot"><span><b>%s</b> %s &middot; %s</span>'
             .. '<span class="hint">%s</span></div>',
