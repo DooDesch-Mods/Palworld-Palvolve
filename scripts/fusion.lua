@@ -296,6 +296,12 @@ local function separate(key, e, reason)
     if not summoned or reason == "fainted" or api.busy() then
         local err = splitData(e, fraction)
         if err then Log("[ERROR] split after " .. reason .. " left errors: " .. err) end
+        -- A fainted C whose body is still out would keep C's look over A's
+        -- data; back into the ball, the next summon spawns A.
+        if summoned and reason == "fainted" then
+            local okOff, errOff = pcall(function() e.holder:InactivateCurrentOtomo() end)
+            if not okOff then Log("[WARN] the fainted fused Pal could not be recalled: " .. tostring(errOff)) end
+        end
         finish(key, e, reason)
         return
     end
