@@ -268,6 +268,7 @@ return {
             ["fuseKindBattle"] = "Battle",
             ["fuseKindBoth"] = "Altar and battle",
             ["fuseMore"] = "+%d more",
+            ["uninstAltar"] = "Fusion Altar still placed near %s - take both Pals out, then demolish it",
         },
         palNames = {
             ["PlantSlime_Flower"] = "Gumoss Botan",
@@ -543,6 +544,7 @@ return {
             ["fuseKindBattle"] = "Kampf",
             ["fuseKindBoth"] = "Altar und Kampf",
             ["fuseMore"] = "+%d weitere",
+            ["uninstAltar"] = "Fusions-Altar steht noch bei %s - erst beide Pals herausnehmen, dann abreißen",
         },
         palNames = {
             ["PlantSlime_Flower"] = "Gumoss Botan",

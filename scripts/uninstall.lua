@@ -20,6 +20,9 @@ local ELEMENTS = { "Normal", "Fire", "Water", "Leaf", "Electricity", "Ice", "Ear
 local ITEM_IDS = {
     "Palvolve_EvolutionStone",
     "Palvolve_AdaptionStone", -- legacy generic stone (historic spelling)
+    "Palvolve_PrestigeStone",
+    "Palvolve_FusionShard",
+    "Palvolve_FusionCore",
 }
 for _, e in ipairs(ELEMENTS) do
     table.insert(ITEM_IDS, "Palvolve_AdaptationStone_" .. e)
@@ -27,6 +30,9 @@ for _, e in ipairs(ELEMENTS) do
 end
 
 local TECH_NAME = "Palvolve_ElementExtractor"
+-- Every technology the PalSchema half unlocks; each one is an FName in the
+-- player's save that stops resolving once the data folder is gone.
+local TECH_NAMES = { [TECH_NAME] = true, ["Palvolve_FusionAltar"] = true }
 
 -- ------------------------------------------------------------------- items
 
@@ -186,24 +192,25 @@ function Uninstall.techNeutralize(playerCtx)
     local cleaned, present, failed = 0, 0, nil
     for _, arr in ipairs(arrays) do
         local n = #arr
-        local idx, donor = nil, nil
+        local found, donor = {}, nil
         for i = 1, n do
             local s = nameAt(arr, i)
-            if s == TECH_NAME then
-                idx = i
+            if TECH_NAMES[s] then
+                found[#found + 1] = i
             elseif not donor and s ~= "" and s ~= "None" and not s:find("^Palvolve_") then
                 donor = i
             end
         end
-        if idx then
+        for _, idx in ipairs(found) do
             present = present + 1
             if not donor then
                 failed = I18n.msg("uninstTechNoDonor")
             else
                 local donorName = nameAt(arr, donor)
+                local before = nameAt(arr, idx)
                 local wrote = pcall(function() arr[idx] = FName(donorName) end)
-                local back = wrote and nameAt(arr, idx) or TECH_NAME
-                if back ~= TECH_NAME then
+                local back = wrote and nameAt(arr, idx) or before
+                if not TECH_NAMES[back] then
                     cleaned = cleaned + 1
                 else
                     failed = I18n.msg("uninstTechWriteFail")
@@ -212,7 +219,7 @@ function Uninstall.techNeutralize(playerCtx)
         end
     end
     if present == 0 then
-        return true, I18n.msg("uninstTechNone", TECH_NAME)
+        return true, I18n.msg("uninstTechNone", "Palvolve_ElementExtractor, Palvolve_FusionAltar")
     end
     if failed then
         return false, failed
@@ -450,7 +457,7 @@ end
 -- reuses the vanilla medicine-facility blueprint); the model route is kept as
 -- a net for benches whose actor is not streamed in. Matching on
 -- MapObjectMasterDataId alone finds neither.
-function Uninstall.findBenches()
+local function findPlaced(buildId)
     local found, seen = {}, {}
     pcall(function()
         local actors = FindAllOf("PalBuildObject") or {}
@@ -458,7 +465,7 @@ function Uninstall.findBenches()
             if a:IsValid() then
                 local bid = ""
                 pcall(function() bid = a.BuildObjectId:ToString() end)
-                if bid == "Palvolve_ElementExtractor" then
+                if bid == buildId then
                     local pos = "somewhere"
                     pcall(function()
                         local loc = a:K2_GetActorLocation()
@@ -477,7 +484,7 @@ function Uninstall.findBenches()
                 local id, bid = "", ""
                 pcall(function() id = m.MapObjectMasterDataId:ToString() end)
                 pcall(function() bid = m.BuildObjectId:ToString() end)
-                if id == "Palvolve_ElementExtractor" or bid == "Palvolve_ElementExtractor" then
+                if id == buildId or bid == buildId then
                     local pos = "somewhere"
                     pcall(function()
                         local t = m.InitialTransformCache.Translation
@@ -488,8 +495,18 @@ function Uninstall.findBenches()
             end
         end
     end)
-    print(string.format("[Palvolve] [scan] benches found=%d\n", #found))
+    print(string.format("[Palvolve] [scan] %s found=%d\n", buildId, #found))
     return found
+end
+
+function Uninstall.findBenches()
+    return findPlaced("Palvolve_ElementExtractor")
+end
+
+--- Placed Fusion Altars. The Pals inside one live in its container, so it has
+--- to be emptied before it is demolished.
+function Uninstall.findAltars()
+    return findPlaced("Palvolve_FusionAltar")
 end
 
 Uninstall.ITEM_IDS = ITEM_IDS

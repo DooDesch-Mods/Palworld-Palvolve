@@ -5150,6 +5150,7 @@ function Evolution.init()
                 say(I18n.msg("uninstTech", techMsg))
                 local locations, _, orphans = U.worldScan(senderCtx)
                 local benches = U.findBenches()
+                local altars = U.findAltars()
                 for i, line in ipairs(locations) do
                     if i > 6 then
                         say(I18n.msg("uninstMore", #locations - 6))
@@ -5160,12 +5161,15 @@ function Evolution.init()
                 for _, pos in ipairs(benches) do
                     say(I18n.msg("uninstBench", pos))
                 end
+                for _, pos in ipairs(altars) do
+                    say(I18n.msg("uninstAltar", pos))
+                end
                 -- Honesty over promises: the player statistics keep crafted and
                 -- picked-up mod item names, live only as replicated FastArrays
                 -- no Lua can touch. A world that ever USED the mod therefore
                 -- stays dependent on the PalSchema data folder - the command
                 -- cleans everything reachable and says exactly that.
-                if #locations == 0 and #benches == 0 and techOk then
+                if #locations == 0 and #benches == 0 and #altars == 0 and techOk then
                     say(I18n.msg("uninstClean"))
                     say(I18n.msg("uninstKeepFolder"))
                 else
