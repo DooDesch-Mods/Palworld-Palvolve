@@ -51,7 +51,7 @@ Download the release zip from [Nexus Mods](https://www.nexusmods.com/palworld/mo
 1. Install UE4SS Experimental (Palworld) and PalSchema following the [PalSchema installation guide](https://okaetsu.github.io/PalSchema/docs/installation).
 2. Copy `Mods\Palvolve` into `<Palworld>\Pal\Binaries\Win64\ue4ss\Mods\`.
 3. Copy `Mods\PalSchema\mods\Palvolve` into `<Palworld>\Pal\Binaries\Win64\ue4ss\Mods\PalSchema\mods\`.
-4. Copy `Pal\Content\Paks\LogicMods\Palvolve.pak` into `<Palworld>\Pal\Content\Paks\LogicMods\`. Create the folder if it does not exist. This file carries the Evolutions page in the Palpedia. Without it, that tab stays empty.
+4. Copy `Pal\Content\Paks\LogicMods\Palvolve.pak` into `<Palworld>\Pal\Content\Paks\LogicMods\`. Create the folder if it does not exist. This file carries the Palpedia page and the Fusion Altar. Without it, that tab stays empty and the altar cannot be built.
 5. Add `Palvolve : 1` to `ue4ss\Mods\mods.txt` (above the Keybinds entry).
 
 A Workshop UE4SS and a manual UE4SS in the same install load UE4SS twice and crash the game.
@@ -62,7 +62,7 @@ The server checks the technology unlock. Without Palvolve on the server, the wor
 
 1. Install **UE4SS Experimental (Palworld)** on the server (proxy dll next to the server binary).
 2. Install **PalSchema** on the server ([installation guide](https://okaetsu.github.io/PalSchema/docs/installation)).
-3. Install Palvolve from the [GitHub release zip](https://github.com/DooDesch-Mods/Palworld-Palvolve/releases): both folders inside the zip go into `Pal\Binaries\Win64\ue4ss\Mods\`. Do not copy the Workshop item folder - its layout is for the game's own loader.
+3. Install Palvolve from the [GitHub release zip](https://github.com/DooDesch-Mods/Palworld-Palvolve/releases): both folders inside the zip go into `Pal\Binaries\Win64\ue4ss\Mods\`. Do not copy the Workshop item folder - its layout is for the game's own loader. Also copy `Pal\Content\Paks\LogicMods\Palvolve.pak` into the server's `Pal\Content\Paks\LogicMods\`. The server needs it to load the Fusion Altar.
 4. Add `Palvolve : 1` to `ue4ss\Mods\mods.txt` and restart the server.
 5. Put your `config_user.lua` in the mod's `scripts\` folder next to `config.lua`. The next start moves it out of reach of updates and logs the new location.
 6. Check the server's `UE4SS.log` for this line: `[PalSchema] Added building 'Palvolve_ElementExtractor'`
