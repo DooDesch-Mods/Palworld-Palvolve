@@ -39,6 +39,16 @@ local active = {}        -- A's individual key -> fusion entry
 local cooldowns = {}     -- pair key .. "|" .. owner uid -> os.clock() when it runs out
 local starting = {}      -- individual keys of both Pals while the partner steps out
 local recoveryPending = true
+-- Fusions that ended in this session. The game's save on disk can still hold
+-- the fused state until its next autosave, so their records stay in the
+-- recovery file; the next load undoes the ones whose Pal still carries the
+-- fusion marker and drops the rest.
+local settled = {}
+local SETTLED_KEEP = 20
+-- records the recovery could not match in this world (another world's Pals)
+local carried = {}
+local RECOVERY_GIVE_UP_S = 120
+local recoveryStartedAt = nil
 local recoverySkipLogged = {} -- A's key -> true once the skip was logged
 
 -- ---------------------------------------------------------------- small reads
@@ -201,6 +211,8 @@ local function saveState()
     for key, e in pairs(active) do
         records[#records + 1] = { aKey = key, bKey = e.bKey, snapA = e.snapA, hpB = e.hpB, maxB = e.maxB }
     end
+    for _, r in ipairs(settled) do records[#records + 1] = r end
+    for _, r in ipairs(carried) do records[#records + 1] = r end
     if #records == 0 then
         local okRemove = os.remove(path)
         if not okRemove and io.open(path, "r") then
@@ -360,7 +372,18 @@ local function expireGuards(now)
     end
 end
 
+--- Keeps the record of a fusion that just ended, for the next load to check.
+local function settle(e)
+    for i = #settled, 1, -1 do
+        if settled[i].aKey == e.aKey then table.remove(settled, i) end
+    end
+    settled[#settled + 1] = { aKey = e.aKey, bKey = e.bKey, snapA = e.snapA, hpB = e.hpB, maxB = e.maxB,
+        settled = true }
+    while #settled > SETTLED_KEEP do table.remove(settled, 1) end
+end
+
 local function finish(key, e, how)
+    settle(e)
     active[key] = nil
     cooldowns[cooldownKey(e)] = os.clock() + (Config.fusion.cooldownSeconds or 300)
     saveState()
@@ -462,6 +485,7 @@ local function undoStart(key, e, why)
         errs[#errs + 1] = "B not found"
     end
     release(e.holder)
+    settle(e)
     active[key] = nil
     saveState()
     if #errs > 0 then
@@ -474,35 +498,79 @@ end
 
 -- ---------------------------------------------------------------- the tick
 
+local function carriesMarker(param)
+    local passives = PalPassives.capture(param)
+    if not passives then return nil end
+    for _, id in ipairs(passives) do
+        if id == MARKER_ACTIVE then return true end
+    end
+    return false
+end
+
 local function recoverFromFile()
     local records = loadState()
     if #records == 0 then return true end
+    recoveryStartedAt = recoveryStartedAt or os.clock()
+    local giveUp = os.clock() - recoveryStartedAt > RECOVERY_GIVE_UP_S
     local pending = 0
+    local keep = {}
     for _, r in ipairs(records) do
         -- A record of a fusion running in this session (written while an older
         -- record still waited for its world) is live, not left over.
         local running = active[r.aKey] ~= nil
-        local paramA = not running and paramByKey(r.aKey) or nil
-        local paramB = not running and paramByKey(r.bKey) or nil
-        if running then
+        local ownSettled = false
+        for _, s2 in ipairs(settled) do
+            if s2.aKey == r.aKey then ownSettled = true end
+        end
+        local paramA = not (running or ownSettled) and paramByKey(r.aKey) or nil
+        local paramB = not (running or ownSettled) and paramByKey(r.bKey) or nil
+        if running or ownSettled then
             if not recoverySkipLogged[r.aKey] then
                 recoverySkipLogged[r.aKey] = true
-                Log("[INFO] recovery skips the record of a fusion that is running now")
+                Log("[INFO] recovery skips the record of a fusion from this session")
             end
         elseif not (paramA and paramB) then
-            pending = pending + 1
+            if giveUp then
+                keep[#keep + 1] = r
+            else
+                pending = pending + 1
+            end
         else
+            local markedA, markedB = carriesMarker(paramA), carriesMarker(paramB)
             local e = { aKey = r.aKey, bKey = r.bKey, snapA = r.snapA, hpB = r.hpB, maxB = r.maxB,
                 paramA = paramA, paramB = paramB }
-            local err = splitData(e, 1)
-            if err then
-                Log("[ERROR] a fusion left over from the last session could not be undone fully: " .. err)
+            if r.settled and markedA == false and markedB == false then
+                Log(string.format("[INFO] a fusion that ended last session is already saved as split (%s)",
+                    tostring(r.snapA and r.snapA.rawId)))
+            elseif r.settled and markedA == false then
+                -- A is back, only B still carries the fusion: give B its HP and drop the marker
+                local passivesB, captureErr = PalPassives.capture(paramB)
+                local okB, errB = false, "passives unreadable, marker left: " .. tostring(captureErr)
+                if passivesB then okB, errB = PalPassives.restore(paramB, withoutMarker(passivesB)) end
+                local okHp, hpErr = pcall(setHp, paramB, r.hpB)
+                if okB and okHp then
+                    Log("a partner left over from the last session was given back")
+                else
+                    Log("[ERROR] a partner left over from the last session was not fully given back: "
+                        .. tostring(errB) .. "; " .. tostring(hpErr))
+                end
             else
-                Log(string.format("a fusion left over from the last session was undone (%s)", tostring(r.snapA.rawId)))
+                local err = splitData(e, 1)
+                if err then
+                    Log("[ERROR] a fusion left over from the last session could not be undone fully: " .. err)
+                else
+                    Log(string.format("a fusion left over from the last session was undone (%s)%s",
+                        tostring(r.snapA and r.snapA.rawId),
+                        r.settled and ", the save was older than its split" or ""))
+                end
             end
         end
     end
     if pending > 0 then return false end
+    if #keep > 0 then
+        Log(string.format("[WARN] %d fusion record(s) belong to Pals that are not in this world; they stay in the recovery file", #keep))
+    end
+    carried = keep
     saveState()
     return true
 end

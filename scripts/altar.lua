@@ -729,9 +729,155 @@ function Altar.wheelOption(playerCtx)
     return opt
 end
 
+-- ---------------------------------------------------------------- the stage
+-- The two Pals in an altar do not wander: the host stands Pal 1 on slot 1 and
+-- Pal 2 on slot 2, facing each other, until a fusion starts. The slots are the
+-- altar model's "Slot1"/"Slot2" components when the building has them, else
+-- points left and right of the altar's centre.
+
+local STAGE_TICK_MS = 1000
+local SLOT_SPREAD = 150   -- units from the centre to each slot without slot components
+local STAGE_LIFT = 0      -- height of the standing point above the altar origin
+local SLOT_MARGIN = 60     -- room between a Pal's body and the altar's centre
+local BOUNDS_SHARE = 0.6   -- part of the bounds box the visible body fills
+
+local stageDriving = false
+local stageWarned = {}    -- one warning per problem, not one per second
+
+local function warnOnce(key, msg)
+    if stageWarned[key] then return end
+    stageWarned[key] = true
+    Log("[WARN] " .. msg)
+end
+
+--- World positions of the two standing points of an altar model.
+local function slotPoints(model)
+    local okT, t = pcall(function() return model:GetTransform() end)
+    if not okT or not t then return nil end
+    local c = t.Translation
+    local q = t.Rotation
+    -- yaw from the rotation quaternion
+    local yaw = math.atan(2 * (q.W * q.Z + q.X * q.Y), 1 - 2 * (q.Y * q.Y + q.Z * q.Z))
+    local points = nil
+    local okActor, actor = pcall(function() return model:GetActor() end)
+    if okActor and isLive(actor) then
+        local found = {}
+        local okComps, compErr = pcall(function()
+            local comps = actor:K2_GetComponentsByClass(StaticFindObject("/Script/Engine.SceneComponent"))
+            comps:ForEach(function(_, v)
+                local comp = v:get()
+                local name = comp:GetFName():ToString()
+                if name == "Slot1" or name == "Slot2" then
+                    local l = comp:K2_GetComponentLocation()
+                    found[name] = { x = l.X, y = l.Y, z = l.Z }
+                end
+            end)
+        end)
+        if not okComps then warnOnce("comps", "altar slot components unreadable: " .. tostring(compErr)) end
+        if found.Slot1 and found.Slot2 then points = { found.Slot1, found.Slot2 } end
+    elseif not okActor then
+        warnOnce("actor", "altar actor unreadable, standing points from the model position: " .. tostring(actor))
+    end
+    if not points then
+        local dx, dy = math.cos(yaw + math.pi / 2) * SLOT_SPREAD, math.sin(yaw + math.pi / 2) * SLOT_SPREAD
+        points = {
+            { x = c.X - dx, y = c.Y - dy, z = c.Z + STAGE_LIFT },
+            { x = c.X + dx, y = c.Y + dy, z = c.Z + STAGE_LIFT },
+        }
+    end
+    return points
+end
+
+local function stageGameThread()
+    if not api then return end
+    if FusionFx.playing() or api.busy() then return end
+    local altars = {}
+    for _, m in ipairs(FindAllOf("PalMapObjectDisplayCharacterModel") or {}) do
+        if isInstance(m) and modelId(m) == ALTAR_ID then altars[#altars + 1] = m end
+    end
+    if #altars == 0 then return end
+    -- every Pal body in the world once, keyed by its individual
+    local bodies = {}
+    for _, a in ipairs(FindAllOf("PalCharacter") or {}) do
+        if isInstance(a) then
+            local okK, k = pcall(function() return api.individualKey(api.paramOf(a)) end)
+            if okK and k then bodies[k] = a end
+        end
+    end
+    for _, m in ipairs(altars) do
+        local cage = containerOf(m)
+        local points = cage and slotPoints(m)
+        if points then
+            local inside = filledSlots(cage)
+            table.sort(inside, function(a, b) return a.index < b.index end)
+            for i, e in ipairs(inside) do
+                if i > 2 then break end
+                local okK, k = pcall(api.individualKey, e.param)
+                local body = okK and bodies[k] or nil
+                if body then
+                    local p = points[#inside == 1 and 1 or i]
+                    local other = points[i == 1 and 2 or 1]
+                    local yaw = math.deg(math.atan(other.y - p.y, other.x - p.x))
+                    -- a big Pal needs more room than the slot gives: push it out along the axis
+                    -- every Pal has the same small capsule; the mesh bounds show its real size
+                    local okR, radius = pcall(function()
+                        local origin, extent = {}, {}
+                        body:GetActorBounds(true, origin, extent, false)
+                        return math.max(extent.X or 0, extent.Y or 0) * BOUNDS_SHARE
+                    end)
+                    if okR and type(radius) == "number" and #inside > 1 then
+                        local mx, my = (points[1].x + points[2].x) / 2, (points[1].y + points[2].y) / 2
+                        local ox, oy = p.x - mx, p.y - my
+                        local d = math.sqrt(ox * ox + oy * oy)
+                        local need = radius + SLOT_MARGIN
+                        if d > 1 and need > d then
+                            p = { x = mx + ox / d * need, y = my + oy / d * need, z = p.z }
+                        end
+                    elseif not okR then
+                        warnOnce("radius", "altar Pal width unreadable, kept on its slot: " .. tostring(radius))
+                    end
+                    if #inside == 1 then
+                        -- alone: stand in the middle, facing the altar's front
+                        p = { x = (points[1].x + points[2].x) / 2, y = (points[1].y + points[2].y) / 2, z = points[1].z }
+                        yaw = yaw + 90
+                    end
+                    -- the body's origin is the middle of its capsule: stand it on the point
+                    local okH, half = pcall(function() return body.CapsuleComponent:GetScaledCapsuleHalfHeight() end)
+                    if okH and type(half) == "number" then
+                        p = { x = p.x, y = p.y, z = p.z + half }
+                    else
+                        warnOnce("half", "altar Pal height unreadable, placed at the slot point: " .. tostring(half))
+                    end
+                    local okFreeze, freezeErr = pcall(api.freeze, body, true)
+                    if not okFreeze then warnOnce("freeze", "altar Pal not held still: " .. tostring(freezeErr)) end
+                    local okPlace, placeErr = pcall(function()
+                        body:K2_SetActorLocation({ X = p.x, Y = p.y, Z = p.z }, false, {}, true)
+                        body:K2_SetActorRotation({ Pitch = 0, Yaw = yaw, Roll = 0 }, false)
+                    end)
+                    if not okPlace then warnOnce("place", "altar Pal not placed on its slot: " .. tostring(placeErr)) end
+                end
+            end
+        end
+    end
+end
+Altar._stageGameThread = stageGameThread
+
+local function stageTick()
+    if not (Config.fusion.enabled and Config.fusion.altarEnabled) then return false end
+    if not Role.hasWorldAuthority() then return false end
+    ExecuteInGameThread(Altar._stageGameThread)
+    return false
+end
+Altar._stageTick = stageTick -- held by the module so the scheduled callback is never collected
+
 function Altar.init(evolution)
     api = evolution.fusionApi
     if not api then Log("[ERROR] Evolution.fusionApi missing, the altar stays off") end
+    if not stageDriving then
+        stageDriving = true
+        LoopAsync(STAGE_TICK_MS, Altar._stageTick)
+        Log("altar stage started")
+    end
 end
 
 return Altar
