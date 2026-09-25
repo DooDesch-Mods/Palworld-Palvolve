@@ -267,6 +267,54 @@ local function splitData(e, fraction)
     return nil
 end
 
+-- ---------------------------------------------------------------- invulnerability
+
+-- The fused Pal cannot be hit while the fusion or the split plays, and for a
+-- moment after the new body appears. One muteki flag of our own, so the game's
+-- own reasons for invulnerability are left alone.
+local MUTEKI_FLAG = "PalvolveFusion"
+local guards = {} -- holder address -> { holder, untilT }
+
+local function setMuteki(actor, on)
+    if not (actor and actor:IsValid()) then return end
+    local ok, err = pcall(function() actor.CharacterParameterComponent:SetMuteki(FName(MUTEKI_FLAG), on) end)
+    if not ok then Log("[WARN] invulnerability " .. (on and "on" or "off") .. " failed: " .. tostring(err)) end
+end
+
+local function holderKey(holder)
+    local ok, addr = pcall(function() return holder:GetAddress() end)
+    return ok and addr or tostring(holder)
+end
+
+--- Makes the Pal the holder has out invulnerable for `seconds` (the timer
+--- restarts, so calling it again after the swap covers the new body).
+local function protect(holder, seconds)
+    if not holder then return end
+    local actor = nil
+    pcall(function() actor = holder:TryGetSpawnedOtomo() end)
+    setMuteki(actor, true)
+    guards[holderKey(holder)] = { holder = holder, untilT = os.clock() + seconds }
+end
+
+local function release(holder)
+    if not holder then return end
+    local actor = nil
+    pcall(function() actor = holder:TryGetSpawnedOtomo() end)
+    setMuteki(actor, false)
+    guards[holderKey(holder)] = nil
+end
+
+local function expireGuards(now)
+    for key, g in pairs(guards) do
+        if now >= g.untilT then
+            guards[key] = nil
+            local actor = nil
+            pcall(function() actor = g.holder:TryGetSpawnedOtomo() end)
+            setMuteki(actor, false)
+        end
+    end
+end
+
 local function finish(key, e, how)
     active[key] = nil
     cooldowns[cooldownKey(e)] = os.clock() + (Config.fusion.cooldownSeconds or 300)
@@ -308,6 +356,7 @@ local function separate(key, e, reason)
 
     local okId, rawC = pcall(api.characterId, paramA)
     local baseC, isAlphaC = api.baseCharacterId(okId and rawC or e.target)
+    protect(e.holder, 10)
     local started, why = api.run({
         actor = actor, param = paramA, holder = e.holder, playerCtx = e.playerCtx,
         isAlpha = isAlphaC,
@@ -317,10 +366,14 @@ local function separate(key, e, reason)
             keepHp = true,
             mutate = function() return splitData(e, fraction) end,
             restore = function() return nil end,
-            onCommitted = function() finish(key, e, reason) end,
+            onCommitted = function()
+                protect(e.holder, 1.5)
+                finish(key, e, reason)
+            end,
         },
     })
     if not started then
+        release(e.holder)
         Log("[WARN] split presentation did not start (" .. tostring(why) .. "), splitting the data only")
         local err = splitData(e, fraction)
         if err then Log("[ERROR] split left errors: " .. err) end
@@ -367,6 +420,7 @@ local function tickGameThread()
         end
     end
     local now = os.clock()
+    expireGuards(now)
     for key, e in pairs(active) do
         if not e.splitting then
             local paramA = e.paramA
@@ -561,6 +615,7 @@ function Fusion.startBattle(playerCtx, partnerSlot)
     local okFaint, faintErr = pcall(setHp, paramB, 0)
     if not okFaint then Log("[WARN] partner could not be taken out of play: " .. tostring(faintErr)) end
 
+    protect(holder, 10)
     local started, why = api.run({
         actor = actor, param = paramA, holder = holder, playerCtx = playerCtx,
         isAlpha = alphaA, key = keyA,
@@ -570,6 +625,7 @@ function Fusion.startBattle(playerCtx, partnerSlot)
             mutate = mutate,
             restore = function(param) return restoreA(param, snapA) end,
             onCommitted = function()
+                protect(holder, 1.5)
                 entry.endsAt = os.clock() + (Config.fusion.durationSeconds or 60)
                 Log(string.format("%s + %s fused into %s (Lv %d, %s) for %ds", idA, idB, target, level,
                     source, Config.fusion.durationSeconds or 60))
@@ -579,6 +635,7 @@ function Fusion.startBattle(playerCtx, partnerSlot)
         },
     })
     if not started then
+        release(holder)
         -- nothing of A was written; give B back its HP and drop the record
         pcall(setHp, paramB, entry.hpB)
         PalPassives.restore(paramB, passivesB)
