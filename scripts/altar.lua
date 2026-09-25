@@ -781,7 +781,7 @@ local function slotPoints(model)
             end
         end)
         if not okComps then warnOnce("comps", "altar slot components unreadable: " .. tostring(compErr)) end
-        if found.Slot1 and found.Slot2 then points = { found.Slot1, found.Slot2 } end
+        if found.Slot1 and found.Slot2 then points = { found.Slot1, found.Slot2, onPedestals = true } end
     elseif not okActor then
         warnOnce("actor", "altar actor unreadable, standing points from the model position: " .. tostring(actor))
     end
@@ -825,23 +825,25 @@ local function stageGameThread()
                     local p = points[#inside == 1 and 1 or i]
                     local other = points[i == 1 and 2 or 1]
                     local yaw = math.deg(math.atan(other.y - p.y, other.x - p.x))
-                    -- a big Pal needs more room than the slot gives: push it out along the axis
-                    -- every Pal has the same small capsule; the mesh bounds show its real size
-                    local okR, radius = pcall(function()
-                        local origin, extent = {}, {}
-                        body:GetActorBounds(true, origin, extent, false)
-                        return math.max(extent.X or 0, extent.Y or 0) * BOUNDS_SHARE
-                    end)
-                    if okR and type(radius) == "number" and #inside > 1 then
-                        local mx, my = (points[1].x + points[2].x) / 2, (points[1].y + points[2].y) / 2
-                        local ox, oy = p.x - mx, p.y - my
-                        local d = math.sqrt(ox * ox + oy * oy)
-                        local need = radius + SLOT_MARGIN
-                        if d > 1 and need > d then
-                            p = { x = mx + ox / d * need, y = my + oy / d * need, z = p.z }
+                    -- Real pedestals fix the spot. Only the fallback points make room for a
+                    -- big Pal: every Pal has the same small capsule, the mesh bounds show its size.
+                    if not points.onPedestals and #inside > 1 then
+                        local okR, radius = pcall(function()
+                            local origin, extent = {}, {}
+                            body:GetActorBounds(true, origin, extent, false)
+                            return math.max(extent.X or 0, extent.Y or 0) * BOUNDS_SHARE
+                        end)
+                        if okR and type(radius) == "number" then
+                            local mx, my = (points[1].x + points[2].x) / 2, (points[1].y + points[2].y) / 2
+                            local ox, oy = p.x - mx, p.y - my
+                            local d = math.sqrt(ox * ox + oy * oy)
+                            local need = radius + SLOT_MARGIN
+                            if d > 1 and need > d then
+                                p = { x = mx + ox / d * need, y = my + oy / d * need, z = p.z }
+                            end
+                        else
+                            warnOnce("radius", "altar Pal width unreadable, kept on its slot: " .. tostring(radius))
                         end
-                    elseif not okR then
-                        warnOnce("radius", "altar Pal width unreadable, kept on its slot: " .. tostring(radius))
                     end
                     if #inside == 1 then
                         -- alone (the fused Pal after a fusion): slot 1, facing the altar's front
