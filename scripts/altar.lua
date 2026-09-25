@@ -37,6 +37,11 @@ local MARKER_FUSED = "Palvolve_Fused"
 local MARKER_ACTIVE = "Palvolve_FusionActive"
 local REACH = 2000 -- units from the altar a player may start a fusion
 local STAND_HALF = 30 -- a Pal body's origin above its feet (every Pal capsule is this small)
+-- The arch of BP_PalvolveFusionAltar, in cm from the point between the two
+-- pedestals at pedestal height: pillar axis behind the pedestal line, pillar
+-- axis to either side, the free half-width between the pillars, half a pillar's
+-- depth, and the lintel's underside (create_fusion_altar_v3.py).
+local GATE = { back = 200, side = 200, halfInner = 149.1, depthHalf = 50.9, top = 453.5 }
 local LEDGER_NAME = "fusion-ledger.lua"
 
 local api = nil
@@ -489,6 +494,7 @@ function Altar.start(playerCtx, choice, opts)
         stage.startRadius = math.sqrt(dx * dx + dy * dy) / 2
         stage.land = { x = pts[1].x, y = pts[1].y, z = pts[1].z + STAND_HALF }
         stage.landYaw = math.deg(math.atan(dy, dx)) - 90
+        stage.gate = GATE
     end
     local function knownMoves(param, label)
         local snap, err = WazaInherit.capture(param)
@@ -603,7 +609,7 @@ function Altar.start(playerCtx, choice, opts)
 
     local started, why = FusionFx.play({
         worldCtx = playerCtx.pc, a = phantomA, b = phantomB, center = center,
-        startRadius = stage.startRadius, land = stage.land, landYaw = stage.landYaw,
+        startRadius = stage.startRadius, land = stage.land, landYaw = stage.landYaw, gate = stage.gate,
         idA = idA, idB = idB, freeze = api.freeze,
         onCommit = function()
             local errInside = stillInside()

@@ -1,15 +1,21 @@
 -- fusioncam.lua: the camera that films an altar fusion for the player watching it.
 --
--- A camera actor of our own takes over the view with a soft blend, circles the
--- altar along a few keyframes while the scene plays, pushes in for the collapse
--- and pulls back for the reveal, then hands the view back to the player's body.
--- Only the player on this machine is filmed, and only near the altar: the view
--- is local, so a dedicated server has nobody to film and a player far away keeps
--- their own camera.
+-- The camera hangs on a small rig the engine moves every frame, so the shot
+-- glides instead of stepping with the Lua tick:
+--   base   a holder at the point the camera looks at; eased to a new point by
+--          FusionCam.focus
+--   spin   a turning holder on the base; its yaw is the camera's angle around
+--          the point, steered toward each shot's angle
+--   cam    the camera on the spin, dist out and up, looking back at the base
+-- fusionfx.lua calls FusionCam.shot at every beat of the scene. Only the player
+-- on this machine is filmed, and only near the altar: the view is local, so a
+-- dedicated server has nobody to film and a player far away keeps their own
+-- camera.
 --
 -- Every call runs on the game thread (fusionfx.lua drives it from its tick).
 
 local Role = require("role")
+local Rig = require("fusionrig")
 
 local FusionCam = {}
 
@@ -20,72 +26,38 @@ end
 local RANGE = 4000          -- viewers farther from the altar keep their own camera
 local BLEND_IN_S, BLEND_OUT_S = 1.2, 1.0
 local EASE_IN_OUT = 4       -- EViewTargetBlendFunction::VTBlend_EaseInOut
-local SHAKE_CLASS = "/Game/Pal/Blueprint/Weapon/Explosion/BP_CameraShake_ExplosionBig.BP_CameraShake_ExplosionBig_C"
+local LEAD_S = 0.15         -- how far ahead on its path the angle is steered
+local SHAKE_BIG = "/Game/Pal/Blueprint/RaidBoss/BP_CameraShake_RaidBossModeChange.BP_CameraShake_RaidBossModeChange_C"
+local SHAKE_SMALL = "/Game/Pal/Blueprint/Weapon/Explosion/BP_CameraShake_ExplosionBig.BP_CameraShake_ExplosionBig_C"
 
--- Path around the altar: scene time (s), angle from the altar's front (deg),
--- distance and height above the scene centre. Between keys the camera eases.
-local KEYS = {
-    { t = 0.0, angle = 28, dist = 1500, up = 220 },
-    { t = 3.0, angle = 22, dist = 1300, up = 260 },
-    { t = 9.0, angle = -20, dist = 1150, up = 330 },
-    { t = 16.0, angle = -55, dist = 950, up = 300 },
-    { t = 18.5, angle = -48, dist = 700, up = 240 },
-    { t = 20.0, angle = -40, dist = 780, up = 260 },
-    { t = 24.0, angle = 8, dist = 1150, up = 300 },
-    { t = 30.0, angle = 12, dist = 1200, up = 300 },
-}
+local rig = nil -- { base, spin, cam, pc, frontYaw, shot, fov }
 
-local cam = nil
-local pc = nil
-local center = nil
-local frontYaw = 0
-local lookZ = 0
-
-local function live(o)
-    local ok, v = pcall(function() return o ~= nil and o:IsValid() end)
-    return ok and v == true
-end
+local live = Rig.live
 
 local function ease(t) return t * t * (3 - 2 * t) end
 local function lerp(a, b, t) return a + (b - a) * t end
-
-local function pathAt(t)
-    if t <= KEYS[1].t then return KEYS[1] end
-    for i = 2, #KEYS do
-        local a, b = KEYS[i - 1], KEYS[i]
-        if t <= b.t then
-            local k = ease((t - a.t) / (b.t - a.t))
-            return { angle = lerp(a.angle, b.angle, k), dist = lerp(a.dist, b.dist, k), up = lerp(a.up, b.up, k) }
-        end
-    end
-    return KEYS[#KEYS]
+local function wrap(deg)
+    deg = (deg + 180) % 360
+    return deg - 180
 end
 
-local function lookRotation(from, to)
-    local dx, dy, dz = to.x - from.x, to.y - from.y, to.z - from.z
-    local flat = math.sqrt(dx * dx + dy * dy)
-    return { Pitch = math.deg(math.atan(dz, flat)), Yaw = math.deg(math.atan(dy, dx)), Roll = 0 }
-end
-
-local function place(t, target)
-    local p = pathAt(t)
-    local a = math.rad(frontYaw + p.angle)
-    local pos = { x = center.x + math.cos(a) * p.dist, y = center.y + math.sin(a) * p.dist, z = center.z + p.up }
-    local rot = lookRotation(pos, target or { x = center.x, y = center.y, z = lookZ })
-    cam:K2_SetActorLocationAndRotation({ X = pos.x, Y = pos.y, Z = pos.z }, rot, false, {}, true)
+local function camPitch(dist, up)
+    return -math.deg(math.atan(up, dist))
 end
 
 --- Takes the view of the local player if they are near. opts: worldCtx,
---- center {x,y,z}, frontYaw (deg, the altar's front). Returns true when filming.
+--- center {x,y,z} (the point to look at), frontYaw (deg, the altar's front),
+--- shot {yaw, dist, up, fov} (the opening framing, yaw from the front).
+--- Returns true when filming.
 function FusionCam.start(opts)
-    if cam then FusionCam.stop("a new scene started") end
-    local localPc = Role.getLocalPlayerController()
-    if not live(localPc) then
+    if rig then FusionCam.stop("a new scene started") end
+    local pc = Role.getLocalPlayerController()
+    if not live(pc) then
         Log("no local player, the scene plays without a camera")
         return false
     end
     local okNear, near = pcall(function()
-        local l = localPc:K2_GetPawn():K2_GetActorLocation()
+        local l = pc:K2_GetPawn():K2_GetActorLocation()
         local dx, dy, dz = l.X - opts.center.x, l.Y - opts.center.y, l.Z - opts.center.z
         return dx * dx + dy * dy + dz * dz <= RANGE * RANGE
     end)
@@ -97,29 +69,28 @@ function FusionCam.start(opts)
         Log("the player is far from the altar, their camera stays")
         return false
     end
-    local statics = StaticFindObject("/Script/Engine.Default__GameplayStatics")
-    local camClass = StaticFindObject("/Script/Engine.CameraActor")
-    if not (live(statics) and live(camClass)) then
-        Log("[WARN] camera class or spawner missing, no camera")
-        return false
-    end
-    center, frontYaw = opts.center, opts.frontYaw or 0
-    lookZ = center.z
-    local xf = { Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
-        Translation = { X = center.x, Y = center.y, Z = center.z + 300 }, Scale3D = { X = 1, Y = 1, Z = 1 } }
-    local okSpawn, spawned = pcall(function()
-        local a = statics:BeginDeferredActorSpawnFromClass(opts.worldCtx, camClass, xf, 1, nil)
-        statics:FinishSpawningActor(a, xf)
-        return a
+    local c, s = opts.center, opts.shot
+    local front = opts.frontYaw or 0
+    local r = { pc = pc, frontYaw = front, fov = s.fov or 90 }
+    local okBuild, buildErr = pcall(function()
+        r.base = assert(Rig.spawn(opts.worldCtx, c.x, c.y, c.z, 0))
+        r.spin = assert(Rig.pivot(opts.worldCtx, c.x, c.y, c.z, front + s.yaw))
+        Rig.attach(r.spin, r.base)
+        local a = math.rad(front + s.yaw)
+        r.cam = assert(Rig.spawn(opts.worldCtx, c.x + math.cos(a) * s.dist, c.y + math.sin(a) * s.dist,
+            c.z + s.up, front + s.yaw + 180))
+        Rig.attach(r.cam, r.spin)
+        r.cam:K2_SetActorRelativeRotation({ Pitch = camPitch(s.dist, s.up), Yaw = 180, Roll = 0 }, false, {}, true)
+        r.cam.CameraComponent:SetFieldOfView(r.fov)
     end)
-    if not (okSpawn and live(spawned)) then
-        Log("[WARN] camera not spawned: " .. tostring(spawned))
+    if not okBuild then
+        Log("[WARN] camera rig not built: " .. tostring(buildErr))
+        for _, a in ipairs({ r.cam, r.spin, r.base }) do Rig.destroy(a) end
         return false
     end
-    cam, pc = spawned, localPc
-    local okPlace, placeErr = pcall(place, 0, nil)
-    if not okPlace then Log("[WARN] camera not placed: " .. tostring(placeErr)) end
-    local okView, viewErr = pcall(function() pc:SetViewTargetWithBlend(cam, BLEND_IN_S, EASE_IN_OUT, 2.0, false) end)
+    rig = r
+    r.shot = { t0 = os.clock(), secs = 0.01, yaw0 = s.yaw, yaw1 = s.yaw, fov0 = r.fov, fov1 = r.fov }
+    local okView, viewErr = pcall(function() pc:SetViewTargetWithBlend(r.cam, BLEND_IN_S, EASE_IN_OUT, 2.0, false) end)
     if not okView then
         Log("[WARN] view not taken over: " .. tostring(viewErr))
         FusionCam.stop("view refused")
@@ -129,74 +100,142 @@ function FusionCam.start(opts)
     return true
 end
 
---- Moves the camera along its path. t: scene time in seconds; target: the
---- point to look at, or nil for the scene centre.
-function FusionCam.follow(t, target)
-    if not cam then return end
-    if not live(cam) then
-        cam = nil
+--- The camera's current angle from the altar front.
+local function currentYaw(r)
+    return wrap(Rig.yaw(r.spin) - r.frontYaw)
+end
+
+--- Moves to a new framing over secs: yaw from the front (deg), dist and up
+--- from the point it looks at, fov. Missing fields keep their value.
+function FusionCam.shot(s, secs)
+    local r = rig
+    if not r then return end
+    if not (live(r.cam) and live(r.spin)) then
         Log("[WARN] the camera vanished during the scene")
+        rig = nil
         return
     end
-    local ok, err = pcall(place, t, target)
+    local ok, err = pcall(function()
+        local yaw0 = currentYaw(r)
+        local yaw1 = s.yaw and (yaw0 + wrap(s.yaw - yaw0)) or yaw0
+        r.shot = { t0 = os.clock(), secs = math.max(0.05, secs), yaw0 = yaw0, yaw1 = yaw1,
+            fov0 = r.fov, fov1 = s.fov or r.fov }
+        if s.dist and s.up then
+            Rig.moveTo(r.cam, { x = s.dist, y = 0, z = s.up }, 180, camPitch(s.dist, s.up), secs, true, true)
+        end
+    end)
+    if not ok then Log("[WARN] camera shot failed: " .. tostring(err)) end
+end
+
+--- Eases the point the camera looks at to x, y, z over secs.
+function FusionCam.focus(x, y, z, secs)
+    local r = rig
+    if not (r and live(r.base)) then return end
+    local ok, err = pcall(Rig.moveTo, r.base, { x = x, y = y, z = z }, 0, 0, secs, true, true)
+    if not ok then Log("[WARN] camera focus failed: " .. tostring(err)) end
+end
+
+--- Steers the angle and the field of view along the current shot; once per
+--- scene tick.
+function FusionCam.update()
+    local r = rig
+    if not r then return end
+    if not live(r.spin) then
+        Log("[WARN] the camera rig vanished during the scene")
+        rig = nil
+        return
+    end
+    local ok, err = pcall(function()
+        local sh = r.shot
+        local now = os.clock()
+        local k = math.min(1, (now - sh.t0) / sh.secs)
+        local kLead = math.min(1, (now + LEAD_S - sh.t0) / sh.secs)
+        local want = lerp(sh.yaw0, sh.yaw1, ease(kLead))
+        Rig.spin(r.spin, wrap(want - currentYaw(r)) / LEAD_S)
+        local fov = lerp(sh.fov0, sh.fov1, ease(k))
+        if math.abs(fov - r.fov) > 0.05 then
+            r.fov = fov
+            r.cam.CameraComponent:SetFieldOfView(fov)
+        end
+    end)
     if not ok then Log("[WARN] camera step failed: " .. tostring(err)) end
 end
 
---- A hit to the view: a shake and, with a colour, a flash that fades out.
-function FusionCam.hit(scale, flash)
-    if not live(pc) then return end
-    local okPcm, pcm = pcall(function() return pc.PlayerCameraManager end)
+local function loadShake(path)
+    local shake = StaticFindObject(path)
+    if live(shake) then return shake end
+    local okLoad, loadErr = pcall(LoadAsset, (path:gsub("%.[^.]*$", "")))
+    if not okLoad then Log("[WARN] shake asset did not load: " .. tostring(loadErr)) end
+    shake = StaticFindObject(path)
+    if live(shake) then return shake end
+    Log("[WARN] shake class missing: " .. path)
+    return nil
+end
+
+--- A hit to the view: a shake (big or small) and, with a colour, a flash that
+--- fades out.
+function FusionCam.hit(scale, flash, big)
+    local r = rig
+    if not (r and live(r.pc)) then return end
+    local okPcm, pcm = pcall(function() return r.pc.PlayerCameraManager end)
     if not (okPcm and live(pcm)) then
         Log("[WARN] no camera manager for the hit")
         return
     end
-    local shake = StaticFindObject(SHAKE_CLASS)
-    if not live(shake) then
-        local okLoad, loadErr = pcall(LoadAsset, SHAKE_CLASS:gsub("%.[^.]*$", ""))
-        if not okLoad then Log("[WARN] shake asset did not load: " .. tostring(loadErr)) end
-        shake = StaticFindObject(SHAKE_CLASS)
-    end
-    if live(shake) then
+    local shake = loadShake(big and SHAKE_BIG or SHAKE_SMALL)
+    if shake then
         local ok, err = pcall(function() pcm:StartCameraShake(shake, scale or 1.0, 0, { Pitch = 0, Yaw = 0, Roll = 0 }) end)
         if not ok then Log("[WARN] shake failed: " .. tostring(err)) end
-    else
-        Log("[WARN] shake class missing: " .. SHAKE_CLASS)
     end
     if flash then
-        local ok, err = pcall(function() pcm:StartCameraFade(0.85, 0.0, 0.6, flash, false, false) end)
+        local ok, err = pcall(function() pcm:StartCameraFade(0.9, 0.0, 0.7, flash, false, false) end)
         if not ok then Log("[WARN] flash failed: " .. tostring(err)) end
     end
 end
 
 --- Gives the view back to the player's body and removes the camera.
 function FusionCam.stop(reason)
-    if not cam then return end
-    local c, p = cam, pc
-    cam, pc = nil, nil
-    if live(p) then
-        local ok, err = pcall(function() p:SetViewTargetWithBlend(p:K2_GetPawn(), BLEND_OUT_S, EASE_IN_OUT, 2.0, false) end)
+    local r = rig
+    if not r then return end
+    rig = nil
+    if live(r.spin) then Rig.spin(r.spin, 0) end
+    if live(r.pc) then
+        local ok, err = pcall(function() r.pc:SetViewTargetWithBlend(r.pc:K2_GetPawn(), BLEND_OUT_S, EASE_IN_OUT, 2.0, false) end)
         if not ok then Log("[ERROR] view not given back: " .. tostring(err)) end
     end
-    FusionCam._pending = c
+    FusionCam._pending = r
     -- removed once the blend back is over, so the view never cuts
-    LoopAsync(math.floor((BLEND_OUT_S + 0.3) * 1000), function()
-        ExecuteInGameThread(FusionCam._destroyPending)
-        return true
-    end)
+    LoopAsync(math.floor((BLEND_OUT_S + 0.3) * 1000), FusionCam._removeLater)
     Log("camera handed back (" .. tostring(reason) .. ")")
 end
 
+function FusionCam._removeLater()
+    ExecuteInGameThread(FusionCam._destroyPending)
+    return true
+end
+
 function FusionCam._destroyPending()
-    local c = FusionCam._pending
+    local r = FusionCam._pending
     FusionCam._pending = nil
-    if live(c) then
-        local ok, err = pcall(function() c:K2_DestroyActor() end)
-        if not ok then Log("[WARN] camera not removed: " .. tostring(err)) end
-    end
+    if not r then return end
+    for _, a in ipairs({ r.cam, r.spin, r.base }) do Rig.destroy(a) end
+end
+
+--- Where the camera is, as text for the scene trace.
+function FusionCam.where()
+    local r = rig
+    if not (r and live(r.cam)) then return "off" end
+    local ok, s = pcall(function()
+        local l = r.cam:K2_GetActorLocation()
+        local rot = r.cam:K2_GetActorRotation()
+        return string.format("%.0f,%.0f,%.0f yaw %.0f (%.0f from front) pitch %.0f fov %.0f", l.X, l.Y, l.Z,
+            rot.Yaw, currentYaw(r), rot.Pitch, r.fov)
+    end)
+    return ok and s or ("unreadable: " .. tostring(s))
 end
 
 function FusionCam.active()
-    return cam ~= nil
+    return rig ~= nil
 end
 
 return FusionCam

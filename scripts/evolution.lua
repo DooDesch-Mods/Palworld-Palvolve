@@ -21,6 +21,7 @@ local Timing = require("sequence_timing")
 local WazaInherit = require("wazainherit")
 local PalSlots = require("palslots")
 local Prestige = require("prestige")
+local Sound = require("sound")
 
 local Evolution = {}
 
@@ -487,13 +488,7 @@ end
 -- ---------------------------------------------------------------- sound
 
 local function playFanfare(actor)
-    pcall(function()
-        local ake = StaticFindObject("/Game/Pal/Sound/Events/SE/UI/CampLevelUp/AKE_CampLevelUp.AKE_CampLevelUp")
-        local aks = StaticFindObject("/Script/AkAudio.Default__AkGameplayStatics")
-        if ake and ake:IsValid() and aks and aks:IsValid() then
-            aks:PostEvent(ake, actor, 0, nil, false)
-        end
-    end)
+    Sound.onActor("/Game/Pal/Sound/Events/SE/UI/CampLevelUp/AKE_CampLevelUp.AKE_CampLevelUp", actor, false)
 end
 
 local function setFrozen(palActor, frozen)
