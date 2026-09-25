@@ -292,6 +292,16 @@ function FusionFx.awaitReveal(findC, idC, timeoutS)
     run.elemC = (Elements.of(idC, run.worldCtx) or {})[1]
 end
 
+--- One burst in an element's colour at a point, outside any scene.
+function FusionFx.spark(worldCtx, element, x, y, z, scale)
+    return spawnAt(worldCtx, burstFor(element or "Normal"), x, y, z, scale)
+end
+
+--- The pull-into-the-ball effect at a point, outside any scene.
+function FusionFx.absorbAt(worldCtx, x, y, z)
+    return spawnAt(worldCtx, ABSORB_NS, x, y, z, 1.2)
+end
+
 function FusionFx.abort(reason)
     finishRun(reason or "aborted")
 end

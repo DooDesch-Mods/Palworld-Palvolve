@@ -21,6 +21,7 @@ local Costs = require("costs")
 local Conditions = require("conditions")
 local PalPassives = require("palpassives")
 local FusionRules = require("fusionrules")
+local FusionPartner = require("fusionpartner")
 local PASSIVE_RANK = require("passive_rank_static")
 
 local Fusion = {}
@@ -36,6 +37,7 @@ end
 local api = nil          -- Evolution.fusionApi, handed over by Fusion.init
 local active = {}        -- A's individual key -> fusion entry
 local cooldowns = {}     -- pair key .. "|" .. owner uid -> os.clock() when it runs out
+local starting = {}      -- individual keys of both Pals while the partner steps out
 local recoveryPending = true
 local recoverySkipLogged = {} -- A's key -> true once the skip was logged
 
@@ -644,11 +646,11 @@ function Fusion.startBattle(playerCtx, partnerSlot)
         return reply(playerCtx, "noPalSummoned")
     end
     local keyA = api.individualKey(paramA)
-    if active[keyA] then return reply(playerCtx, "fusionAlreadyActive") end
+    if active[keyA] or starting[keyA] then return reply(playerCtx, "fusionAlreadyActive") end
 
-    local paramB = nil
+    local paramB, handleB = nil, nil
     local okSlot, slotErr = pcall(function()
-        local handleB = holder:GetOtomoIndividualHandle(partnerSlot)
+        handleB = holder:GetOtomoIndividualHandle(partnerSlot)
         if handleB and handleB:IsValid() then paramB = handleB:TryGetIndividualParameter() end
     end)
     if not okSlot then Log("[WARN] party slot " .. tostring(partnerSlot) .. " unreadable: " .. tostring(slotErr)) end
@@ -656,7 +658,7 @@ function Fusion.startBattle(playerCtx, partnerSlot)
     local keyB = api.individualKey(paramB)
     if keyB == keyA then return reply(playerCtx, "fusionNoPartner") end
     -- B can be the fused half of another fusion, recalled into its ball
-    if active[keyB] then return reply(playerCtx, "fusionAlreadyActive") end
+    if active[keyB] or starting[keyB] then return reply(playerCtx, "fusionAlreadyActive") end
     for _, e in pairs(active) do
         if e.bKey == keyB or e.bKey == keyA then return reply(playerCtx, "fusionAlreadyActive") end
     end
@@ -749,48 +751,83 @@ function Fusion.startBattle(playerCtx, partnerSlot)
         return nil
     end
 
-    -- The record exists before the first write, so a crash from here on is undone.
-    active[keyA] = entry
-    entry.endsAt = math.huge
-    if not saveState() then
-        active[keyA] = nil
-        return reply(playerCtx, "swapStateSnapshotFailed")
-    end
-    local okMark, markErr = PalPassives.restore(paramB, withMarker(passivesB))
-    if not okMark then Log("[WARN] partner marker not written: " .. tostring(markErr)) end
-    local okFaint, faintErr = pcall(setHp, paramB, 0)
-    if not okFaint then Log("[WARN] partner could not be taken out of play: " .. tostring(faintErr)) end
+    -- Everything below writes. It runs once B has stepped out next to A, so the
+    -- partner still has its HP while its body is on screen.
+    local function begin()
+        starting[keyA], starting[keyB] = nil, nil
+        -- A can be recalled or swapped while B shows itself
+        local now = spawnedOf(holder)
+        local nowParam = isLive(now) and api.paramOf(now) or nil
+        if not (nowParam and api.individualKey(nowParam) == keyA) then
+            Log("[WARN] fusion stopped: the summoned Pal changed while the partner stepped out")
+            release(holder)
+            return reply(playerCtx, "noPalSummoned")
+        end
+        actor = now
+        -- The record exists before the first write, so a crash from here on is undone.
+        active[keyA] = entry
+        entry.endsAt = math.huge
+        if not saveState() then
+            active[keyA] = nil
+            return reply(playerCtx, "swapStateSnapshotFailed")
+        end
+        local okMark, markErr = PalPassives.restore(paramB, withMarker(passivesB))
+        if not okMark then Log("[WARN] partner marker not written: " .. tostring(markErr)) end
+        local okFaint, faintErr = pcall(setHp, paramB, 0)
+        if not okFaint then Log("[WARN] partner could not be taken out of play: " .. tostring(faintErr)) end
 
+        protect(holder, 10)
+        local started, why = api.run({
+            actor = actor, param = paramA, holder = holder, playerCtx = playerCtx,
+            isAlpha = alphaA, key = keyA,
+            pair = { from = idA, to = target, category = "fusion", stone = "fusionShard" },
+            fusion = {
+                kind = "temporary",
+                mutate = mutate,
+                restore = function(param) return restoreA(param, snapA) end,
+                onCommitted = function()
+                    protect(holder, 1.5)
+                    entry.endsAt = os.clock() + (Config.fusion.durationSeconds or 60)
+                    Log(string.format("%s + %s fused into %s (Lv %d, %s) for %ds", idA, idB, target, level,
+                        source, Config.fusion.durationSeconds or 60))
+                    Role.chat(playerCtx, I18n.msg("fusionStarted", api.displayName(idA),
+                        api.displayName(idB), api.displayName(target)), "info")
+                end,
+            },
+        })
+        if not started then
+            release(holder)
+            Log("[WARN] fusion presentation did not start: " .. tostring(why))
+            -- nothing of A was written; give B back its HP and drop the record
+            local okHp, hpErr = pcall(setHp, paramB, entry.hpB)
+            if not okHp then Log("[ERROR] partner HP not given back: " .. tostring(hpErr)) end
+            local okBack, backErr = PalPassives.restore(paramB, passivesB)
+            if not okBack then Log("[ERROR] partner marker not removed: " .. tostring(backErr)) end
+            active[keyA] = nil
+            if not saveState() then Log("[ERROR] recovery file not cleared after the refused start") end
+            return reply(playerCtx, "optionUnavailable")
+        end
+    end
+
+    starting[keyA], starting[keyB] = true, true
     protect(holder, 10)
-    local started, why = api.run({
-        actor = actor, param = paramA, holder = holder, playerCtx = playerCtx,
-        isAlpha = alphaA, key = keyA,
-        pair = { from = idA, to = target, category = "fusion", stone = "fusionShard" },
-        fusion = {
-            kind = "temporary",
-            mutate = mutate,
-            restore = function(param) return restoreA(param, snapA) end,
-            onCommitted = function()
-                protect(holder, 1.5)
-                entry.endsAt = os.clock() + (Config.fusion.durationSeconds or 60)
-                Log(string.format("%s + %s fused into %s (Lv %d, %s) for %ds", idA, idB, target, level,
-                    source, Config.fusion.durationSeconds or 60))
-                Role.chat(playerCtx, I18n.msg("fusionStarted", api.displayName(idA),
-                    api.displayName(idB), api.displayName(target)), "info")
-            end,
-        },
+    local shown, showWhy = FusionPartner.play({
+        worldCtx = playerCtx.pc, actorA = actor, handleB = handleB, paramB = paramB, idB = idB,
+        freeze = api.freeze,
+        onDone = function(wasShown)
+            if not wasShown then Log("[INFO] the partner was not shown, the fusion goes on without it") end
+            local ok, err = pcall(begin)
+            if not ok then
+                starting[keyA], starting[keyB] = nil, nil
+                Log("[ERROR] fusion start failed after the partner scene: " .. tostring(err))
+                Role.chat(playerCtx, I18n.msg("optionUnavailable"), "reply")
+            end
+        end,
     })
-    if not started then
-        release(holder)
-        Log("[WARN] fusion presentation did not start: " .. tostring(why))
-        -- nothing of A was written; give B back its HP and drop the record
-        local okHp, hpErr = pcall(setHp, paramB, entry.hpB)
-        if not okHp then Log("[ERROR] partner HP not given back: " .. tostring(hpErr)) end
-        local okBack, backErr = PalPassives.restore(paramB, passivesB)
-        if not okBack then Log("[ERROR] partner marker not removed: " .. tostring(backErr)) end
-        active[keyA] = nil
-        if not saveState() then Log("[ERROR] recovery file not cleared after the refused start") end
-        return reply(playerCtx, "optionUnavailable")
+    if not shown then
+        Log("[WARN] partner scene did not start (" .. tostring(showWhy) .. "), fusing without it")
+        local okBegin, beginMsg = begin()
+        if okBegin == false then return false, beginMsg end
     end
     return true
 end
