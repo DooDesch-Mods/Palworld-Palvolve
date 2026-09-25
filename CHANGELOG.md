@@ -8,11 +8,13 @@
 - **The fused Pal takes the best of both.** It gets the higher IVs and souls, the four best passives and the combined experience. Nothing can hit it while it fuses or splits.
 - **When the time runs out, the two split again and share the damage.** If the fused Pal faints, both do.
 - **The Fusion Altar turns two Pals into one for good.** It is a stone gate over two pedestals, and the two Pals wait there facing each other. The fusion plays as a filmed scene with its own sound: both Pals roar, rise off their pedestals and circle each other in front of the gate until they burst into the new Pal, which lands on the first pedestal and roars. It unlocks at technology level 43 and is built from the Pal section of the build menu. Set two of your Pals into it and the fusion window opens: choose up to four passives and the gender, or cancel to swap a Pal. The second Pal is used up, and each fusion costs a Fusion Core.
+- **On a server, every player near the altar sees the fusion.**
+- **Servers choose when the altar unlocks and what fusion costs.** The config sets the altar's technology level, the Shard and Core recipes and the altar's build cost, so a server can make fusion a core feature from level 20. Changes apply after the next game start. Thanks to Narayan for asking for an earlier unlock.
 - **Fusion rules decide which two Pals become which Pal.** A rule works in a fight, at the altar or both, from a set level on, with the same conditions evolutions use. The default tree ships 17, most turning a Pal into the element variant of its partner, like Penking and Beakon into Penking Lux.
 - **Pairs without a rule fuse into a stronger species by the breeding formula.** You can switch that formula off.
 - **The configurator has a fusion tree.** A new tab draws every rule as two Pals joining into one, and a calculator shows what any two Pals would become.
 - **The Palpedia shows fusions.** Next to a Pal's evolutions there is a Fusions tab: which pairs make this Pal, and what it fuses into, with the level each rule needs.
-- **Fusion Shards and Fusion Cores are crafted at the Pal Alchemy Workbench.** A Shard takes an Evolution Stone, a Core takes a Prestige Stone and five Shards.
+- **Fusion Shards and Fusion Cores are crafted at the Pal Alchemy Workbench.** By default a Shard takes an Evolution Stone, a Core takes a Prestige Stone and five Shards.
 
 ### Fixed
 

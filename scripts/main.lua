@@ -74,6 +74,12 @@ do
     if not okRecipe then Log("prestige recipe: " .. tostring(errRecipe)) end
 end
 
+-- Fusion recipes and the altar's cost and unlock stage: PalSchema data too.
+do
+    local okFusionData, errFusionData = pcall(function() require("fusiondata").apply() end)
+    if not okFusionData then Log("fusion data: " .. tostring(errFusionData)) end
+end
+
 -- Evolution core
 local Evolution = nil
 local okCore, errCore = pcall(function()

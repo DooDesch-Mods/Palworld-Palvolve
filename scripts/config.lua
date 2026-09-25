@@ -159,6 +159,13 @@ local Config = {
         cooldownSeconds = 300,
         shardCount = 1,
         coreCount = 1,
+        -- Written into PalSchema files at every start (fusiondata.lua), so a
+        -- change applies on the next game start. Materials are
+        -- "ItemId:count" entries separated by commas, at most four.
+        altarTechLevel = 43,
+        shardRecipe = "Palvolve_EvolutionStone:1,PalFluid:5,Pal_crystal_S:10",
+        coreRecipe = "Palvolve_PrestigeStone:1,Palvolve_FusionShard:5,MeteorDrop:10,NightStone:3",
+        altarMaterials = "PalCrystal_Ex:10,StealIngot:20,Pal_crystal_S:50",
     },
 
     -- Selected keeps the explicit target wheel. Conditioned resolves the
@@ -2529,6 +2536,7 @@ end
 --   num   clamped, fraction kept (durations and rates: 0.5 s is a real value,
 --         and costs.countScale = 1.5 is documented as one)
 --   enum  one of `values`, case-insensitively, or the shipped value stands
+--   materials  "ItemId:count,..." (Config.parseMaterials), stored normalized
 local USER_KEYS = {
     -- gameplay
     { path = "autoEvolve", kind = "bool" },
@@ -2559,6 +2567,11 @@ local USER_KEYS = {
     { path = "fusion.cooldownSeconds", kind = "int", min = 0, max = 3600 },
     { path = "fusion.shardCount", kind = "int", min = 1, max = 99 },
     { path = "fusion.coreCount", kind = "int", min = 1, max = 99 },
+    -- the next four land in PalSchema files; a junk value breaks the entry
+    { path = "fusion.altarTechLevel", kind = "int", min = 1, max = 100 },
+    { path = "fusion.shardRecipe", kind = "materials" },
+    { path = "fusion.coreRecipe", kind = "materials" },
+    { path = "fusion.altarMaterials", kind = "materials" },
 
     -- costs
     { path = "stoneCount", kind = "int", min = 1, max = 99 },
@@ -2605,6 +2618,37 @@ local USER_KEYS = {
     { path = "diagReveal", kind = "bool" },
     { path = "finale.debugLog", kind = "bool" },
 }
+
+local MATERIALS_MAX = 4
+local MATERIAL_COUNT_MAX = 9999
+
+--- Parses "ItemId:count,ItemId:count" into { { id = ..., count = n }, ... }.
+---
+--- The ids end up inside a JSON file PalSchema reads, so only letters, digits
+--- and underscores pass: a quote or a brace in an id would break the file for
+--- every recipe in it. Returns nil and the reason for anything else.
+function Config.parseMaterials(raw)
+    if type(raw) ~= "string" then return nil, "expected a string like \"PalFluid:5,Wood:10\"" end
+    local list, seen = {}, {}
+    for entry in raw:gmatch("[^,]+") do
+        local id, count = entry:match("^%s*([%w_]+)%s*:%s*(%d+)%s*$")
+        if not id then
+            return nil, string.format("'%s' is not ItemId:count", entry)
+        end
+        if seen[id] then return nil, string.format("%s is listed twice", id) end
+        seen[id] = true
+        count = tonumber(count)
+        if count < 1 or count > MATERIAL_COUNT_MAX then
+            return nil, string.format("%s: count %d is outside 1..%d", id, count, MATERIAL_COUNT_MAX)
+        end
+        list[#list + 1] = { id = id, count = count }
+    end
+    if #list == 0 then return nil, "no material listed" end
+    if #list > MATERIALS_MAX then
+        return nil, string.format("%d materials, at most %d fit", #list, MATERIALS_MAX)
+    end
+    return list
+end
 
 local function readPath(root, path)
     local cur = root
@@ -2707,6 +2751,15 @@ local function applyUserKeys(user)
                     end
                 else
                     why = "expected a string"
+                end
+            elseif entry.kind == "materials" then
+                local list, err = Config.parseMaterials(raw)
+                if list then
+                    local parts = {}
+                    for i, m in ipairs(list) do parts[i] = m.id .. ":" .. m.count end
+                    value = table.concat(parts, ",")
+                else
+                    why = err
                 end
             else
                 local n = tonumber(raw)
