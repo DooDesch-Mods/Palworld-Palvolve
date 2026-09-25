@@ -1,7 +1,7 @@
 {
     "Palvolve_FusionAltar": {
-        "BlueprintClassName": "BP_BuildObject_DisplayCharacter",
-        "BlueprintClassSoft": "/Game/Pal/Blueprint/MapObject/BuildObject/BP_BuildObject_DisplayCharacter.BP_BuildObject_DisplayCharacter_C",
+        "BlueprintClassName": "BP_PalvolveFusionAltar",
+        "BlueprintClassSoft": "/Game/Palvolve/Buildings/BP_PalvolveFusionAltar.BP_PalvolveFusionAltar_C",
         "IconTexture": "$resource/Palvolve/extractor_bench",
         "Hp": 3000,
         "Defense": 10,

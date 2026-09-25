@@ -47,6 +47,13 @@
       "Targets": [
         "./LogicMods/"
       ]
+    },
+    {
+      "Type": "LogicMods",
+      "Targets": [
+        "./LogicMods/"
+      ],
+      "IsServer": true
     }
   ]
 }
