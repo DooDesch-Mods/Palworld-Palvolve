@@ -348,63 +348,68 @@ local M = {
         local totalS = (c.spinUpMs + c.shrinkMs) / 1000
         local spinUpS = c.spinUpMs / 1000
         local shrinkS = c.shrinkMs / 1000
+        -- The step runs on the game thread every tick. It is built once per
+        -- effect and handed over by name: a new closure per tick feeds UE4SS's
+        -- callback collector (UE4SS-LESSONS.md section 1). Same for peakStep
+        -- and growStep below.
+        local function dissolveStep()
+            if state.stopped then return end
+            local a = ctx.actor
+            -- the world context goes with the world, so a teardown mid-dissolve
+            -- must end the driver just like a lost actor does
+            if not (a and a:IsValid()) or not (ctx.worldCtx and ctx.worldCtx:IsValid()) then
+                state.stopped = true
+                return
+            end
+            local now = os.clock()
+            local dt = now - state.lastTick
+            state.lastTick = now
+            local t = now - startedAt
+            local progress = math.min(t / totalS, 1.0)
+            -- quadratic ramp from a slow start to the peak speed
+            local speed = 45 + (c.peakDegPerSec - 45) * (progress * progress)
+            state.yaw = (state.yaw + speed * dt) % 360
+            setYaw(a, state.yaw)
+            -- phase B: shrink while still spinning (ease-in)
+            if t > spinUpS then
+                local st = math.min((t - spinUpS) / shrinkS, 1.0)
+                local s = 1.0 - 0.98 * (st * st)
+                pcall(function() a:SetActorScale3D({ X = s, Y = s, Z = s }) end)
+            end
+            -- White overlay only once the shrink starts: earlier the spin
+            -- is still so slow that the white-out reads as a texture
+            -- glitch instead of part of the effect.
+            if not state.glowApplied and t > spinUpS then
+                state.glowApplied = true
+                local glow = glowMaterial()
+                if glow then
+                    pcall(function() a:GetMainMesh():SetOverlayMaterial(glow) end)
+                end
+            end
+            -- spread the finale prewarm across the dissolve: at most
+            -- one sync load per tick of this already-running driver
+            Finale.prepareStep()
+            -- bursts with rising frequency (0.8s -> 0.25s)
+            local interval = 0.8 - 0.55 * progress
+            if (now - state.lastBurst) >= interval then
+                state.lastBurst = now
+                state.burstNo = (state.burstNo or 0) + 1
+                spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ)
+                if ctx.isPrestige then
+                    -- heavier and colourless: the old form's elements have
+                    -- no say in a return to the base form
+                    spawnSystemAt(ctx.worldCtx, PRESTIGE_BURST,
+                        ctx.oldX, ctx.oldY, ctx.oldZ, 0.9, true)
+                else
+                    spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ,
+                        elemAt(ctx.elemsFrom, state.burstNo))
+                end
+            end
+            if t >= totalS then state.stopped = true end
+        end
         LoopAsync(33, function()
             if state.stopped then return true end
-            ExecuteInGameThread(function()
-                if state.stopped then return end
-                local a = ctx.actor
-                -- the world context goes with the world, so a teardown mid-dissolve
-                -- must end the driver just like a lost actor does
-                if not (a and a:IsValid()) or not (ctx.worldCtx and ctx.worldCtx:IsValid()) then
-                    state.stopped = true
-                    return
-                end
-                local now = os.clock()
-                local dt = now - state.lastTick
-                state.lastTick = now
-                local t = now - startedAt
-                local progress = math.min(t / totalS, 1.0)
-                -- quadratic ramp from a slow start to the peak speed
-                local speed = 45 + (c.peakDegPerSec - 45) * (progress * progress)
-                state.yaw = (state.yaw + speed * dt) % 360
-                setYaw(a, state.yaw)
-                -- phase B: shrink while still spinning (ease-in)
-                if t > spinUpS then
-                    local st = math.min((t - spinUpS) / shrinkS, 1.0)
-                    local s = 1.0 - 0.98 * (st * st)
-                    pcall(function() a:SetActorScale3D({ X = s, Y = s, Z = s }) end)
-                end
-                -- White overlay only once the shrink starts: earlier the spin
-                -- is still so slow that the white-out reads as a texture
-                -- glitch instead of part of the effect.
-                if not state.glowApplied and t > spinUpS then
-                    state.glowApplied = true
-                    local glow = glowMaterial()
-                    if glow then
-                        pcall(function() a:GetMainMesh():SetOverlayMaterial(glow) end)
-                    end
-                end
-                -- spread the finale prewarm across the dissolve: at most
-                -- one sync load per tick of this already-running driver
-                Finale.prepareStep()
-                -- bursts with rising frequency (0.8s -> 0.25s)
-                local interval = 0.8 - 0.55 * progress
-                if (now - state.lastBurst) >= interval then
-                    state.lastBurst = now
-                    state.burstNo = (state.burstNo or 0) + 1
-                    spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ)
-                    if ctx.isPrestige then
-                        -- heavier and colourless: the old form's elements have
-                        -- no say in a return to the base form
-                        spawnSystemAt(ctx.worldCtx, PRESTIGE_BURST,
-                            ctx.oldX, ctx.oldY, ctx.oldZ, 0.9, true)
-                    else
-                        spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ,
-                            elemAt(ctx.elemsFrom, state.burstNo))
-                    end
-                end
-                if t >= totalS then state.stopped = true end
-            end)
+            ExecuteInGameThread(dissolveStep)
             return state.stopped
         end)
     end,
@@ -420,26 +425,27 @@ local M = {
         local startedAt = os.clock()
         ctx.fx.stopPeak = function() stopped = true end
         local i = 0
+        local function peakStep()
+            if stopped then return end
+            -- bounded by a 30 s wall clock above, but that outlives a world
+            -- teardown - stop as soon as the context dies
+            if not (ctx.worldCtx and ctx.worldCtx:IsValid()) then
+                stopped = true
+                return
+            end
+            i = i + 1
+            local zOff = (i % 3) * 60
+            spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ + zOff)
+            spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ + zOff,
+                elemAt(ctx.elemsFrom, i))
+        end
         LoopAsync(300, function()
             if stopped then return true end
             if os.clock() - startedAt > 30 then
                 stopped = true
                 return true
             end
-            ExecuteInGameThread(function()
-                if stopped then return end
-                -- bounded by a 30 s wall clock above, but that outlives a world
-                -- teardown - stop as soon as the context dies
-                if not (ctx.worldCtx and ctx.worldCtx:IsValid()) then
-                    stopped = true
-                    return
-                end
-                i = i + 1
-                local zOff = (i % 3) * 60
-                spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ + zOff)
-                spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ + zOff,
-                    elemAt(ctx.elemsFrom, i))
-            end)
+            ExecuteInGameThread(peakStep)
             return stopped
         end)
     end,
@@ -513,101 +519,102 @@ local M = {
         local holdS = c.finaleHoldMs / 1000
         local totalS = growS + holdS
         local alignS = math.min(0.8, holdS * 0.4) -- steer-in window at the end
+        local function growStep()
+            if state.stopped then return end
+            if not (newActor and newActor:IsValid()) then
+                -- actor died mid-drive: normalize whatever the holder has
+                -- now, then end the sequence as an abort (we own the lock)
+                state.stopped = true
+                state.finished = true
+                Finale.stopAll(ctx.fx.finale)
+                pcall(function()
+                    local h = ctx.worldCtx
+                    local re = (h and h:IsValid()) and h:TryGetSpawnedOtomo() or nil
+                    if re and re:IsValid() then
+                        pcall(function() re:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
+                        if ctx.unfreeze then pcall(ctx.unfreeze, re) end
+                    end
+                end)
+                if ctx.completeAbort then pcall(ctx.completeAbort) end
+                return
+            end
+            local now = os.clock()
+            local dt = now - state.lastTick
+            state.lastTick = now
+            local t = now - startedAt
+            Finale.pump(ctx, ctx.fx.finale, t)
+            local speed
+            if t < growS then
+                -- reveal: fast spin winding down to a steady rate while
+                -- the pal grows (ease-out)
+                local p = t / growS
+                speed = c.peakDegPerSec * (1 - p) + 360 * p
+                local invp = 1 - p
+                local s = 0.02 + 0.98 * (1.0 - invp * invp)
+                state.scale = s
+                pcall(function() newActor:SetActorScale3D({ X = s, Y = s, Z = s }) end)
+            elseif t < totalS - alignS then
+                -- finale hold: keep turning majestically while the
+                -- effects play out (never below the dominance floor)
+                if not state.scaleDone then
+                    state.scaleDone = true
+                    state.scale = 1
+                    pcall(function() newActor:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
+                end
+                local h = (t - growS) / math.max(holdS, 0.05)
+                speed = 360 * (1 - h) + 240 * h
+            else
+                -- steer back into the face-player yaw along the spin
+                -- direction - lands, never snaps
+                local deltaCW = (360 - (state.offset % 360)) % 360
+                local remaining = math.max(totalS - t, 0.05)
+                speed = math.min(math.max(deltaCW / remaining, 240), c.peakDegPerSec)
+            end
+            state.offset = state.offset + speed * dt
+            -- Keep the height in sync with the growth: the engine
+            -- floor-snaps the frozen actor while it is TINY and never
+            -- re-snaps as it grows, so at full size the feet would end up
+            -- in the ground. Center = ground + capsule half * scale keeps
+            -- the feet on the ground the whole time (ground derives from
+            -- the old pal's center and capsule).
+            local sNow = state.scale or 1
+            local oldH = (ctx.oldHalf and ctx.oldHalf > 0) and ctx.oldHalf or 30
+            local newH = (ctx.newHalf and ctx.newHalf > 0) and ctx.newHalf or oldH
+            -- feet on the measured ground: center = ground + scaled
+            -- collision half (ctx.groundZ from the engine floor query;
+            -- capsule-difference formula only as legacy fallback)
+            local baseZ = ctx.groundZ or ((ctx.oldZ or 0) - oldH)
+            -- SP re-anchors the actor location so the feet stay grounded
+            -- while growing. On MP the actor location is server-authoritative
+            -- (the host already teleported + froze it), so a client write
+            -- would fight replication - ctx.placeForScale is a no-op there.
+            if ctx.placeForScale then
+                ctx.placeForScale(newActor, sNow, oldH, newH)
+            else
+                pcall(function()
+                    -- bTeleport=true: an intentional warp must not feed
+                    -- velocity into the (frozen) physics state
+                    newActor:K2_SetActorLocation({
+                        X = ctx.oldX or 0, Y = ctx.oldY or 0,
+                        Z = baseZ + newH * sNow,
+                    }, false, {}, true)
+                end)
+            end
+            if t >= totalS then
+                state.stopped = true
+                state.finished = true
+                Finale.stopAll(ctx.fx.finale)
+                restoreSpin()
+                pcall(function() newActor:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
+                if ctx.unfreeze then pcall(ctx.unfreeze, newActor) end
+                if ctx.completeOk then pcall(ctx.completeOk) end
+            else
+                applySpin()
+            end
+        end
         LoopAsync(33, function()
             if state.stopped then return true end
-            ExecuteInGameThread(function()
-                if state.stopped then return end
-                if not (newActor and newActor:IsValid()) then
-                    -- actor died mid-drive: normalize whatever the holder has
-                    -- now, then end the sequence as an abort (we own the lock)
-                    state.stopped = true
-                    state.finished = true
-                    Finale.stopAll(ctx.fx.finale)
-                    pcall(function()
-                        local h = ctx.worldCtx
-                        local re = (h and h:IsValid()) and h:TryGetSpawnedOtomo() or nil
-                        if re and re:IsValid() then
-                            pcall(function() re:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
-                            if ctx.unfreeze then pcall(ctx.unfreeze, re) end
-                        end
-                    end)
-                    if ctx.completeAbort then pcall(ctx.completeAbort) end
-                    return
-                end
-                local now = os.clock()
-                local dt = now - state.lastTick
-                state.lastTick = now
-                local t = now - startedAt
-                Finale.pump(ctx, ctx.fx.finale, t)
-                local speed
-                if t < growS then
-                    -- reveal: fast spin winding down to a steady rate while
-                    -- the pal grows (ease-out)
-                    local p = t / growS
-                    speed = c.peakDegPerSec * (1 - p) + 360 * p
-                    local invp = 1 - p
-                    local s = 0.02 + 0.98 * (1.0 - invp * invp)
-                    state.scale = s
-                    pcall(function() newActor:SetActorScale3D({ X = s, Y = s, Z = s }) end)
-                elseif t < totalS - alignS then
-                    -- finale hold: keep turning majestically while the
-                    -- effects play out (never below the dominance floor)
-                    if not state.scaleDone then
-                        state.scaleDone = true
-                        state.scale = 1
-                        pcall(function() newActor:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
-                    end
-                    local h = (t - growS) / math.max(holdS, 0.05)
-                    speed = 360 * (1 - h) + 240 * h
-                else
-                    -- steer back into the face-player yaw along the spin
-                    -- direction - lands, never snaps
-                    local deltaCW = (360 - (state.offset % 360)) % 360
-                    local remaining = math.max(totalS - t, 0.05)
-                    speed = math.min(math.max(deltaCW / remaining, 240), c.peakDegPerSec)
-                end
-                state.offset = state.offset + speed * dt
-                -- Keep the height in sync with the growth: the engine
-                -- floor-snaps the frozen actor while it is TINY and never
-                -- re-snaps as it grows, so at full size the feet would end up
-                -- in the ground. Center = ground + capsule half * scale keeps
-                -- the feet on the ground the whole time (ground derives from
-                -- the old pal's center and capsule).
-                local sNow = state.scale or 1
-                local oldH = (ctx.oldHalf and ctx.oldHalf > 0) and ctx.oldHalf or 30
-                local newH = (ctx.newHalf and ctx.newHalf > 0) and ctx.newHalf or oldH
-                -- feet on the measured ground: center = ground + scaled
-                -- collision half (ctx.groundZ from the engine floor query;
-                -- capsule-difference formula only as legacy fallback)
-                local baseZ = ctx.groundZ or ((ctx.oldZ or 0) - oldH)
-                -- SP re-anchors the actor location so the feet stay grounded
-                -- while growing. On MP the actor location is server-authoritative
-                -- (the host already teleported + froze it), so a client write
-                -- would fight replication - ctx.placeForScale is a no-op there.
-                if ctx.placeForScale then
-                    ctx.placeForScale(newActor, sNow, oldH, newH)
-                else
-                    pcall(function()
-                        -- bTeleport=true: an intentional warp must not feed
-                        -- velocity into the (frozen) physics state
-                        newActor:K2_SetActorLocation({
-                            X = ctx.oldX or 0, Y = ctx.oldY or 0,
-                            Z = baseZ + newH * sNow,
-                        }, false, {}, true)
-                    end)
-                end
-                if t >= totalS then
-                    state.stopped = true
-                    state.finished = true
-                    Finale.stopAll(ctx.fx.finale)
-                    restoreSpin()
-                    pcall(function() newActor:SetActorScale3D({ X = 1, Y = 1, Z = 1 }) end)
-                    if ctx.unfreeze then pcall(ctx.unfreeze, newActor) end
-                    if ctx.completeOk then pcall(ctx.completeOk) end
-                else
-                    applySpin()
-                end
-            end)
+            ExecuteInGameThread(growStep)
             return state.stopped
         end)
     end,
