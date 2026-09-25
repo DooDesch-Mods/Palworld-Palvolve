@@ -46,7 +46,7 @@
         "ITEM_DESC_Palvolve_AdaptationStone_Dark": "Migoczący kamień dostrojony do energii mroku. Pozwala związanemu Palowi przyjąć mroczną formę po osiągnięciu wymaganego poziomu.",
         "ITEM_DESC_Palvolve_Essence_Dragon": "Skondensowana energia smoka, wydobyta z owoców umiejętności lub materiałów żywiołów. Służy do wytworzenia odpowiedniego Kamienia adaptacji.",
         "ITEM_DESC_Palvolve_AdaptationStone_Dragon": "Migoczący kamień dostrojony do energii smoka. Pozwala związanemu Palowi przyjąć smoczą formę po osiągnięciu wymaganego poziomu.",
-        "ITEM_DESC_Palvolve_FusionShard": "Pęknięty Kamień ewolucji spojony płynem Pal. Pozwala przywołanemu Pal i jednemu Pal z drużyny połączyć się na jedną walkę, a potem ponownie rozdzielić.",
-        "ITEM_DESC_Palvolve_FusionCore": "Pięć Odłamków fuzji mocno sprasowanych wokół Kamienia prestiżu. Na Ołtarzu fuzji trwale łączy dwa Pal w jednego."
+        "ITEM_DESC_Palvolve_FusionShard": "Pęknięty Kamień ewolucji spojony płynem Pal. Pozwala przywołanemu Pal i jednemu Pal z drużyny dokonać fuzji na jedną walkę, a potem ponownie rozdzielić.",
+        "ITEM_DESC_Palvolve_FusionCore": "Pięć Odłamków fuzji mocno sprasowanych wokół Kamienia prestiżu. Na Ołtarzu fuzji umożliwia trwałą fuzję dwóch Pal w jednego."
     }
 }

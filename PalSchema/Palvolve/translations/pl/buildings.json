@@ -5,7 +5,7 @@
     },
     "DT_BuildObjectDescText": {
         "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "Rozkłada owoce umiejętności i materiały żywiołów na czyste esencje oraz wykuwa Kamienie ewolucji i Kamienie adaptacji.",
-        "BUILDOBJECT_DESC_Palvolve_FusionAltar": "Umieść tu dwa Pal, aby połączyć je w jednego na stałe. Zużywa jeden Rdzeń fuzji."
+        "BUILDOBJECT_DESC_Palvolve_FusionAltar": "Umieść tu dwa Pal, aby dokonać ich fuzji w jednego na stałe. Zużywa jeden Rdzeń fuzji."
     },
     "DT_TechnologyNameText": {
         "NAME_RECIPE_Palvolve_ElementExtractor": "Alchemiczny stół warsztatowy Pali",

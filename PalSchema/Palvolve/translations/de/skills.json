@@ -20,7 +20,7 @@
         "PASSIVE_Palvolve_Evolved_4_Locked": "Entwickelt IV",
         "PASSIVE_Palvolve_NoAutoEvolve": "Auto-Evo",
         "PASSIVE_Palvolve_Fused": "Fusioniert",
-        "PASSIVE_Palvolve_FusionActive": "Verschmolzen"
+        "PASSIVE_Palvolve_FusionActive": "In Fusion"
     },
     "DT_SkillDescText": {
         "PASSIVE_Palvolve_Prestige_1": "Der Aufstieg beginnt.\r\nAngriff +{EffectValue1}%\r\nVerteidigung +{EffectValue2}%\r\nArbeitstempo +{EffectValue3}%",
@@ -43,6 +43,6 @@
         "PASSIVE_Palvolve_Evolved_4_Locked": "Max. LP +{EffectValue1}%\nBewegungstempo +{EffectValue2}%\nArbeitstempo +{EffectValue3}%\nAuto-Evo: Deaktiviert",
         "PASSIVE_Palvolve_NoAutoEvolve": "Deaktiviert",
         "PASSIVE_Palvolve_Fused": "Aus zwei Pals am Fusions-Altar entstanden.",
-        "PASSIVE_Palvolve_FusionActive": "Für diesen Kampf verschmolzen. Trennt sich wieder, wenn die Fusion endet."
+        "PASSIVE_Palvolve_FusionActive": "Für diesen Kampf fusioniert. Trennt sich wieder, wenn die Fusion endet."
     }
 }

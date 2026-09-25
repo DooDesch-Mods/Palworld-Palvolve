@@ -47,6 +47,6 @@
         "ITEM_DESC_Palvolve_Essence_Dragon": "Énergie de dragon concentrée, extraite de fruits de maîtrise ou de matériaux élémentaires. Sert à fabriquer la pierre d'adaptation correspondante.",
         "ITEM_DESC_Palvolve_AdaptationStone_Dragon": "Une pierre scintillante accordée à l'énergie de dragon. Permet à un Pal lié de s'adapter à sa forme de dragon une fois le niveau requis atteint.",
         "ITEM_DESC_Palvolve_FusionShard": "Une Pierre d'évolution brisée, liée avec du fluide de Pal. Permet à votre Pal invoqué et à un Pal de votre équipe de fusionner pour un combat, puis de se séparer.",
-        "ITEM_DESC_Palvolve_FusionCore": "Cinq Éclats de fusion pressés autour d'une Pierre de prestige jusqu'à former un tout solide. À l'Autel de fusion, ce noyau unit deux Pals pour toujours."
+        "ITEM_DESC_Palvolve_FusionCore": "Cinq Éclats de fusion pressés autour d'une Pierre de prestige jusqu'à former un tout solide. À l'Autel de fusion, ce noyau fusionne deux Pals pour toujours."
     }
 }

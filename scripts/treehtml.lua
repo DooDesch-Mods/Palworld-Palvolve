@@ -26,10 +26,24 @@ local function t(key, ...)
     return I18n.msg(key, ...)
 end
 
+-- Lucide icons (ISC license), drawn with the text colour of their parent.
+local function lucide(body)
+    return '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">' .. body .. '</svg>'
+end
+local ICON_PLUS = lucide('<path d="M5 12h14"/><path d="M12 5v14"/>')
+local ICON_ARROW = lucide('<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>')
+local ICON_SWORDS = lucide('<path d="m13 19 6-6"/><path d="M14.5 17.5 3.586 6.586A2 2 0 013 5.172V3h2.172a2 2 0 011.414.586L17.5 14.5"/>'
+    .. '<path d="m14.828 6.172 2.586-2.586A2 2 0 0118.828 3H21v2.172a2 2 0 01-.586 1.414l-2.586 2.586"/>'
+    .. '<path d="m16 16 4 4"/><path d="m19 21 2-2"/><path d="m5 14 4 4"/><path d="m5 21-2-2"/><path d="M7.5 16.5 4 20"/>')
+local ICON_SPARKLES = lucide('<path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966'
+    .. 'l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051'
+    .. 'a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/><path d="M20 2v4"/><path d="M22 4h-4"/><circle cx="4" cy="20" r="2"/>')
+
 local okPaldex, Paldex = pcall(require, "paldex_static")
 if not okPaldex then Paldex = {} end
 
 local M = {}
+M.ICONS = { plus = ICON_PLUS, arrow = ICON_ARROW, swords = ICON_SWORDS, sparkles = ICON_SPARKLES, lucide = lucide }
 
 local view = nil
 local function model()
@@ -253,11 +267,22 @@ end
 --- makes the mod draw the page again; it overrides the guess either way.
 local conditionMode = "auto"
 local showConditions = true
+-- Which page of the Pal is up: its evolutions or its fusion rules. Kept across
+-- picks, so following a fusion partner stays in the fusion view.
+local viewMode = "evo"
 
 --- Reads the fold switch out of the address. Returns true when the page has to
 --- be drawn again.
 function M.toggleFrom(url)
     if type(url) ~= "string" then return false end
+    if url:find("#view/fuse", 1, true) and viewMode ~= "fuse" then
+        viewMode = "fuse"
+        return true
+    end
+    if url:find("#view/evo", 1, true) and viewMode ~= "evo" then
+        viewMode = "evo"
+        return true
+    end
     if url:find("#conditions/off", 1, true) and conditionMode ~= "off" then
         conditionMode = "off"
         return true
@@ -344,14 +369,14 @@ html,body{margin:0;height:100%;overflow:hidden}
    wide again, and in fixed pixels everything then keeps its size and the page
    thins out - same drawing, lost in the space. So the sizes that carry the
    composition live here and grow with the window. */
-:root{--pal:80px;--hub:130px;--list:296px;--arm:160px;--base:15px;--small:12.5px}
+:root{--pal:80px;--hub:130px;--list:296px;--arm:160px;--base:15px;--small:12.5px;--fp:64px}
 .dense{--pal:50px;--arm:120px}
 @media (min-width:1500px){
-  :root{--pal:96px;--hub:158px;--list:330px;--arm:176px;--base:16px;--small:13px}
+  :root{--pal:96px;--hub:158px;--list:330px;--arm:176px;--base:16px;--small:13px;--fp:74px}
   .dense{--pal:58px;--arm:136px}
 }
 @media (min-width:1800px){
-  :root{--pal:112px;--hub:184px;--list:360px;--arm:196px;--base:17.5px;--small:14px}
+  :root{--pal:112px;--hub:184px;--list:360px;--arm:196px;--base:17.5px;--small:14px;--fp:84px}
   .dense{--pal:66px;--arm:150px}
 }
 /* The game's panels are not flat: a cool dark blue that lifts towards the
@@ -561,23 +586,67 @@ a{text-decoration:none;color:inherit}
            font-size:calc(var(--base) * 2.8);letter-spacing:.22em;color:#ffffff;
            opacity:.06;font-weight:300;pointer-events:none;text-transform:uppercase}
 body.docked .watermark{left:26px}
-/* The fusion strip: every authored rule this Pal takes part in, on one line
-   above the footer. Only rules - the fallback formula is left for the game to
-   surprise with. */
-.fuse{flex:0 0 auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
-     padding:8px 20px;border-top:1px solid #26344a;background:#0f161f}
-.fuse .fh{font-size:var(--small);letter-spacing:.1em;text-transform:uppercase;
-     color:#0d131b;background:#6f8ba6;padding:2px 8px}
-.fz{display:flex;align-items:center;gap:6px;padding:3px 10px 3px 4px;
-     border:1px solid #26344a;background:#141d29;font-size:var(--small)}
-.fz:hover{border-color:#6f8ba6}
-.fz .op{color:#6f8ba6}
-.fz .nm{color:#e6edf6}
-.fz .to{color:#f2b33d}
-.fz .k{margin-left:4px;color:#9fb2c8}
-.fz img,.fz .mono{width:26px;height:26px;border-radius:50%;object-fit:cover}
-.fz .mono{display:inline-flex;align-items:center;justify-content:center;background:#26344a;font-size:11px}
-.fuse .more{color:#9fb2c8;font-size:var(--small)}
+/* Evolutions and fusions are two pages of the same Pal, switched in the bar
+   like the game's own tabs: the active one filled in the selection blue the
+   side list uses, the other a quiet outline. */
+.views{display:flex;gap:0;margin-left:18px;border:1px solid #35485b}
+.vt{display:flex;align-items:center;gap:8px;padding:6px 14px;font-size:var(--small);
+    color:#a9bccf;background:#192431;letter-spacing:.02em}
+.vt + .vt{border-left:1px solid #35485b}
+.vt:hover{color:#fff;background:#22303f}
+.vt.on{background:linear-gradient(#1580bf,#12699e);color:#fff;font-weight:600}
+.vt .cnt{min-width:20px;padding:1px 6px;text-align:center;font-size:calc(var(--small) - 1px);
+    background:#0f151d;color:#f2c14e;font-weight:700;font-variant-numeric:tabular-nums}
+.vt.on .cnt{background:#0b3552;color:#fff}
+.vt.none .cnt{color:#63748a}
+.ico{width:1.15em;height:1.15em;flex:0 0 auto;fill:none;stroke:currentColor;stroke-width:2;
+     stroke-linecap:round;stroke-linejoin:round}
+
+/* The fusion page keeps the selected Pal where the tree keeps it and gives the
+   rest of the stage to the rules. The board scrolls on its own, so thirty
+   rules never push the Pal or the footer out of the window. */
+.stage.fstage{justify-content:flex-start;overflow:hidden;gap:0;padding-right:10px}
+.hub.solo{border-left:0;padding-left:8px;padding-right:30px}
+.hub.solo::before,.hub.solo::after{display:none}
+.hub.solo .tally{margin-top:14px;display:flex;gap:6px}
+.tally span{font-size:var(--small);padding:2px 8px;background:#192431;border:1px solid #35485b;
+     color:#a9bccf;font-variant-numeric:tabular-nums}
+.tally b{color:#f2c14e;font-weight:700;margin-right:4px}
+.fboard{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden;padding:4px 16px 18px 26px;
+     display:flex;flex-direction:column;gap:26px}
+.fboard::-webkit-scrollbar{width:8px}
+.fboard::-webkit-scrollbar-thumb{background:#2c3a4a;border-radius:4px}
+.fboard::-webkit-scrollbar-thumb:hover{background:#3f5470}
+.fsec .wing-head{display:inline-block;margin-bottom:12px}
+.fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(calc(var(--pal) * 3.7),1fr));
+     gap:12px}
+.frow{display:flex;flex-direction:column;gap:10px;padding:14px 14px 12px;
+     background:linear-gradient(180deg,#172230,#131b26);border:1px solid #26344a;
+     animation:settle 220ms ease-out backwards;animation-delay:calc(var(--i, 0) * 18ms)}
+.frow:hover{border-color:#4a6078}
+.fline{display:flex;align-items:flex-start;justify-content:center;gap:6px}
+.fline .pal{width:calc(var(--fp) + 26px)}
+.fline .pal .pname{font-size:var(--small)}
+.fop{align-self:center;margin-top:calc(var(--fp) * -0.28);color:#6f8ba6}
+.fop .ico{width:22px;height:22px}
+.fop.to{color:#b89a4a}
+/* the Pal this page is about, where it appears inside a rule */
+.pal.self .disc{opacity:.55;box-shadow:0 0 0 1px #4a6078}
+.pal.self .pname{color:#8296ab}
+.pal.result .disc{box-shadow:0 0 0 2px var(--tint),0 4px 22px -6px var(--tint)}
+.pal.result .pname{color:#f5d27a;font-weight:600}
+.fmeta{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px;
+     padding-top:10px;border-top:1px solid #223041}
+.kind{display:inline-flex;align-items:center;gap:6px;font-size:var(--small);padding:2px 9px;
+     border:1px solid}
+.kind.k-temporary{color:#7fd8ec;border-color:#2c5f6d;background:#10262d}
+.kind.k-permanent{color:#f2c14e;border-color:#6b5a2c;background:#2b2415}
+.kind.k-both{color:#e9d6ff;border-color:#5b4a78;background:#221b2f}
+.lvl{font-size:var(--small);color:#b6c6d6;font-variant-numeric:tabular-nums}
+.fmeta .chips{margin-top:0}
+.fnone{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+     gap:8px;color:#8296ab;text-align:center;padding:40px 20px}
+.fnone b{color:#dce5f0;font-weight:600;font-size:calc(var(--base) + 1px)}
 .foot{height:42px;flex:0 0 42px;display:flex;align-items:center;gap:16px;padding:0 20px;
       background:#131a24;border-top:1px solid #24303e;font-size:calc(var(--base) - 2px);color:#8296ab}
 .foot .hint{margin-left:auto;color:#7e91a6}
@@ -726,7 +795,7 @@ function M.page(centerId)
         if okSteps then stepActive, stepTotal = a or 0, b or 0 end
     end
 
-    local cacheKey = tostring(centerId) .. "|" .. conditionMode .. "|" .. I18n.lang()
+    local cacheKey = tostring(centerId) .. "|" .. conditionMode .. "|" .. viewMode .. "|" .. I18n.lang()
     local ready = pageCache[cacheKey]
     if ready then return ready end
 
@@ -867,49 +936,122 @@ function M.page(centerId)
             title, dir, rows, table.concat(parts))
     end
 
-    -- Fusion rules with this Pal on either side, as a strip above the footer.
-    local fuseStrip = ""
-    if Config.fusion and Config.fusion.enabled then
-        local chips, total = {}, 0
-        local function mini(id)
-            local img = icon(id)
-            local pic = img and string.format('<img src="%s" alt="">', img)
-                or string.format('<span class="mono">%s</span>', esc(nameOf(id):sub(1, 2)))
-            return pic
-        end
+    -- Fusion rules with this Pal on either side: the ones that make it, and the
+    -- ones it takes part in. Only authored rules; the formula is left to the game.
+    local fusionOn = Config.fusion and Config.fusion.enabled
+    local madeFrom, fusesInto = {}, {}
+    if fusionOn then
         for _, r in ipairs(Config.fusions or {}) do
-            if r.enabled ~= false and (r.a == centerId or r.b == centerId or r.to == centerId) then
-                total = total + 1
-                if #chips < 8 then
-                    local kind = t(r.kind == "permanent" and "fuseKindAltar"
-                        or r.kind == "temporary" and "fuseKindBattle" or "fuseKindBoth")
-                    local lvl = (tonumber(r.minLevel) or 1) > 1 and (" &middot; Lv " .. tostring(r.minLevel)) or ""
-                    local other = (r.a == centerId) and r.b or r.a
-                    local link = (r.to == centerId) and r.a or ((other ~= centerId) and other or r.to)
-                    chips[#chips + 1] = string.format(
-                        '<a class="fz" href="#pick/%s">%s<span class="nm">%s</span><span class="op">+</span>'
-                        .. '%s<span class="nm">%s</span><span class="op">=</span>%s<span class="to">%s</span>'
-                        .. '<span class="k">%s%s</span></a>',
-                        esc(link), mini(r.a), esc(nameOf(r.a)), mini(r.b), esc(nameOf(r.b)),
-                        mini(r.to), esc(nameOf(r.to)), esc(kind), lvl)
+            if r.enabled ~= false then
+                if r.to == centerId then madeFrom[#madeFrom + 1] = r end
+                if (r.a == centerId or r.b == centerId) and r.to ~= centerId then
+                    fusesInto[#fusesInto + 1] = r
                 end
             end
         end
-        if total > 0 then
-            local more = total > #chips
-                and string.format('<span class="more">%s</span>', esc(t("fuseMore", total - #chips))) or ""
-            fuseStrip = '<div class="fuse"><span class="fh">' .. esc(t("fuseTitle")) .. '</span>'
-                .. table.concat(chips) .. more .. '</div>'
+        local function byLevel(x, y)
+            local lx, ly = tonumber(x.minLevel) or 1, tonumber(y.minLevel) or 1
+            if lx ~= ly then return lx < ly end
+            return nameOf(x.to) < nameOf(y.to)
         end
+        table.sort(madeFrom, byLevel)
+        table.sort(fusesInto, byLevel)
+    end
+    local fuseCount = #madeFrom + #fusesInto
+    local inFuse = fusionOn and viewMode == "fuse"
+
+    local function kindTag(kind)
+        local icons = {
+            temporary = ICON_SWORDS,
+            permanent = ICON_SPARKLES,
+            both = ICON_SWORDS .. ICON_SPARKLES,
+        }
+        local label = t(kind == "permanent" and "fuseKindAltar"
+            or kind == "temporary" and "fuseKindBattle" or "fuseKindBoth")
+        return string.format('<span class="kind k-%s">%s%s</span>', esc(kind or "both"),
+            icons[kind or "both"] or icons.both, esc(label))
+    end
+
+    local function fuseRow(r, i, side)
+        local parts = {}
+        if side == "from" then
+            parts[#parts + 1] = portrait(r.a, "var(--fp)", "", nil)
+            parts[#parts + 1] = '<span class="fop">' .. ICON_PLUS .. '</span>'
+            parts[#parts + 1] = portrait(r.b, "var(--fp)", "", nil)
+        else
+            local partner = (r.a == centerId) and r.b or r.a
+            parts[#parts + 1] = portrait(centerId, "var(--fp)", "self", nil)
+            parts[#parts + 1] = '<span class="fop">' .. ICON_PLUS .. '</span>'
+            parts[#parts + 1] = portrait(partner, "var(--fp)", "", nil)
+            parts[#parts + 1] = '<span class="fop to">' .. ICON_ARROW .. '</span>'
+            parts[#parts + 1] = portrait(r.to, "var(--fp)", "result", nil)
+        end
+        local meta = { kindTag(r.kind) }
+        if (tonumber(r.minLevel) or 1) > 1 then
+            meta[#meta + 1] = '<span class="lvl">' .. esc(t("fuseFromLevel", tonumber(r.minLevel))) .. '</span>'
+        end
+        meta[#meta + 1] = conditionChips({ conditions = r.conditions })
+        return string.format('<div class="frow" style="--i:%d"><div class="fline">%s</div>'
+            .. '<div class="fmeta">%s</div></div>', math.min(i, 14), table.concat(parts), table.concat(meta))
+    end
+
+    local stageHtml
+    if inFuse then
+        -- rule conditions are the point of this page, so they always show
+        showConditions = true
+        local sections = {}
+        local function section(list, side, title)
+            if #list == 0 then return end
+            local rows = {}
+            for i, r in ipairs(list) do rows[#rows + 1] = fuseRow(r, i - 1, side) end
+            sections[#sections + 1] = string.format(
+                '<section class="fsec"><div class="wing-head">%s &middot; %d</div><div class="fgrid">%s</div></section>',
+                title, #list, table.concat(rows))
+        end
+        section(madeFrom, "from", t("fuseMadeFrom"))
+        section(fusesInto, "into", t("fuseFusesInto"))
+        if #sections == 0 then
+            sections[1] = string.format('<div class="fnone"><b>%s</b><span>%s</span></div>',
+                esc(t("fuseNone", nameOf(centerId))), esc(t("fuseNoneHint")))
+        end
+        stageHtml = table.concat({
+            '<div class="stage fstage">',
+            string.format('<div class="hub solo"><div class="sel">%s</div>%s'
+                .. '<div class="tally"><span><b>%d</b>%s</span><span><b>%d</b>%s</span></div></div>',
+                t("treeSelected"), portrait(centerId, "var(--hub)", "center", nil),
+                #madeFrom, esc(t("fuseMadeFromShort")), #fusesInto, esc(t("fuseFusesIntoShort"))),
+            '<div class="fboard">', table.concat(sections), '</div>',
+            '</div>',
+        })
+    else
+        stageHtml = table.concat({
+            '<div class="stage">',
+            wing(incoming, "in", t("treeEvolvesFrom"), t("treeNoIncoming")),
+            string.format('<div class="hub"><div class="sel">%s</div>%s</div>',
+                t("treeSelected"),
+                portrait(centerId, "var(--hub)", "center", nil)),
+            wing(outgoing, "out", t("treeEvolvesInto"), t("treeNoOutgoing")),
+            '</div>',
+        })
+    end
+
+    local tabs = ""
+    if fusionOn then
+        tabs = string.format('<nav class="views"><a class="vt%s" href="#view/evo">%s</a>'
+            .. '<a class="vt%s%s" href="#view/fuse">%s<span class="cnt">%d</span></a></nav>',
+            inFuse and "" or " on", esc(t("fuseTabEvolutions")),
+            inFuse and " on" or "", fuseCount == 0 and " none" or "", esc(t("fuseTitle")), fuseCount)
     end
 
     local html = table.concat({
         '<!doctype html><html><head><meta charset="utf-8"><style>', CSS,
         '</style></head><body', docked and ' class="docked"' or '', '>',
         '<div class="top"><span class="brand">Palvolve</span>',
-        string.format('<span class="meta">%s</span><span class="spacer"></span>',
-            t("treeCount", #pals, stepActive, stepTotal)),
-        string.format('<a class="switch" href="#conditions/%s">%s</a>',
+        string.format('<span class="meta">%s</span>', t("treeCount", #pals, stepActive, stepTotal)),
+        tabs,
+        '<span class="spacer"></span>',
+        -- the fold switch only means something on the evolution page
+        inFuse and "" or string.format('<a class="switch" href="#conditions/%s">%s</a>',
             showConditions and "off" or "on",
             t(showConditions and "treeHideConditions" or "treeShowConditions")),
         -- A page of the Palpedia closes the way that screen does; the control is
@@ -922,21 +1064,15 @@ function M.page(centerId)
         docked and ""
             or ('<div class="side"><h2>' .. t("treeSideTitle") .. '</h2>'
                 .. table.concat(list) .. '</div>'),
-        '<div class="stage">',
-        wing(incoming, "in", t("treeEvolvesFrom"), t("treeNoIncoming")),
-        string.format('<div class="hub"><div class="sel">%s</div>%s</div>',
-            t("treeSelected"),
-            portrait(centerId, "var(--hub)", "center", nil)),
-        wing(outgoing, "out", t("treeEvolvesInto"), t("treeNoOutgoing")),
-        '</div></div>',
-        fuseStrip,
+        stageHtml,
+        '</div>',
         '<div class="watermark">Palvolve</div>',
         string.format('<div class="foot"><span><b>%s</b> %s &middot; %s</span>'
             .. '<span class="hint">%s</span></div>',
             esc(nameOf(centerId)),
             esc(Paldex[centerId] or ""),
-            t("treeSummary", #incoming, #outgoing),
-            esc(t("treeBadgeHint"))),
+            inFuse and t("fuseSummary", #madeFrom, #fusesInto) or t("treeSummary", #incoming, #outgoing),
+            inFuse and "" or esc(t("treeBadgeHint"))),
         '</body></html>',
     })
     rememberPage(cacheKey, html)
@@ -992,6 +1128,12 @@ end
 
 --- Which Pal a fragment asks for, or nil. The address is all that comes back
 --- from the browser, so this is the whole input channel.
+--- Portrait data for other pages that draw Pals the way this one does (the
+--- fusion pick window): picture as data URI or nil, element tint, name.
+function M.palLook(id)
+    return icon(id), tintOf(id), nameOf(id)
+end
+
 function M.pickFrom(url)
     if type(url) ~= "string" then return nil end
     return url:match("#pick/([%w_%-%.]+)")

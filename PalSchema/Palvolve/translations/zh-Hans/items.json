@@ -47,6 +47,6 @@
         "ITEM_DESC_Palvolve_Essence_Dragon": "从技能果实或属性素材中提取的浓缩龙属性能量。用于制作对应的适应石。",
         "ITEM_DESC_Palvolve_AdaptationStone_Dragon": "一块与龙属性能量共鸣的闪耀石头。可让达到所需等级的羁绊帕鲁适应为龙属性形态。",
         "ITEM_DESC_Palvolve_FusionShard": "用帕鲁的体液黏合破裂的进化石制成。可使已召唤的帕鲁与队伍中的另一只帕鲁融合一场战斗，之后再分开。",
-        "ITEM_DESC_Palvolve_FusionCore": "将五枚融合碎片压在一块转生石周围，直至牢固成形。可在融合祭坛让两只帕鲁永久合为一只。"
+        "ITEM_DESC_Palvolve_FusionCore": "将五枚融合碎片压在一块转生石周围，直至牢固成形。可在融合祭坛让两只帕鲁永久融合为一只。"
     }
 }

@@ -43,6 +43,6 @@
         "PASSIVE_Palvolve_Evolved_4_Locked": "Maks. PŻ +{EffectValue1}%\nPrędkość ruchu +{EffectValue2}%\nSzybkość pracy +{EffectValue3}%\nAutoewolucja: Wyłączone",
         "PASSIVE_Palvolve_NoAutoEvolve": "Wyłączone",
         "PASSIVE_Palvolve_Fused": "Powstał z dwóch Pal na Ołtarzu fuzji.",
-        "PASSIVE_Palvolve_FusionActive": "Połączony na czas tej walki. Rozdzieli się ponownie po zakończeniu fuzji."
+        "PASSIVE_Palvolve_FusionActive": "W stanie fuzji na czas tej walki. Rozdzieli się ponownie po zakończeniu fuzji."
     }
 }

@@ -5,7 +5,7 @@
     },
     "DT_BuildObjectDescText": {
         "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "Beceri Meyvelerini ve element malzemelerini saf özlere ayırır, Evrim ve Adaptasyon Taşları döver.",
-        "BUILDOBJECT_DESC_Palvolve_FusionAltar": "Buraya iki Pal yerleştirerek onları kalıcı olarak birleştir. Bir Füzyon Çekirdeği tüketir."
+        "BUILDOBJECT_DESC_Palvolve_FusionAltar": "Buraya iki Pal yerleştirerek onlara kalıcı füzyon uygula. Bir Füzyon Çekirdeği tüketir."
     },
     "DT_TechnologyNameText": {
         "NAME_RECIPE_Palvolve_ElementExtractor": "Pal Simya Tezgâhı",

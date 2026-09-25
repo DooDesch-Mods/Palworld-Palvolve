@@ -5,7 +5,7 @@
     },
     "DT_BuildObjectDescText": {
         "BUILDOBJECT_DESC_Palvolve_ElementExtractor": "Zerlegt Technikfrüchte und elementare Materialien in reine Essenzen und schmiedet Entwicklungs- und Adaptionssteine.",
-        "BUILDOBJECT_DESC_Palvolve_FusionAltar": "Lege zwei Pals hinein, und sie verschmelzen dauerhaft zu einem. Kostet einen Fusionskern."
+        "BUILDOBJECT_DESC_Palvolve_FusionAltar": "Lege zwei Pals hinein, und sie fusionieren dauerhaft zu einem. Kostet einen Fusionskern."
     },
     "DT_TechnologyNameText": {
         "NAME_RECIPE_Palvolve_ElementExtractor": "Pal-Alchemiewerkbank",
