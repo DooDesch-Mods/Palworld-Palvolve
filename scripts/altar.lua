@@ -732,53 +732,6 @@ function Altar.pickInfo(playerCtx)
     }
 end
 
---- The wheel entry for a nearby altar, or nil when no altar is in reach. Reads
---- only; Altar.start checks everything again.
-function Altar.wheelOption(playerCtx)
-    if not (Config.fusion.enabled and Config.fusion.altarEnabled) then return nil end
-    if not api then
-        Log("[WARN] altar wheel entry skipped: not set up")
-        return nil
-    end
-    local altar = findAltar(playerCtx, Config.devMode)
-    if not altar then return nil end
-    local opt = { fusion = "altar", index = 1, label = I18n.msg("fusionAltarEntry") }
-    local cage = containerOf(altar)
-    local inside = cage and filledSlots(cage) or {}
-    if #inside ~= 2 then
-        opt.blocked = I18n.msg("fusionAltarNeedsTwo", #inside)
-    else
-        local A, B = inside[1], inside[2]
-        local okA, rawA = pcall(api.characterId, A.param)
-        local okB, rawB = pcall(api.characterId, B.param)
-        if not (okA and okB) then
-            Log("[WARN] altar wheel entry: species unreadable")
-            opt.blocked = I18n.msg("optionUnavailable")
-        elseif not (api.isOwnedBy(A.param, playerCtx.playerUId) and api.isOwnedBy(B.param, playerCtx.playerUId)) then
-            opt.blocked = I18n.msg("fusionAltarNotYours")
-        else
-            local idA, idB = api.baseCharacterId(rawA), api.baseCharacterId(rawB)
-            local nameA, nameB = api.displayName(idA), api.displayName(idB)
-            local levelA, levelB = readNumber(A.param, "Level") or 1, readNumber(B.param, "Level") or 1
-            local target, why = Altar.resolveTarget(idA, idB, levelA, levelB,
-                { param = A.param, playerCtx = playerCtx })
-            if not target then
-                opt.blocked = I18n.msg(why, nameA, nameB)
-            else
-                local costList = Costs.resolve({ from = idA, to = target, stone = "fusionCore" }, levelA, playerCtx.pc)
-                local costOk, missing = Costs.check(playerCtx, costList)
-                if not costOk then
-                    opt.blocked = I18n.msg("fusionMissing", Costs.describeMissing(missing))
-                else
-                    opt.requirement = I18n.msg("fusionAltarPreview", nameA, nameB, api.displayName(target))
-                end
-            end
-        end
-    end
-    opt.requirement = opt.requirement or opt.blocked
-    return opt
-end
-
 -- ---------------------------------------------------------------- the stage
 -- The two Pals in an altar do not wander: the host stands Pal 1 on slot 1 and
 -- Pal 2 on slot 2, facing each other, until a fusion starts. The slots are the
@@ -948,6 +901,84 @@ local function stageTick()
 end
 Altar._stageTick = stageTick -- held by the module so the scheduled callback is never collected
 
+-- ---------------------------------------------------------------- the window
+-- Setting the second Pal into an altar opens the fusion window for the player
+-- who did it, the way the display cage shows its Pals. It watches the altar next
+-- to the local player on every machine with one (clients too: the altar's
+-- container replicates). Cancelling the window leaves the Pals in the altar, so
+-- the player can take one out or swap it.
+
+local WATCH_TICK_MS = 500
+local WATCH_LIST_S = 10      -- how often the list of altars is searched again
+local watchDriving = false
+local watchAltars = {}       -- fusion altars in the world, refreshed every WATCH_LIST_S
+local watchListedAt = -math.huge
+local watchCounts = {}       -- instance key -> Pals the altar held at the last look
+local watchWarned = false
+
+local function refreshWatchList()
+    watchListedAt = os.clock()
+    local list = {}
+    for _, m in ipairs(FindAllOf("PalMapObjectDisplayCharacterModel") or {}) do
+        if isInstance(m) and modelId(m) == ALTAR_ID then list[#list + 1] = m end
+    end
+    watchAltars = list
+end
+
+local function nearestWatched(here)
+    local best, bestD = nil, REACH * REACH
+    for _, m in ipairs(watchAltars) do
+        local p = isInstance(m) and modelPos(m) or nil
+        if p and dist2(p, here) <= bestD then best, bestD = m, dist2(p, here) end
+    end
+    return best
+end
+
+local function watchStep()
+    if FusionFx.playing() or (api and api.busy()) then return end
+    if os.clock() - watchListedAt >= WATCH_LIST_S then refreshWatchList() end
+    local playerCtx = Role.localPlayerCtx()
+    local here = playerCtx and pawnPos(playerCtx)
+    if not here then return end
+    local altar = nearestWatched(here)
+    if not altar then return end
+    local cage = containerOf(altar)
+    if not cage then return end
+    local inside = filledSlots(cage)
+    local key = instanceKey(altar)
+    local before = watchCounts[key]
+    watchCounts[key] = #inside
+    -- only the change counts: walking up to a full altar opens nothing
+    if before == nil or before >= 2 or #inside ~= 2 then return end
+    for _, e in ipairs(inside) do
+        if not api.isOwnedBy(e.param, playerCtx.playerUId) then
+            Log("altar filled with a Pal of someone else, no window")
+            return
+        end
+    end
+    local Evolution = package.loaded["evolution"]
+    if not (Evolution and Evolution.openAltarPick) then
+        Log("[WARN] the altar is full, but the fusion window is not available")
+        return
+    end
+    Log("second Pal set into the altar, opening the fusion window")
+    local okOpen, openErr = pcall(Evolution.openAltarPick)
+    if not okOpen then Log("[ERROR] fusion window failed: " .. tostring(openErr)) end
+end
+
+function Altar._watchGameThread()
+    local ok, err = pcall(watchStep)
+    if not ok and not watchWarned then
+        watchWarned = true
+        Log("[WARN] altar watch failed (once per session): " .. tostring(err))
+    end
+end
+
+function Altar._watchTick()
+    ExecuteInGameThread(Altar._watchGameThread)
+    return false
+end
+
 function Altar.init(evolution)
     api = evolution.fusionApi
     if not api then Log("[ERROR] Evolution.fusionApi missing, the altar stays off") end
@@ -955,6 +986,11 @@ function Altar.init(evolution)
         stageDriving = true
         LoopAsync(STAGE_TICK_MS, Altar._stageTick)
         Log("altar stage started")
+    end
+    if not watchDriving and not Role.isDedicated() then
+        watchDriving = true
+        LoopAsync(WATCH_TICK_MS, Altar._watchTick)
+        Log("altar window watch started")
     end
 end
 

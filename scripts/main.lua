@@ -121,6 +121,8 @@ if Evolution and not Role.isDedicated() then
             offerIsPrestige = Evolution.offerIsPrestige,
             -- names the entry "Fusion" when only fusions are on offer
             offerIsFusionOnly = Evolution.offerIsFusionOnly,
+            -- a second entry, "Fusion", when fusions sit next to evolutions
+            offerHasFusionEntry = Evolution.offerHasFusionEntry,
             listOptions = Evolution.listOptions,
             executeOption = Evolution.executeOption,
             -- so the auto-evolve entry can say whether it is on for this Pal

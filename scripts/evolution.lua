@@ -2788,18 +2788,26 @@ function Evolution.offerIsFusionOnly()
     return lastOfferFusionOnly
 end
 
+--- True when the last canOffer found fusions next to evolutions: the wheel then
+--- gets a second entry, "Fusion", instead of hiding them in the Evolve list.
+local lastOfferFusionEntry = false
+function Evolution.offerHasFusionEntry()
+    return lastOfferFusionEntry
+end
+
 --- Why the wheel entry is greyed, in the player's language, or nil when it is
 --- not. Set by the last canOffer, which the wheel calls on every rebuild.
 function Evolution.offerReason()
     return lastOfferPlayerMsg
 end
 
--- Fusion entries for the wheel: one per party partner of the summoned Pal and
--- one for a nearby altar. Both modules only read here.
+-- Fusion entries for the wheel: one per party partner of the summoned Pal. The
+-- altar is not in the wheel: its window opens when the second Pal is set into
+-- it (altar.lua), the way Pals go into a display cage.
 local function fusionOptions(playerCtx)
     local out = {}
     if not (Config.fusion and Config.fusion.enabled and playerCtx) then return out end
-    local Fusion, Altar = package.loaded["fusion"], package.loaded["altar"]
+    local Fusion = package.loaded["fusion"]
     if Fusion then
         local holder = findHolderFor(playerCtx, nil)
         local actor = nil
@@ -2812,25 +2820,6 @@ local function fusionOptions(playerCtx)
             else
                 Log("[WARN] fusion wheel entries failed: " .. tostring(list))
             end
-        end
-    end
-    if Altar then
-        local ok, opt = pcall(Altar.wheelOption, playerCtx)
-        if not ok then
-            Log("[WARN] altar wheel entry failed: " .. tostring(opt))
-        elseif opt then
-            -- a client's request rides on the summoned Pal (netchannel.lua), so
-            -- without one there is no way to reach the host
-            if not opt.blocked and not Role.hasWorldAuthority() then
-                local holder = findHolderFor(playerCtx, nil)
-                local actor = nil
-                if holder then pcall(function() actor = holder:TryGetSpawnedOtomo() end) end
-                if not (actor and actor:IsValid()) then
-                    opt.blocked = I18n.msg("noPalSummoned")
-                    opt.requirement = opt.blocked
-                end
-            end
-            out[#out + 1] = opt
         end
     end
     return out
@@ -2922,11 +2911,22 @@ function Evolution.canOffer()
         return false
     end
     -- No evolution, or no Pal out at all, still leaves a fusion: a party
-    -- partner or the altar next to the player.
+    -- partner or the altar next to the player. With evolutions on offer as
+    -- well, the fusions get an entry of their own.
     lastOfferFusionOnly = false
-    if reason ~= nil and #fusionOptions(Role.localPlayerCtx()) > 0 then
-        reason, playerMsg = nil, nil
-        lastOfferFusionOnly = true
+    lastOfferFusionEntry = false
+    local okFuse, fusions = pcall(fusionOptions, Role.localPlayerCtx())
+    if not okFuse then
+        Log("[WARN] fusion entries unreadable for the wheel: " .. tostring(fusions))
+        fusions = {}
+    end
+    if #fusions > 0 then
+        if reason ~= nil then
+            reason, playerMsg = nil, nil
+            lastOfferFusionOnly = true
+        else
+            lastOfferFusionEntry = true
+        end
     end
     offerVerdict(reason, playerMsg)
     return reason == nil
@@ -3371,9 +3371,19 @@ local function evolutionOptions()
     return options
 end
 
-function Evolution.listOptions()
+--- kind "fusion": only the fusions (the wheel's own Fusion entry); kind
+--- "evolve": only the evolutions while that entry exists; otherwise both.
+function Evolution.listOptions(kind)
+    if kind == "fusion" then
+        if ServerCheck.blocked() then return {}, I18n.msg("serverNoPalvolveShort") end
+        if lockBusy() then return {}, I18n.msg("evolutionRunning") end
+        local fusions = fusionOptions(Role.localPlayerCtx())
+        if #fusions == 0 then return {}, I18n.msg("optionUnavailable") end
+        return fusions
+    end
     local options, reason = evolutionOptions()
     if ServerCheck.blocked() or lockBusy() then return options, reason end
+    if kind == "evolve" and lastOfferFusionEntry then return options, reason end
     local extras = fusionOptions(Role.localPlayerCtx())
     if #extras == 0 then return options, reason end
     local merged = {}
@@ -3568,6 +3578,37 @@ handlePrestigeByIndex = function(playerCtx, targetIndex)
     return handleByIndex(playerCtx, targetIndex, true)
 end
 
+--- Opens the pick window for the altar next to the local player; its confirm
+--- starts the fusion (on a client: asks the host). Returns true when it opened.
+function Evolution.openAltarPick()
+    local fuseCtx = Role.localPlayerCtx()
+    if not fuseCtx then
+        Log(I18n.msg("noLocalPlayer"))
+        return false
+    end
+    local authority = Role.hasWorldAuthority()
+    local Altar = require("altar")
+    local info, why = Altar.pickInfo(fuseCtx)
+    if not info then
+        Log("altar pick not offered: " .. tostring(why))
+        Role.chat(fuseCtx, why, "reply")
+        return false
+    end
+    local opened = require("fusepick").open(info, function(choice)
+        if authority then
+            Altar.start(fuseCtx, choice, { allowCage = Config.devMode })
+        elseif not remoteTransmitReady(fuseCtx) then
+            Log("[WARN] altar pick confirmed, but the host is not reachable")
+        elseif not NetChannel.sendFuseAltarChoice(fuseCtx, choice.passiveIndexes, choice.gender) then
+            local msg = I18n.msg("serverUnreachable")
+            Log(msg)
+            Role.chat(fuseCtx, msg, "reply")
+        end
+    end)
+    if not opened then Log("[WARN] the altar pick window did not open") end
+    return opened
+end
+
 -- Executes one option from listOptions - the submenu selection IS the
 -- confirmation. Only the pair names travel; the authority re-derives
 -- fresh handles and re-validates.
@@ -3579,28 +3620,9 @@ function Evolution.executeOption(opt)
             return
         end
         local authority = Role.hasWorldAuthority()
-        if opt.fusion == "altar" and not opt.blocked then
-            -- the pick comes first; the fusion runs from its confirm
-            local Altar = require("altar")
-            local info, why = Altar.pickInfo(fuseCtx)
-            if not info then
-                Log(tostring(why))
-                Role.chat(fuseCtx, why, "reply")
-                return
-            end
-            local opened = require("fusepick").open(info, function(choice)
-                if authority then
-                    Altar.start(fuseCtx, choice, { allowCage = Config.devMode })
-                elseif not remoteTransmitReady(fuseCtx) then
-                    Log("[WARN] altar pick confirmed, but the host is not reachable")
-                elseif not NetChannel.sendFuseAltarChoice(fuseCtx, choice.passiveIndexes, choice.gender) then
-                    local msg = I18n.msg("serverUnreachable")
-                    Log(msg)
-                    Role.chat(fuseCtx, msg, "reply")
-                end
-            end)
-            if opened then return end
-            Log("[WARN] the pick window did not open, the altar picks by itself")
+        if opt.fusion == "altar" then
+            Evolution.openAltarPick()
+            return
         end
         if authority then
             if opt.fusion == "altar" then

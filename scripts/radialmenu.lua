@@ -57,6 +57,11 @@ local ourWidgetGreyed = false
 -- true while the cursor rests on our segment (maintained by the native
 -- UpdateSelectedIndex post-hooks); consumed on wheel close/decide
 local ourHover = false
+-- the second entry, "Fusion": present while fusions sit next to evolutions,
+-- so they are not hidden in the Evolve list
+local fuseIndex = nil
+local fuseWidget = nil
+local fuseHover = false
 -- one line per wheel from the per-frame hover hook, not one per frame; reset
 -- when a wheel opens
 local suppressErrLogged = false
@@ -68,6 +73,8 @@ local subMode = false
 local subModeSince = 0
 local subOptions = nil
 local subHoverIdx = nil
+-- "fusion" while the submenu shows the fusion partners: no auto-evolve switch there
+local subKind = nil
 local subWidgets = {}
 -- true while the action wheel is on screen; a 4-press in that state is
 -- the vanilla cancel gesture and must close without committing anything
@@ -323,7 +330,21 @@ local function injectMainEntry(menu)
     if #labels == 0 then return end
 
     local vanillaCount = #labels
-    local newCount = vanillaCount + 1
+    -- grey out like Feed/Pet while no own pal with options is summoned; asked
+    -- before the grow, because it decides whether Fusion gets its own segment
+    local offered = true
+    if api and api.canOffer then
+        local okAvail, avail = pcall(api.canOffer)
+        offered = okAvail and avail == true
+    end
+    local withFusion = false
+    if offered and api and api.offerHasFusionEntry then
+        local okF, has = pcall(api.offerHasFusionEntry)
+        if okF then withFusion = has == true
+        else Log("[WARN] fusion entry state unreadable for the wheel: " .. tostring(has)) end
+    end
+    fuseIndex = nil
+    local newCount = vanillaCount + (withFusion and 2 or 1)
 
     -- grow the wheel: runs the vanilla redraw AND clears all label
     -- widgets from the canvas - everything is re-added below
@@ -337,12 +358,6 @@ local function injectMainEntry(menu)
         return
     end
 
-    -- grey out like Feed/Pet while no own pal with options is summoned
-    local offered = true
-    if api and api.canOffer then
-        local okAvail, avail = pcall(api.canOffer)
-        offered = okAvail and avail == true
-    end
     if offered and ourWidgetGreyed and ourWidget then
         -- recreating restores the widget's default text color
         pcall(function()
@@ -361,6 +376,12 @@ local function injectMainEntry(menu)
     end
     local relabel = toText(labelText())
     if relabel then pcall(function() ourWidget:SetText(relabel) end) end
+    if withFusion and not (fuseWidget and fuseWidget:IsValid()) then
+        fuseWidget = makeLabelWidget(menu, I18n.msg("fusionEntry"))
+        if not fuseWidget then
+            Log("[WARN] Fusion label widget not created, fusions stay in the Evolve list")
+        end
+    end
     if not offered and not ourWidgetGreyed then
         local flat = readGrey(menu)
         ourWidgetGreyed = applyColor(ourWidget, flat)
@@ -380,10 +401,13 @@ local function injectMainEntry(menu)
         end
     end
     sawOk = saw(wheel, vanillaCount, ourWidget) and sawOk
+    if withFusion and fuseWidget then sawOk = saw(wheel, vanillaCount + 1, fuseWidget) and sawOk end
     if sawOk then
         ourIndex = vanillaCount
+        if withFusion and fuseWidget then fuseIndex = vanillaCount + 1 end
         if Config.devMode then
-            Log(string.format("[radial] Evolve entry injected at index %d via Set Additional Widget", ourIndex))
+            Log(string.format("[radial] Evolve entry injected at index %d via Set Additional Widget%s", ourIndex,
+                fuseIndex and string.format(", Fusion at %d", fuseIndex) or ""))
         end
         return
     end
@@ -426,6 +450,10 @@ local function injectMainEntry(menu)
     end
     addAndPlace(ourWidget, vanillaCount)
     ourIndex = vanillaCount
+    if withFusion and fuseWidget then
+        addAndPlace(fuseWidget, vanillaCount + 1)
+        fuseIndex = vanillaCount + 1
+    end
     if Config.devMode then
         Log(string.format("[radial] Evolve entry injected at index %d via slot fallback", ourIndex))
     end
@@ -475,6 +503,11 @@ local function clearOurs()
     ourWidget = nil
     ourWidgetGreyed = false
     ourIndex = nil
+    if fuseWidget and fuseWidget:IsValid() then
+        pcall(function() fuseWidget:RemoveFromParent() end)
+    end
+    fuseWidget = nil
+    fuseIndex = nil
 end
 
 local function setCenterText(menu, text)
@@ -562,17 +595,19 @@ local function buildSubmenu(menu)
     -- on hover, where a target shows its requirements - the same place, so the
     -- one entry that is a switch rather than a destination reads like the rest
     -- of the wheel instead of like a button whose answer arrives in chat.
-    local locked = false
-    if api.isAutoLocked then
-        local okLock, res = pcall(api.isAutoLocked)
-        if okLock then locked = res == true
-        else Log("auto-evolve state unreadable for the wheel: " .. tostring(res)) end
+    if subKind ~= "fusion" then
+        local locked = false
+        if api.isAutoLocked then
+            local okLock, res = pcall(api.isAutoLocked)
+            if okLock then locked = res == true
+            else Log("auto-evolve state unreadable for the wheel: " .. tostring(res)) end
+        end
+        keep[#keep + 1] = {
+            autoLock = true,
+            label = I18n.msg("autoLockEntry"),
+            requirement = I18n.msg(locked and "autoLockOff" or "autoLockOn"),
+        }
     end
-    keep[#keep + 1] = {
-        autoLock = true,
-        label = I18n.msg("autoLockEntry"),
-        requirement = I18n.msg(locked and "autoLockOff" or "autoLockOn"),
-    }
     keep[#keep + 1] = { cancel = true, label = I18n.msg("cancel") }
     options = keep
     subOptions = keep
@@ -677,11 +712,14 @@ function RadialMenu.init(evolutionApi)
     -- normal-mode commit on our segment: opens the option submenu in the
     -- same wheel (reopened, since the release just closed it)
     local function commitOurs()
-        if not ourHover then return end
+        if not (ourHover or fuseHover) then return end
+        -- with a Fusion entry beside it, Evolve lists the evolutions alone
+        local kind = fuseHover and "fusion" or (fuseIndex and "evolve" or nil)
         ourHover = false
+        fuseHover = false
         ExecuteInGameThread(function()
             pcall(function()
-                local opts, reason = api.listOptions()
+                local opts, reason = api.listOptions(kind)
                 if not (opts and #opts > 0) then
                     Log(reason or "No evolution available")
                     return
@@ -690,6 +728,7 @@ function RadialMenu.init(evolutionApi)
                 -- so a full wheel cannot truncate the way out
                 subOptions = opts
                 subHoverIdx = nil
+                subKind = kind
                 subMode = true
                 subModeSince = os.clock()
                 local okOpen = false
@@ -753,7 +792,16 @@ function RadialMenu.init(evolutionApi)
                 end
                 return
             end
-            if ourIndex ~= nil and idx == ourIndex then
+            if fuseIndex ~= nil and idx == fuseIndex then
+                if not fuseHover then
+                    muteHoverSound(wheel)
+                    if ourHover then setCenterText(menuRef, "") end
+                end
+                ourHover = false
+                fuseHover = true
+                wheel.nowSelectedIndex = -1
+            elseif ourIndex ~= nil and idx == ourIndex then
+                if fuseHover then fuseHover = false end
                 if not ourHover then
                     -- first frame on our segment: vanilla just played its
                     -- hover tick, silence the flapping from here on
@@ -773,7 +821,7 @@ function RadialMenu.init(evolutionApi)
                 ourHover = true
                 wheel.nowSelectedIndex = -1
             elseif idx ~= nil and idx >= 0 then
-                if ourHover then
+                if ourHover or fuseHover then
                     local wasMuted = savedHoverSound ~= nil
                     restoreHoverSound(wheel)
                     if wasMuted then
@@ -784,6 +832,7 @@ function RadialMenu.init(evolutionApi)
                     setCenterText(menuRef, "")
                 end
                 ourHover = false
+                fuseHover = false
             end
             -- idx == -1 keeps the last state: the wheel itself is sticky
             -- about the previous selection when the cursor rests mid-wheel
@@ -851,6 +900,8 @@ function RadialMenu.init(evolutionApi)
                     ourWidget = nil
                     ourWidgetGreyed = false
                     ourIndex = nil
+                    fuseWidget = nil
+                    fuseIndex = nil
                 end
                 if wheel and wheel:IsValid() and isActionWheel(wheel) then
                     -- Before anything else, and in EVERY branch: the label in
@@ -863,7 +914,7 @@ function RadialMenu.init(evolutionApi)
                     clearCenter()
                     clearOurs()
                     if cancelRequested then
-                        if Config.devMode and (ourHover or subMode) then
+                        if Config.devMode and (ourHover or fuseHover or subMode) then
                             Log("[radial] close: cancelled, nothing committed")
                         end
                         subMode = false
@@ -879,6 +930,7 @@ function RadialMenu.init(evolutionApi)
                     cancelRequested = false
                 end
                 ourHover = false
+                fuseHover = false
             end,
         },
         {

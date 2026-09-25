@@ -154,8 +154,22 @@ end
 -- FindAllOf + IsLocalPlayerController instead of FindFirstOf: on a listen
 -- host with guests every connected player has a controller instance in
 -- this process.
+-- FindAllOf walks every object in the game, about 27 ms, and the wheel asks for
+-- the local controller several times per opening. The one found is kept and
+-- only searched again once it stops being valid or local (a world change).
+local cachedLocalPc = nil
+
+local function stillLocal(pc)
+    return pc:IsValid() and pc:IsLocalPlayerController()
+end
+
 function Role.getLocalPlayerController()
     if Role.isDedicated() then return nil end
+    if cachedLocalPc then
+        local ok, yes = pcall(stillLocal, cachedLocalPc)
+        if ok and yes then return cachedLocalPc end
+        cachedLocalPc = nil
+    end
     local found = nil
     pcall(function()
         local all = FindAllOf("PalPlayerController") or {}
@@ -167,6 +181,7 @@ function Role.getLocalPlayerController()
             end
         end
     end)
+    cachedLocalPc = found
     return found
 end
 
