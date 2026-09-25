@@ -54,6 +54,8 @@ NetChannel.OP_AUTOLOCK = OP_AUTOLOCK
 --   reveal = the fresh actor is placed and frozen; the client grows/reveals it
 local SIGNAL_PREFIX = "PVLV1|sig|"
 local PHASE_PREFIX = "PVLV3|phase|"
+-- host -> client: an altar fusion starts, play its picture (fusionfx.lua)
+local SCENE_PREFIX = "PVLV3|scene|"
 
 local function palUtility()
     local u = StaticFindObject("/Script/Pal.Default__PalUtility")
@@ -583,6 +585,39 @@ function NetChannel.sendPhaseStart(pc, mode, fromId, toId, stone, stage)
     return seq, v3Ok, legacyOk
 end
 
+local function readIsLocal(pc) return pc:IsLocalPlayerController() end
+local function readName(o) return o:GetFullName() end
+
+--- Tells every connected player that an altar fusion starts, so each can play
+--- its picture: the server's effects, sounds and camera reach nobody. info:
+--- center {x,y,z}, land {x,y,z}, landYaw, idA, idB, idC. Returns how many
+--- players it reached.
+function NetChannel.broadcastAltarScene(info)
+    for _, id in ipairs({ info.idA, info.idB, info.idC }) do
+        if not phaseFieldSafe(id) then
+            Log("[net] altar scene not sent: invalid species id")
+            return 0
+        end
+    end
+    local c, l = info.center, info.land
+    local frame = SCENE_PREFIX .. table.concat({
+        string.format("%.1f", c.x), string.format("%.1f", c.y), string.format("%.1f", c.z),
+        string.format("%.1f", l.x), string.format("%.1f", l.y), string.format("%.1f", l.z),
+        string.format("%.2f", info.landYaw or 0), info.idA, info.idB, info.idC,
+    }, "|")
+    local sent, failed = 0, 0
+    for _, pc in ipairs(FindAllOf("PalPlayerController") or {}) do
+        local okName, name = pcall(readName, pc)
+        local okLocal, isLocal = pcall(readIsLocal, pc)
+        if okName and not name:find("Default__", 1, true) and okLocal and not isLocal then
+            if sendClientText(pc, frame, "PalvolveScene") then sent = sent + 1 else failed = failed + 1 end
+        end
+    end
+    Log(string.format("[net] altar scene sent to %d player(s)%s", sent,
+        failed > 0 and string.format(", %d failed", failed) or ""))
+    return sent
+end
+
 function NetChannel.sendPhaseReveal(pc, seq)
     local n = tonumber(seq)
     local v3Ok = false
@@ -804,6 +839,41 @@ local function queueTreeFrame(frame)
     end
 end
 
+local sceneFrames = {}
+
+local function parseScene(text)
+    local f = {}
+    for part in (text:sub(#SCENE_PREFIX + 1) .. "|"):gmatch("([^|]*)|") do f[#f + 1] = part end
+    if #f ~= 10 then return nil end
+    local n = {}
+    for i = 1, 7 do
+        n[i] = tonumber(f[i])
+        if not n[i] then return nil end
+    end
+    return {
+        center = { x = n[1], y = n[2], z = n[3] }, land = { x = n[4], y = n[5], z = n[6] },
+        landYaw = n[7], idA = f[8], idB = f[9], idC = f[10],
+    }
+end
+
+function NetChannel._sceneGameThread()
+    while #sceneFrames > 0 do
+        local text = table.remove(sceneFrames, 1)
+        local info = parseScene(text)
+        if not info then
+            Log("[WARN] [net] altar scene frame unreadable: " .. text)
+        else
+            local FusionFx = package.loaded["fusionfx"]
+            if not FusionFx then
+                Log("[WARN] [net] altar scene arrived, but the scene module is not loaded")
+            else
+                local ok, err = pcall(FusionFx.playRemote, info)
+                if not ok then Log("[ERROR] [net] altar scene failed: " .. tostring(err)) end
+            end
+        end
+    end
+end
+
 local function readMessageText(Message)
     return Message:get():ToString()
 end
@@ -818,6 +888,11 @@ local function handleClientMessage(_, Message)
         return
     end
     if receiveV3Phase(text) then return end
+    if text:sub(1, #SCENE_PREFIX) == SCENE_PREFIX then
+        sceneFrames[#sceneFrames + 1] = text
+        ExecuteInGameThread(NetChannel._sceneGameThread)
+        return
+    end
 
     local xnet = text:match("^PVLV1|xnet|(.*)$")
     if xnet then

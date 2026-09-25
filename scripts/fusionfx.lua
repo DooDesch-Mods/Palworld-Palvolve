@@ -15,9 +15,14 @@
 --
 -- The Pals hang on a turning pivot (fusionrig.lua): the engine moves them every
 -- frame, Lua only sets the course. The circle sits in front of the gate, far
--- enough out that neither body reaches a pillar. Server-driven, so other
--- players see the orbit too; the effects use SpawnSystemAtLocation, which
--- renders on client proxies.
+-- enough out that neither body reaches a pillar.
+--
+-- A scene has two parts. The logic (commit at the burst, the fused Pal set down)
+-- runs where the world is owned. The picture (movement, effects, sound, camera)
+-- runs where a player watches: effects, sounds and the camera are local, and a
+-- dedicated server replicates none of them. Single player and a listen host do
+-- both in one scene; a dedicated server runs the logic alone and tells the
+-- players near the altar to play the picture (FusionFx.playRemote).
 --
 -- One LoopAsync driver hands every tick to the game thread through named
 -- functions: a closure per tick feeds UE4SS's callback collector, and a
@@ -31,6 +36,7 @@ local Finale = require("finale")
 local FusionCam = require("fusioncam")
 local Rig = require("fusionrig")
 local Sound = require("sound")
+local Role = require("role")
 
 local FusionFx = {}
 
@@ -122,6 +128,7 @@ end
 local run = nil -- the one scene that plays at a time
 
 local function spawnAt(worldCtx, path, x, y, z, scale)
+    if run and run.visuals == false then return nil end
     trace("spawn " .. tostring(path))
     local ns = loadSystem(path)
     local lib = StaticFindObject("/Script/Niagara.Default__NiagaraFunctionLibrary")
@@ -315,6 +322,7 @@ local function cueSilence(r)
         if not okHide then Log("[WARN] Pal not hidden for the silence: " .. tostring(hideErr)) end
     end
     r.hidden = true
+    if not r.visuals then return end
     killEffects(r)
     -- the one light left: where the two became one
     local okOrb, orb = pcall(spawnAt, r.worldCtx, ORB_NS, r.ox, r.oy, r.oz, 0.6)
@@ -328,16 +336,21 @@ local function cueBurst(r)
     killEffects(r) -- the light point bursts
     r.burst = true
     r.burstAt = os.clock() - r.startedAt
-    local x, y, z = r.ox, r.oy, r.oz
-    spawnAt(r.worldCtx, CLOSE_NS, x, y, z, 1.5)
-    spawnAt(r.worldCtx, IMPACT_NS, x, y, r.mz - STAND, 1.2)
-    spawnAt(r.worldCtx, COMET_NS, x, y, z, 1.0)
-    spawnAt(r.worldCtx, centerpieceFor(r.elemA), x, y, z, 0.9)
-    if r.elemB ~= r.elemA then spawnAt(r.worldCtx, centerpieceFor(r.elemB), x, y, z, 0.9) end
-    Sound.at(SND_BURST, r.worldCtx, x, y, z)
-    Sound.at(SND_BOOM, r.worldCtx, x, y, z)
-    FusionCam.hit(0.8, WHITE, true)
-    FusionCam.shot({ yaw = -28, dist = 1300 * r.camK, up = 240, fov = 88 }, 1.2)
+    if r.visuals then
+        local x, y, z = r.ox, r.oy, r.oz
+        spawnAt(r.worldCtx, CLOSE_NS, x, y, z, 1.5)
+        spawnAt(r.worldCtx, IMPACT_NS, x, y, r.mz - STAND, 1.2)
+        spawnAt(r.worldCtx, COMET_NS, x, y, z, 1.0)
+        spawnAt(r.worldCtx, centerpieceFor(r.elemA), x, y, z, 0.9)
+        if r.elemB ~= r.elemA then spawnAt(r.worldCtx, centerpieceFor(r.elemB), x, y, z, 0.9) end
+        Sound.at(SND_BURST, r.worldCtx, x, y, z)
+        Sound.at(SND_BOOM, r.worldCtx, x, y, z)
+        FusionCam.hit(0.8, WHITE, true)
+        FusionCam.shot({ yaw = -28, dist = 1300 * r.camK, up = 240, fov = 88 }, 1.2)
+    end
+    -- a picture-only scene commits nothing: the world's owner does, and the
+    -- fused Pal arrives by replication (findC)
+    if not r.logic then return end
     -- The commit runs here: the scene waits in the light for the fused Pal.
     local ok, err = pcall(r.onCommit)
     if not ok then
@@ -354,8 +367,8 @@ local CUES = {
     { t = T_GLIDE, fn = cueGlide, name = "glide" },
     { t = T_SWIRL, fn = cueSwirl, name = "swirl" },
     { t = T_COMPRESS, fn = cueCompress, name = "compress" },
-    { t = T_SILENCE, fn = cueSilence, name = "silence" },
-    { t = T_BURST, fn = cueBurst, name = "burst" },
+    { t = T_SILENCE, fn = cueSilence, name = "silence", logic = true },
+    { t = T_BURST, fn = cueBurst, name = "burst", logic = true },
 }
 
 --- Room between a body and the nearest pillar, in cm (negative: inside it).
@@ -416,9 +429,26 @@ local function landHero(r)
     FusionCam.shot({ yaw = 16, dist = r.heroDist * 0.8, up = 140, fov = 66 }, HOLD_S)
 end
 
+--- The reveal where nobody watches: the fused Pal is set down at once and the
+--- scene holds as long as a watching player's reveal lasts, so nothing moves
+--- it back while their picture still plays.
+local function stepRevealLogic(r, t, land)
+    if not r.landedAt then
+        r.landedAt = t
+        local okPlace, placeErr = pcall(function()
+            r.c:K2_SetActorLocation({ X = land.x, Y = land.y, Z = land.z }, false, {}, true)
+            r.c:K2_SetActorRotation({ Pitch = 0, Yaw = r.landYaw or r.frontYaw, Roll = 0 }, false)
+        end)
+        if not okPlace then Log("[WARN] fused Pal not set down: " .. tostring(placeErr)) end
+        return
+    end
+    if t >= r.landedAt + REVEAL_S + LAND_AFTER_PEAK_S + HOLD_S then FusionFx.abort("revealed") end
+end
+
 local function stepReveal(r, t)
     if not valid(r.c) then return end
     local land = r.land or { x = r.ox, y = r.oy, z = r.mz }
+    if not r.visuals then return stepRevealLogic(r, t, land) end
     if not r.revealStart and not r.formReady then
         -- the altar hands back a body that may still wear A's model for a moment
         if not r.foundAt then
@@ -532,7 +562,7 @@ local function tickGameThread()
     local r = run
     if not r then return end
     local t = os.clock() - r.startedAt
-    if not r.burst and not (valid(r.a) and valid(r.b) and valid(r.pivot)) then
+    if not r.burst and not (valid(r.a) and valid(r.b) and (valid(r.pivot) or not r.visuals)) then
         finishRun("a Pal left the scene")
         return
     end
@@ -546,12 +576,13 @@ local function tickGameThread()
         local cue = CUES[r.cue]
         r.cue = r.cue + 1
         trace("beat " .. cue.name .. " camera " .. FusionCam.where())
-        ok, err = pcall(cue.fn, r)
+        -- without a picture only the beats that change the world run
+        if r.visuals or cue.logic then ok, err = pcall(cue.fn, r) end
         if not ok then err = cue.name .. ": " .. tostring(err) end
     end
     if run ~= r then return end
     if ok and not r.burst then
-        ok, err = pcall(stepFlow, r, t)
+        if r.visuals then ok, err = pcall(stepFlow, r, t) end
     elseif ok and r.c then
         ok, err = pcall(stepReveal, r, t)
     elseif ok and r.findC then
@@ -619,6 +650,8 @@ function FusionFx.play(opts)
     if run then return false, "a fusion scene is already playing" end
     local front = opts.landYaw or 0
     local r = {
+        visuals = opts.visuals ~= false, logic = opts.logic ~= false,
+        findC = opts.findC, findTimeout = opts.findTimeout or FIND_TIMEOUT_S,
         worldCtx = opts.worldCtx, a = opts.a, b = opts.b,
         mx = opts.center.x, my = opts.center.y, mz = opts.center.z,
         frontYaw = front, gate = opts.gate,
@@ -646,15 +679,22 @@ function FusionFx.play(opts)
     r.camK = math.max(1, math.min(2, (r.r0 + b) / 300))
     r.deadline = T_BURST + FIND_TIMEOUT_S + REVEAL_S + 3 + HOLD_S + 20
 
+    if not r.visuals then
+        -- the logic alone: the Pals stay where they stand until the burst
+        run = r
+        r.startedAt = os.clock()
+        if not driving then
+            driving = true
+            LoopAsync(TICK_MS, FusionFx._tick)
+        end
+        Log(string.format("scene started without a picture (%s + %s)", r.elemA, r.elemB))
+        return true
+    end
+    -- the pivot is local: every watching player moves their own copy of the
+    -- Pals, so nothing of it replicates
     local pivot, pivotErr = Rig.pivot(opts.worldCtx, r.ox, r.oy, r.oz, front)
     if not pivot then return false, "no pivot: " .. tostring(pivotErr) end
     r.pivot = pivot
-    -- other players see the circle too: the pivot and what hangs on it replicate
-    local okRep, repErr = pcall(function()
-        pivot:SetReplicates(true)
-        pivot:SetReplicateMovement(true)
-    end)
-    if not okRep then Log("[WARN] pivot not replicated, clients see the Pals stand still: " .. tostring(repErr)) end
     for _, a in ipairs({ opts.a, opts.b }) do
         local okFreeze, freezeErr = pcall(opts.freeze, a, true)
         if not okFreeze then Log("[WARN] Pal not frozen for the scene: " .. tostring(freezeErr)) end
@@ -678,8 +718,8 @@ function FusionFx.play(opts)
         driving = true
         LoopAsync(TICK_MS, FusionFx._tick)
     end
-    Log(string.format("scene started (%s + %s), circle %.0f out, radius %.0f, scale %.2f%s", r.elemA, r.elemB,
-        r.out, r.r0, r.sc, (okCam and filming) and ", filmed" or ""))
+    Log(string.format("scene started (%s + %s), circle %.0f out, radius %.0f, scale %.2f%s%s", r.elemA, r.elemB,
+        r.out, r.r0, r.sc, (okCam and filming) and ", filmed" or "", r.logic and "" or ", picture only"))
     return true
 end
 
@@ -699,6 +739,97 @@ function FusionFx.awaitReveal(findC, idC, timeoutS)
     run.findTimeout = timeoutS or FIND_TIMEOUT_S
     run.elemsC = Elements.of(idC, run.worldCtx)
     run.elemC = (run.elemsC or {})[1]
+end
+
+-- ------------------------------------------------------------------ remote picture
+
+local REMOTE_RANGE = 4000 -- players farther from the altar do not play the picture
+local BODY_REACH = 220    -- how far from a pedestal a body may stand and still count
+
+local function readBody(c)
+    if c.bHidden then return nil end
+    return c:K2_GetActorLocation()
+end
+
+--- The visible Pal body closest to a point, within BODY_REACH.
+local function addressOf(o) return o:GetAddress() end
+
+local function bodyNear(x, y, z, exclude)
+    local best, bestD = nil, BODY_REACH * BODY_REACH
+    -- two Lua handles of one object do not compare equal: compare addresses
+    local skip = nil
+    if exclude then
+        local okA, addr = pcall(addressOf, exclude)
+        if okA then skip = addr end
+    end
+    for _, c in ipairs(FindAllOf("PalCharacter") or {}) do
+        local okC, addr = pcall(addressOf, c)
+        if okC and addr ~= skip then
+            local ok, l = pcall(readBody, c)
+            if ok and l and math.abs(l.Z - z) < 300 then
+                local d = (l.X - x) ^ 2 + (l.Y - y) ^ 2
+                if d < bestD then best, bestD = c, d end
+            end
+        end
+    end
+    return best
+end
+
+--- A player's picture of a fusion the server runs: the server sends the altar's
+--- centre, the landing point and front, and the three species. The two Pals are
+--- the bodies standing on the pedestals; the fused Pal is the body that turns up
+--- on pedestal 1 after the burst.
+function FusionFx.playRemote(info)
+    local pc = Role.getLocalPlayerController()
+    if not (pc and pc:IsValid()) then
+        Log("remote scene skipped: no local player")
+        return false
+    end
+    local okPos, here = pcall(function() return pc:K2_GetPawn():K2_GetActorLocation() end)
+    if not (okPos and here) then
+        Log("[WARN] remote scene skipped: player position unreadable")
+        return false
+    end
+    local c, land = info.center, info.land
+    if (here.X - c.x) ^ 2 + (here.Y - c.y) ^ 2 > REMOTE_RANGE * REMOTE_RANGE then
+        Log("remote scene skipped: the altar is out of view")
+        return false
+    end
+    local Altar = package.loaded["altar"]
+    local bodies = (Altar and Altar.bodiesNear) and Altar.bodiesNear(c.x, c.y, c.z) or {}
+    local a, b = bodies[1], bodies[2]
+    -- without the altar module (or its container) the bodies on the pedestals stand in
+    a = a or bodyNear(land.x, land.y, land.z, nil)
+    b = b or bodyNear(2 * c.x - land.x, 2 * c.y - land.y, land.z, a)
+    if not (a and b) then
+        Log(string.format("[WARN] remote scene skipped: Pals on the pedestals not found (A %s, B %s)",
+            tostring(a ~= nil), tostring(b ~= nil)))
+        return false
+    end
+    local Evolution = package.loaded["evolution"]
+    local freeze = Evolution and Evolution.fusionApi and Evolution.fusionApi.freeze
+    if not freeze then
+        Log("[WARN] remote scene skipped: the freeze helper is not loaded")
+        return false
+    end
+    local ok, why = FusionFx.play({
+        worldCtx = pc, a = a, b = b, center = c, land = land, landYaw = info.landYaw,
+        gate = Altar and Altar.GATE, idA = info.idA, idB = info.idB, freeze = freeze,
+        visuals = true, logic = false, findTimeout = 10,
+        -- the fused Pal is the altar's slot-1 Pal once its body turns up again
+        findC = function()
+            local now = (Altar and Altar.bodiesNear) and Altar.bodiesNear(c.x, c.y, c.z) or {}
+            return now[1]
+        end,
+    })
+    if not ok then
+        Log("[WARN] remote scene did not start: " .. tostring(why))
+        return false
+    end
+    run.elemsC = Elements.of(info.idC, pc)
+    run.elemC = (run.elemsC or {})[1]
+    Log(string.format("remote scene: %s + %s = %s", tostring(info.idA), tostring(info.idB), tostring(info.idC)))
+    return true
 end
 
 --- One burst in an element's colour at a point, outside any scene.

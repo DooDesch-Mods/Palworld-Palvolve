@@ -26,6 +26,7 @@ local Conditions = require("conditions")
 local PalPassives = require("palpassives")
 local FusionRules = require("fusionrules")
 local FusionFx = require("fusionfx")
+local NetChannel = require("netchannel")
 local WazaInherit = require("wazainherit")
 local PASSIVE_RANK = require("passive_rank_static")
 
@@ -42,6 +43,7 @@ local STAND_HALF = 30 -- a Pal body's origin above its feet (every Pal capsule i
 -- axis to either side, the free half-width between the pillars, half a pillar's
 -- depth, and the lintel's underside (create_fusion_altar_v3.py).
 local GATE = { back = 200, side = 200, halfInner = 149.1, depthHalf = 50.9, top = 453.5 }
+Altar.GATE = GATE -- a player's picture of a server's fusion needs the same arch
 local LEDGER_NAME = "fusion-ledger.lua"
 
 local api = nil
@@ -625,6 +627,8 @@ function Altar.start(playerCtx, choice, opts)
     local started, why = FusionFx.play({
         worldCtx = playerCtx.pc, a = phantomA, b = phantomB, center = center,
         startRadius = stage.startRadius, land = stage.land, landYaw = stage.landYaw, gate = stage.gate,
+        -- a dedicated server has nobody to show it to: the players get the picture
+        visuals = not Role.isDedicated(),
         idA = idA, idB = idB, freeze = api.freeze,
         onCommit = function()
             local errInside = stillInside()
@@ -691,6 +695,15 @@ function Altar.start(playerCtx, choice, opts)
         Log("[WARN] altar scene did not start: " .. tostring(why))
         return reply(playerCtx, "evolutionRunning")
     end
+    -- the connected players play the picture themselves: effects, sounds and
+    -- the camera of this machine reach none of them
+    if stage.land then
+        local okSend, sendErr = pcall(NetChannel.broadcastAltarScene, {
+            center = center, land = stage.land, landYaw = stage.landYaw,
+            idA = idA, idB = idB, idC = target,
+        })
+        if not okSend then Log("[WARN] altar scene not sent to the players: " .. tostring(sendErr)) end
+    end
     return true
 end
 
@@ -748,7 +761,7 @@ function Altar.pickInfo(playerCtx)
 end
 
 -- ---------------------------------------------------------------- the stage
--- The two Pals in an altar do not wander: the host stands Pal 1 on slot 1 and
+-- The two Pals in an altar do not wander: every machine stands Pal 1 on slot 1 and
 -- Pal 2 on slot 2, facing each other, until a fusion starts. The slots are the
 -- altar model's "Slot1"/"Slot2" components when the building has them, else
 -- points left and right of the altar's centre.
@@ -873,8 +886,9 @@ end
 local function stageGameThread()
     if not api then return end
     if FusionFx.playing() or api.busy() then return end
-    -- asked here, on the game thread: the tick itself runs on a worker thread
-    if not Role.hasWorldAuthority() then return end
+    -- Every machine stands its own Pals: the bodies a display cage shows are
+    -- phantoms each game spawns for itself, and none of them replicate. A
+    -- client that left them alone would watch them wander off into the sky.
     if os.clock() - altarsListedAt >= ALTAR_LIST_S then refreshAltars() end
     for _, m in ipairs(knownAltars) do
         local cage = containerOf(m)
@@ -1007,6 +1021,53 @@ function Altar._watchTick()
     return false
 end
 
+--- The bodies this machine shows for the Pals in the altar nearest to a point,
+--- in slot order (a hidden body counts as missing). A player's picture of a
+--- server's fusion takes its Pals from here: the phantoms are local, so only
+--- the altar's own container says which body is which.
+function Altar.bodiesNear(x, y, z)
+    if os.clock() - altarsListedAt >= ALTAR_LIST_S then refreshAltars() end
+    local here = { x = x, y = y, z = z }
+    local best, bestD = nil, 1000 * 1000
+    for _, m in ipairs(knownAltars) do
+        local p = isInstance(m) and modelPos(m) or nil
+        if p and dist2(p, here) <= bestD then best, bestD = m, dist2(p, here) end
+    end
+    local out = {}
+    local cage = best and containerOf(best)
+    if not cage then return out end
+    local inside = filledSlots(cage)
+    table.sort(inside, bySlotIndex)
+    for i, e in ipairs(inside) do
+        local ok, body = pcall(phantomBody, e.param)
+        if ok then out[i] = body
+        else Log("[WARN] altar body " .. i .. " unreadable: " .. tostring(body)) end
+    end
+    return out
+end
+
+-- A Pal set into an altar appears 5 m above it and starts to wander off; the
+-- stage tick would only catch it on its next round (and a new altar only after
+-- the next list search). These two server events put it on its pedestal at once.
+function Altar._onAltarChanged()
+    if not (Config.fusion.enabled and Config.fusion.altarEnabled) then return end
+    altarsListedAt = -math.huge -- a new altar counts from now on
+    local ok, err = pcall(stageGameThread)
+    if not ok then Log("[WARN] altar stage after a change failed: " .. tostring(err)) end
+end
+
+local stageHooked = false
+local function hookAltarChanges()
+    if stageHooked then return end
+    stageHooked = true
+    for _, fn in ipairs({ "OnUpdateCharacterContainer_ServerInternal", "OnSpawnedPhantomCharacter_ServerInternal" }) do
+        local path = "/Script/Pal.PalMapObjectDisplayCharacterModel:" .. fn
+        local ok, err = pcall(RegisterHook, path, Altar._onAltarChanged)
+        if ok then Log("altar stage follows " .. fn)
+        else Log("[WARN] altar stage cannot follow " .. fn .. ", the tick catches up: " .. tostring(err)) end
+    end
+end
+
 function Altar.init(evolution)
     api = evolution.fusionApi
     if not api then Log("[ERROR] Evolution.fusionApi missing, the altar stays off") end
@@ -1015,6 +1076,7 @@ function Altar.init(evolution)
         LoopAsync(STAGE_TICK_MS, Altar._stageTick)
         Log("altar stage started")
     end
+    hookAltarChanges()
     if not watchDriving and not Role.isDedicated() then
         watchDriving = true
         LoopAsync(WATCH_TICK_MS, Altar._watchTick)
