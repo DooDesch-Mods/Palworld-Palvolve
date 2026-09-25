@@ -37,7 +37,7 @@
     },
     "Palvolve_FusionShard": {
         "Type": "Generic",
-        "IconTexture": "$resource/Palvolve/evolutionstone",
+        "IconTexture": "$resource/Palvolve/fusionshard",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
         "Rank": 1,
@@ -49,7 +49,7 @@
     },
     "Palvolve_FusionCore": {
         "Type": "Generic",
-        "IconTexture": "$resource/Palvolve/prestigestone",
+        "IconTexture": "$resource/Palvolve/fusioncore",
         "TypeA": "Material",
         "TypeB": "Palvolve_Craft",
         "Rank": 1,

@@ -2,7 +2,7 @@
     "Palvolve_FusionAltar": {
         "BlueprintClassName": "BP_PalvolveFusionAltar",
         "BlueprintClassSoft": "/Game/Palvolve/Buildings/BP_PalvolveFusionAltar.BP_PalvolveFusionAltar_C",
-        "IconTexture": "$resource/Palvolve/extractor_bench",
+        "IconTexture": "$resource/Palvolve/fusion_altar",
         "Hp": 3000,
         "Defense": 10,
         "MaterialType": "Stone",
