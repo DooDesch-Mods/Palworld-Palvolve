@@ -279,7 +279,27 @@ local Config = {
     -- Fusion rules: { a, b, to, kind = "permanent"|"temporary"|"both",
     -- minLevel, conditions, enabled }. a and b are interchangeable, minLevel
     -- and conditions apply to both Pals. A rule beats the fallback formula.
-    fusions = {},
+    -- The shipped set: each rule lends a Pal its partner's element, so the
+    -- result is the variant that visibly carries both parents.
+    fusions = {
+        { a = "FoxMage", b = "NightFox", to = "FoxMage_Dark", kind = "both", minLevel = 20 },
+        { a = "FoxMage", b = "AmaterasuWolf", to = "FoxExorcist", kind = "permanent", minLevel = 40 },
+        { a = "AmaterasuWolf", b = "NightFox", to = "AmaterasuWolf_Dark", kind = "both", minLevel = 30 },
+        { a = "Penguin", b = "ThunderBird", to = "Penguin_Electric", kind = "temporary", minLevel = 10 },
+        { a = "CaptainPenguin", b = "ThunderBird", to = "CaptainPenguin_Black", kind = "permanent", minLevel = 30 },
+        { a = "WeaselDragon", b = "FlameBuffalo", to = "WeaselDragon_Fire", kind = "both", minLevel = 15 },
+        { a = "FlyingManta", b = "RaijinDaughter", to = "FlyingManta_Thunder", kind = "temporary", minLevel = 15 },
+        { a = "FlowerDinosaur", b = "ThunderDog", to = "FlowerDinosaur_Electric", kind = "both", minLevel = 20 },
+        { a = "GrassPanda", b = "ThunderDog", to = "GrassPanda_Electric", kind = "both", minLevel = 25 },
+        { a = "WhiteTiger", b = "DrillGame", to = "WhiteTiger_Ground", kind = "both", minLevel = 30 },
+        { a = "BlueDragon", b = "WhiteMoth", to = "BlueDragon_Ice", kind = "both", minLevel = 30 },
+        { a = "LazyDragon", b = "ThunderBird", to = "LazyDragon_Electric", kind = "both", minLevel = 35 },
+        { a = "Umihebi", b = "KingBahamut", to = "Umihebi_Fire", kind = "permanent", minLevel = 45 },
+        { a = "IceNarwhal", b = "RedArmorBird", to = "IceNarwhal_Fire", kind = "permanent", minLevel = 45 },
+        { a = "Suzaku", b = "Umihebi", to = "Suzaku_Water", kind = "permanent", minLevel = 45 },
+        { a = "WingGolem", b = "Suzaku", to = "WingGolem_Fire", kind = "permanent", minLevel = 50 },
+        { a = "GhostDragon", b = "KingBahamut", to = "GhostDragon_Fire", kind = "permanent", minLevel = 50 },
+    },
     -- Palworld revision: the last five digits of the title-screen version
     -- (v1.0.3.101283 -> 1283), the identifier the official mod loader uses.
     -- Five, not three: v1.0.1.100619 gave 619 either way, which hid the rule
@@ -1844,6 +1864,10 @@ function Config.cleanFusions(list)
     print(string.format("[Palvolve] fusion rules loaded: %d of %d\n", #cleaned, #list))
     return cleaned
 end
+
+-- The shipped rules go through the same cleaning as a user's, so a rule
+-- without minLevel or kind reads the same either way.
+Config.fusions = Config.cleanFusions(Config.fusions)
 
 --- Enabled fusion rules for two species and a fusion kind ("permanent" or
 --- "temporary"), in authored order. Species go through the canonical lookup so a
