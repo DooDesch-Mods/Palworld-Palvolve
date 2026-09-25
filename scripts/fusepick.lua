@@ -263,9 +263,54 @@ local function hide(reason)
     local okTree, Tree = pcall(require, "paldextree")
     local pc = Role.getLocalPlayerController()
     if okTree and Tree.releaseInput and pc and pc:IsValid() then Tree.releaseInput(pc) end
-    Log("pick window closed: " .. reason)
+    -- Opened over another menu (the altar's own, where the Pals go in): the
+    -- game gets its input back, and the mouse stays for that menu. UI-only
+    -- input here would leave the player unable to move once the menu closes.
+    if s and s.cursorBefore and pc and pc:IsValid() then
+        local lib = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+        local okMode, modeErr = pcall(function()
+            lib:SetInputMode_GameAndUIEx(pc, nil, 0, false, false)
+            pc.bShowMouseCursor = true
+        end)
+        if not okMode then Log("[WARN] mouse not kept for the menu below: " .. tostring(modeErr)) end
+    end
+    Log("pick window closed: " .. reason .. ((s and s.cursorBefore) and " (mouse kept for the menu below)" or ""))
     return s
 end
+
+local function overlayOpen(w) return w:IsInViewport() and w:IsVisible() end
+local function overlayName(w) return w:GetClass():GetFullName() end
+local function overlayClose(w) w:Close() end
+
+--- A confirmed fusion plays as a scene, so the game menu the window was opened
+--- over (the altar's, where the Pals go in) closes first.
+local function closeMenusBelow()
+    local closed = 0
+    for _, w in ipairs(FindAllOf("PalUserWidgetOverlayUI") or {}) do
+        local okOpen, open = pcall(overlayOpen, w)
+        if okOpen and open then
+            local okName, name = pcall(overlayName, w)
+            local okClose, closeErr = pcall(overlayClose, w)
+            if okClose then
+                closed = closed + 1
+                Log("menu below closed: " .. tostring(okName and name or "?"))
+            else
+                Log("[WARN] menu below not closed: " .. tostring(closeErr))
+            end
+        end
+    end
+    if closed == 0 then Log("no open menu below the pick window") end
+    local pc = Role.getLocalPlayerController()
+    local okTree, Tree = pcall(require, "paldextree")
+    if okTree and Tree.releaseInput and pc and pc:IsValid() then Tree.releaseInput(pc) end
+end
+
+-- A click reaches the mod through the address bar, so the window is only as
+-- quick to answer as it is polled: 40 ms keeps Cancel and every pick instant.
+local TICK_MS = 40
+local RETRY_TICKS = 120     -- about 5 s of re-offering the page to a slow browser
+local RETRY_EVERY = 24      -- about once a second
+local INPUT_EVERY = 24      -- the input grab is refreshed about once a second
 
 local function tickGameThread()
     if not state then return end
@@ -285,13 +330,13 @@ local function tickGameThread()
     if not delivered then
         if url:find("palvolve.local", 1, true) then
             delivered = true
-        elseif ticks <= 40 and (ticks <= 2 or ticks % 8 == 0) then
+        elseif ticks <= RETRY_TICKS and (ticks <= 2 or ticks % RETRY_EVERY == 0) then
             loadPage()
-        elseif ticks == 41 then
+        elseif ticks == RETRY_TICKS + 1 then
             Log("[WARN] the browser never took the pick page - url [" .. url .. "]")
         end
     end
-    if ticks % 8 == 0 then
+    if ticks % INPUT_EVERY == 0 then
         local okTree, Tree = pcall(require, "paldextree")
         local pc = Role.getLocalPlayerController()
         if okTree and Tree.grabInput and pc and pc:IsValid() then Tree.grabInput(pc) end
@@ -304,6 +349,7 @@ local function tickGameThread()
     end
     if url:find("#ok", 1, true) then
         local s = hide("confirmed")
+        if s.cursorBefore then closeMenusBelow() end
         local choice = { passives = {}, passiveIndexes = {}, gender = s.gender }
         for i, id in ipairs(s.info.pool) do
             if s.picked[i] then
@@ -410,6 +456,10 @@ function M.open(info, onConfirm)
     if state then hide("stale, nothing drove it") end
     if not ensureWindow() then return false end
     state = { info = info, picked = {}, gender = (info.gender == 2) and 2 or 1, onConfirm = onConfirm }
+    local pcNow = Role.getLocalPlayerController()
+    local okCursor, cursor = pcall(function() return pcNow.bShowMouseCursor end)
+    if not okCursor then Log("[WARN] mouse state unreadable at open: " .. tostring(cursor)) end
+    state.cursorBefore = okCursor and cursor == true
     for _, i in ipairs(info.preset or {}) do
         if info.pool[i] and pickedCount() < MAX_PICKS then state.picked[i] = true end
     end
@@ -423,7 +473,7 @@ function M.open(info, onConfirm)
     show()
     if not driving then
         driving = true
-        LoopAsync(120, M._tick)
+        LoopAsync(TICK_MS, M._tick)
     end
     Log(string.format("pick window open: %s + %s = %s, %d passives", info.nameA, info.nameB, info.nameC, #info.pool))
     return true

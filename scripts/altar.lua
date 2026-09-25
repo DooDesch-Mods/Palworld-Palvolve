@@ -65,22 +65,36 @@ local function isLive(obj)
     return ok and valid == true
 end
 
+local function readDisposed(model) return model.bDisposed end
+
+--- False for a map object model that was dismantled. The object itself stays
+--- valid for a while, but GetTransform on it is a fatal error in the game
+--- ("MapObjectModel ... not registered or already disposed"), which no pcall
+--- catches. Objects without the flag count as not disposed.
+local function notDisposed(obj)
+    local ok, disposed = pcall(readDisposed, obj)
+    return not (ok and disposed == true)
+end
+
 --- A live instance, not the class default object FindAllOf also returns: a
---- method call on that one faults natively, past any pcall.
+--- method call on that one faults natively, past any pcall. A dismantled
+--- model does not count either.
 local function isInstance(obj)
     if not isLive(obj) then return false end
     local ok, name = pcall(function() return obj:GetFullName() end)
-    return ok and type(name) == "string" and not name:find("Default__", 1, true)
+    return ok and type(name) == "string" and not name:find("Default__", 1, true) and notDisposed(obj)
 end
 
 local slotPoints -- the altar's two standing points, defined with the stage below
 
 local function modelId(model)
+    if not (isLive(model) and notDisposed(model)) then return nil end
     local ok, id = pcall(function() return model:TryGetMapObjectId():ToString() end)
     return ok and id or nil
 end
 
 local function modelPos(model)
+    if not (isLive(model) and notDisposed(model)) then return nil end
     local ok, t = pcall(function() return model:GetTransform() end)
     if not ok or not t then return nil end
     return { x = t.Translation.X, y = t.Translation.Y, z = t.Translation.Z }
@@ -113,6 +127,7 @@ local function findAltar(playerCtx, allowCage)
 end
 
 local function containerOf(model)
+    if not (isLive(model) and notDisposed(model)) then return nil end
     local ok, c = pcall(function() return model:GetCharacterContainerModule():GetContainer() end)
     return ok and c or nil
 end
@@ -785,6 +800,7 @@ end
 local pointCache = {}
 
 slotPoints = function(model)
+    if not (isLive(model) and notDisposed(model)) then return nil end
     local okKey, key = pcall(instanceKey, model)
     if okKey and pointCache[key] then return pointCache[key] end
     local okT, t = pcall(transformOf, model)
