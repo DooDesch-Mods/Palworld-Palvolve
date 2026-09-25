@@ -11,7 +11,7 @@
         "DeteriorationDamage": 0.08,
         "BuildingData": {
             "TypeA": "Pal",
-            "TypeB": "Pal_Modify",
+            "TypeB": "Other",
             "TypeUIDisplay": "PalOther",
             "Rank": 1,
             "RequiredBuildWorkAmount": 3000.0,
@@ -20,7 +20,8 @@
             "Material2_Id": "StealIngot",
             "Material2_Count": 20,
             "Material3_Id": "Pal_crystal_S",
-            "Material3_Count": 50
+            "Material3_Count": 50,
+            "bIsInstallOnlyHubAround": true
         },
         "Technology": {
             "UnlockBuildObjects": [
