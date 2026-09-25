@@ -1,19 +1,26 @@
 # Changelog
 
-## [Unreleased]
+## [2.0.0] - 2026-09-25
 
 ### Added
 
-- **Fusion in a fight.** Pick "Fuse with ..." in the evolve wheel and your summoned Pal fuses with one from your party for 60 seconds. The fused Pal takes the higher IVs and souls of both, the four best passives and the combined experience. When the time runs out they split again, and the damage is shared between them. If the fused Pal faints, both do. Costs a Fusion Shard, and the same two Pals wait five minutes before the next fusion.
-- **The Fusion Altar.** A new building next to the Palvolve workbench. Put two of your Pals in, pick "Fusion Altar" in the wheel, choose up to four passives and the gender, and the two become one Pal for good. The second Pal is used up. Costs a Fusion Core.
-- **Fusion rules.** A rule says which two Pals become which Pal, for a fight, at the altar or both, from a level on and with the same conditions evolutions use. Pairs without a rule fuse by the breeding formula into a stronger species. That formula can be switched off.
-- **Fusion tree in the editor.** A new tab draws every rule as a junction of two Pals, and a calculator shows what any two Pals would become.
-- **Fusions in the Palpedia.** The tree page of a Pal lists the fusion rules it is part of.
-- **Fusion Shard and Fusion Core.** Crafted at the Pal Alchemy Workbench: the Shard from an Evolution Stone, the Core from a Prestige Stone and five Shards.
+- **Two Pals can fuse in a fight for 60 seconds.** Pick "Fuse with ..." in the evolve wheel and your summoned Pal fuses with one from your party. It costs a Fusion Shard, and the same two Pals wait five minutes before the next fusion.
+- **The fused Pal takes the best of both.** It gets the higher IVs and souls, the four best passives and the combined experience. Nothing can hit it while it fuses or splits.
+- **When the time runs out, the two split again and share the damage.** If the fused Pal faints, both do.
+- **The Fusion Altar turns two Pals into one for good.** Build it from the Pal section of the build menu, put two of your Pals in, pick "Fusion Altar" in the wheel and choose up to four passives and the gender. The second Pal is used up, and each fusion costs a Fusion Core.
+- **Fusion rules decide which two Pals become which Pal.** A rule works in a fight, at the altar or both, from a set level on, with the same conditions evolutions use. The default tree ships 17, most turning a Pal into the element variant of its partner, like Penking and Beakon into Penking Lux.
+- **Pairs without a rule fuse into a stronger species by the breeding formula.** You can switch that formula off.
+- **The configurator has a fusion tree.** A new tab draws every rule as two Pals joining into one, and a calculator shows what any two Pals would become.
+- **The Palpedia shows fusions.** A Pal's Evolutions tab lists every fusion rule it is part of.
+- **Fusion Shards and Fusion Cores are crafted at the Pal Alchemy Workbench.** A Shard takes an Evolution Stone, a Core takes a Prestige Stone and five Shards.
+
+### Fixed
+
+- **The party panel shows the new Pal right after an evolution.** It kept the old name and element until you switched slots.
 
 ### Changed
 
-- **The uninstall command and the Save Cleaner know the fusion items, the Fusion Altar and the fusion passives.** Take both Pals out of every Fusion Altar before uninstalling.
+- **The uninstall command and the Save Cleaner also clean up the fusion items, the Fusion Altar and the fusion passives.** Take both Pals out of every Fusion Altar before uninstalling.
 - **The uninstall command also removes Prestige Stones.**
 
 ## [1.9.8] - 2026-09-24

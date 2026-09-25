@@ -8,7 +8,7 @@ The Save Cleaner takes them out: **[palvolve.doodesch.de/save-cleaner](https://p
 
 ## Empty the Fusion Altar first
 
-Take both Pals out of every Fusion Altar before you uninstall. The Save Cleaner removes the altar, and a Pal still inside it would lose its place in the world.
+Take both Pals out of every Fusion Altar before you uninstall. The Save Cleaner removes the altar, and a Pal still inside it can be lost.
 
 ## Run the Save Cleaner
 
@@ -16,7 +16,7 @@ Close Palworld, then open [palvolve.doodesch.de/save-cleaner](https://palvolve.d
 
 1. Choose the folder that holds your world folders.
 2. Pick the world.
-3. Read what it found: item stacks, the placed Pal Alchemy Workbench and Fusion Altar, the workbench assignment, the crafting records and the technology unlock, each with its own item icon.
+3. Check what it found: item stacks, the placed Pal Alchemy Workbench and Fusion Altar, the workbench's work assignment, the crafting records and the technology unlock.
 4. Start it: "Back up and clean" in Chrome and Edge, "Clean and download" in Firefox and Safari.
 5. Start the game and load the world.
 
@@ -51,4 +51,4 @@ Either way the backup the cleaner writes is there, and so are Palworld's own wor
 
 ## Evolved and prestige passives
 
-Palvolve's evolved and prestige passives are stored on the individual Pals in the world save. Before removing the PalSchema data folder, run the Save Cleaner so those custom passives do not become unresolved ids. The cleaner removes `Palvolve_Evolved_<stage>` and `Palvolve_Prestige_<stage>` entries while leaving every normal passive and every other mod's passive in place.
+Palvolve's evolved and prestige passives are stored on the individual Pals in the world save. Before removing the PalSchema data folder, run the Save Cleaner so those custom passives do not become unresolved ids. The cleaner removes `Palvolve_Evolved_<stage>`, `Palvolve_Prestige_<stage>`, `Palvolve_Fused` and `Palvolve_FusionActive` entries while leaving every normal passive and every other mod's passive in place.

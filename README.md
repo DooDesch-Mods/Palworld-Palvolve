@@ -15,6 +15,7 @@
 - Hold 4, then pick Evolve. The evolution sequence plays in front of you. It ends in a finale built from the target's elements. F2 skips the wheel after you set `confirmKeyEnabled = true`.
 - Pals keep level, nickname, gender, passives, IVs, souls, condenser rank and every learned move. That includes moves the new form could never learn on its own. Alphas stay Alpha. Luckys stay Lucky.
 - At the end of an evolution line, a Pal can **prestige**. Level returns to 1. The Pal keeps its nickname, passives, IVs, souls and every learned move. Each prestige adds one Prestige rank, up to 10. The prestige sequence grows with each rank. The Pal shimmers afterwards.
+- **Fuse two Pals.** Pick "Fuse with ..." in the wheel during a fight, and your summoned Pal and one from your party become a stronger Pal for 60 seconds, then split again. At the Fusion Altar, two Pals become one for good, with the gender and up to four passives you choose. A fight fusion costs a Fusion Shard, an altar fusion a Fusion Core. The default tree ships 17 fusion rules, and any other pair fuses into a stronger species by the breeding formula.
 - An evolution may depend on day or night, water, a status effect, a location, a party member, a known move or passive, an item or an amount of gold, a condenser rank, the last thing the Pal was fed, or a trainer-level, trust-rank or IV threshold. Any condition can be inverted. Greyed options name the missing part in your game language.
 - Set an evolution to **automatic** and it runs as soon as its conditions are met. The cost and rollback stay the same. `!palvolve lock` excludes one Pal; `!palvolve unlock` puts it back.
 - The Palpedia gets an **Evolutions** tab next to Stats and Habitat. It shows what the selected Pal evolves from and into, plus the level, stone and conditions for each step. Click any Pal in the tree to centre it and follow the line without leaving the screen.
@@ -25,7 +26,7 @@
 ## Requirements
 
 - **UE4SS Experimental (Palworld)** - use the Palworld-specific build. The generic upstream RE-UE4SS breaks on Palworld 1.0. Its Steam ID does not match, so mods do not load and nothing says why.
-- **PalSchema** provides the Pal Alchemy Workbench, stones and recipes.
+- **PalSchema** provides the Pal Alchemy Workbench, the Fusion Altar, stones and recipes.
 
 ## Installation
 
