@@ -514,6 +514,15 @@ end
 -- NEVER writing the actor transform, so the client-driven reveal spin holds.
 -- Call surface per the 1.0 object dump.
 local REVEAL_FLAG = FName("PalvolveReveal")
+-- The party panel keeps the name and element of the species it drew last; a
+-- species swap does not tell it. Selecting the same slot again makes it read
+-- the Pal anew. Only for the local player: the panel is local UI.
+local function refreshPartyHud(holder)
+    if not (holder and holder:IsValid()) then return end
+    local ok, err = pcall(function() holder:SetSelectOtomoID(holder:GetSelectedOtomoID()) end)
+    if not ok then Log("[WARN] party panel refresh failed: " .. tostring(err)) end
+end
+
 local function setRevealFrozen(actor, frozen)
     if not (actor and actor:IsValid()) then return end
     local ctrl, move = nil, nil
@@ -2360,6 +2369,7 @@ local function performEvolution(p)
                         -- and forcing movement state made the character
                         -- visibly fight the staged reveal spin.
                         local okReveal = pcall(function() fx.onReveal(ctx, a) end)
+                        if playerCtx and playerCtx.isLocal then refreshPartyHud(holder) end
                         playFanfare(a)
                         Log(string.format("EVOLVED: %s -> %s (level %d)%s",
                             pair.from, pair.to, level,
@@ -3937,6 +3947,7 @@ function Evolution.onNetSignal(kind, phaseInfo)
             ExecuteInGameThread(function()
                 pcall(function() FX.onReveal(remoteCtx, a) end)
                 pcall(function() playFanfare(a) end)
+                refreshPartyHud(findHolderFor(Role.localPlayerCtx(), nil))
             end)
             return true
         end)
