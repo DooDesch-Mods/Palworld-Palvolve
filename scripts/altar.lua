@@ -764,14 +764,21 @@ local function slotPoints(model)
         local found = {}
         local okComps, compErr = pcall(function()
             local comps = actor:K2_GetComponentsByClass(StaticFindObject("/Script/Engine.SceneComponent"))
-            comps:ForEach(function(_, v)
-                local comp = v:get()
+            -- UE4SS hands the returned array over as a plain Lua table here
+            local list = {}
+            if type(comps) == "table" then
+                for _, v in ipairs(comps) do list[#list + 1] = v end
+            else
+                comps:ForEach(function(_, v) list[#list + 1] = v end)
+            end
+            for _, v in ipairs(list) do
+                local comp = (type(v) == "userdata" and v.get) and v:get() or v
                 local name = comp:GetFName():ToString()
                 if name == "Slot1" or name == "Slot2" then
                     local l = comp:K2_GetComponentLocation()
                     found[name] = { x = l.X, y = l.Y, z = l.Z }
                 end
-            end)
+            end
         end)
         if not okComps then warnOnce("comps", "altar slot components unreadable: " .. tostring(compErr)) end
         if found.Slot1 and found.Slot2 then points = { found.Slot1, found.Slot2 } end
@@ -837,9 +844,8 @@ local function stageGameThread()
                         warnOnce("radius", "altar Pal width unreadable, kept on its slot: " .. tostring(radius))
                     end
                     if #inside == 1 then
-                        -- alone: stand in the middle, facing the altar's front
-                        p = { x = (points[1].x + points[2].x) / 2, y = (points[1].y + points[2].y) / 2, z = points[1].z }
-                        yaw = yaw + 90
+                        -- alone (the fused Pal after a fusion): slot 1, facing the altar's front
+                        yaw = yaw - 90
                     end
                     -- the body's origin is the middle of its capsule: stand it on the point
                     local okH, half = pcall(function() return body.CapsuleComponent:GetScaledCapsuleHalfHeight() end)
