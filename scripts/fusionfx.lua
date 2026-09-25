@@ -120,7 +120,7 @@ end
 local function stepOrbit(r, t)
     local cx, cy, cz = r.cx, r.cy, r.cz
     local orbitT = math.max(0, math.min(1, (t - RISE_S) / ORBIT_S))
-    local radius = t < RISE_S and RADIUS_START or lerp(RADIUS_START, RADIUS_END, ease(orbitT))
+    local radius = t < RISE_S and r.radiusStart or lerp(r.radiusStart, RADIUS_END, ease(orbitT))
     local lift = t < RISE_S and lerp(0, LIFT_START, ease(t / RISE_S)) or lerp(LIFT_START, LIFT_END, orbitT)
     local speed = lerp(SPEED_START, SPEED_END, orbitT * orbitT)
     r.angle = r.angle + speed * (TICK_MS / 1000)
@@ -187,8 +187,11 @@ local function stepReveal(r, t)
     end
     local rt = math.max(0, math.min(1, (t - r.revealStart) / REVEAL_S))
     local s = lerp(0.03, 1, ease(math.min(1, rt * 1.6)))
-    local z = r.cz + lerp(LIFT_END, 0, ease(rt))
-    place(r.c, r.cx, r.cy, z, r.angle)
+    -- out of the light at the centre, down onto the landing point when there is one
+    local land = r.land or { x = r.cx, y = r.cy, z = r.cz }
+    local e = ease(rt)
+    place(r.c, lerp(r.cx, land.x, e), lerp(r.cy, land.y, e), lerp(r.cz + LIFT_END, land.z, e),
+        r.landYaw or r.angle)
     scaleTo(r.c, s)
     if rt >= 1 then finishRun("revealed") end
 end
@@ -253,6 +256,8 @@ FusionFx._tick = tick -- held by the module so the scheduled callback is never c
 --- Starts the scene. opts: worldCtx, a, b (actors), center {x,y,z}, idA, idB,
 --- freeze(actor, frozen), onCommit() (runs at the burst; must eventually call
 --- FusionFx.reveal(actorC, idC) or FusionFx.abort), onDone(reason).
+--- Optional: startRadius (how far from the centre the Pals stand), land {x,y,z}
+--- and landYaw (where the fused Pal comes to rest, else the centre).
 function FusionFx.play(opts)
     if run then return false, "a fusion scene is already playing" end
     run = {
@@ -262,8 +267,15 @@ function FusionFx.play(opts)
         elemB = (Elements.of(opts.idB, opts.worldCtx) or {})[1] or "Normal",
         freeze = opts.freeze, onCommit = opts.onCommit, onDone = opts.onDone,
         startedAt = os.clock(), angle = 0, nextFlare = RISE_S,
+        radiusStart = opts.startRadius or RADIUS_START, land = opts.land, landYaw = opts.landYaw,
         deadline = RISE_S + ORBIT_S + COLLAPSE_S + BURST_S + REVEAL_S + 20,
     }
+    -- the orbit starts where A stands, so neither Pal jumps at the first tick
+    local okAngle, angleErr = pcall(function()
+        local l = opts.a:K2_GetActorLocation()
+        run.angle = math.deg(math.atan(l.Y - run.cy, l.X - run.cx))
+    end)
+    if not okAngle then Log("[WARN] start angle unreadable, the orbit starts at 0: " .. tostring(angleErr)) end
     for _, a in ipairs({ opts.a, opts.b }) do
         local okFreeze, freezeErr = pcall(opts.freeze, a, true)
         if not okFreeze then Log("[WARN] Pal not frozen for the scene: " .. tostring(freezeErr)) end

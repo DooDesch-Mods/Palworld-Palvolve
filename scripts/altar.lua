@@ -36,6 +36,7 @@ local MARKER_FUSED = "Palvolve_Fused"
 -- carried by both halves of a running battle fusion (fusion.lua)
 local MARKER_ACTIVE = "Palvolve_FusionActive"
 local REACH = 2000 -- units from the altar a player may start a fusion
+local STAND_HALF = 30 -- a Pal body's origin above its feet (every Pal capsule is this small)
 local LEDGER_NAME = "fusion-ledger.lua"
 
 local api = nil
@@ -66,6 +67,8 @@ local function isInstance(obj)
     local ok, name = pcall(function() return obj:GetFullName() end)
     return ok and type(name) == "string" and not name:find("Default__", 1, true)
 end
+
+local slotPoints -- the altar's two standing points, defined with the stage below
 
 local function modelId(model)
     local ok, id = pcall(function() return model:TryGetMapObjectId():ToString() end)
@@ -447,6 +450,19 @@ function Altar.start(playerCtx, choice, opts)
     local gender = (choice and (choice.gender == 1 or choice.gender == 2)) and choice.gender or recA.fields.Gender
     local rare = recA.rare or recB.rare
     local center = modelPos(altar)
+    -- On an altar with pedestals the scene plays at pedestal height, starts where
+    -- the two Pals stand and sets the fused Pal down on pedestal 1.
+    local stage = {}
+    local okPts, pts = pcall(slotPoints, altar)
+    if not okPts then
+        Log("[WARN] altar standing points unreadable, the scene uses the altar origin: " .. tostring(pts))
+    elseif pts and pts.onPedestals then
+        local dx, dy = pts[2].x - pts[1].x, pts[2].y - pts[1].y
+        center = { x = (pts[1].x + pts[2].x) / 2, y = (pts[1].y + pts[2].y) / 2, z = pts[1].z + STAND_HALF }
+        stage.startRadius = math.sqrt(dx * dx + dy * dy) / 2
+        stage.land = { x = pts[1].x, y = pts[1].y, z = pts[1].z + STAND_HALF }
+        stage.landYaw = math.deg(math.atan(dy, dx)) - 90
+    end
     local function knownMoves(param, label)
         local snap, err = WazaInherit.capture(param)
         if not snap then
@@ -560,6 +576,7 @@ function Altar.start(playerCtx, choice, opts)
 
     local started, why = FusionFx.play({
         worldCtx = playerCtx.pc, a = phantomA, b = phantomB, center = center,
+        startRadius = stage.startRadius, land = stage.land, landYaw = stage.landYaw,
         idA = idA, idB = idB, freeze = api.freeze,
         onCommit = function()
             local errInside = stillInside()
@@ -751,7 +768,7 @@ local function warnOnce(key, msg)
 end
 
 --- World positions of the two standing points of an altar model.
-local function slotPoints(model)
+slotPoints = function(model)
     local okT, t = pcall(function() return model:GetTransform() end)
     if not okT or not t then return nil end
     local c = t.Translation
