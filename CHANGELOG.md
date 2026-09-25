@@ -11,7 +11,7 @@
 - **Fusion rules decide which two Pals become which Pal.** A rule works in a fight, at the altar or both, from a set level on, with the same conditions evolutions use. The default tree ships 17, most turning a Pal into the element variant of its partner, like Penking and Beakon into Penking Lux.
 - **Pairs without a rule fuse into a stronger species by the breeding formula.** You can switch that formula off.
 - **The configurator has a fusion tree.** A new tab draws every rule as two Pals joining into one, and a calculator shows what any two Pals would become.
-- **The Palpedia shows fusions.** A Pal's Evolutions tab lists every fusion rule it is part of.
+- **The Palpedia shows fusions.** Next to a Pal's evolutions there is a Fusions tab: which pairs make this Pal, and what it fuses into, with the level each rule needs.
 - **Fusion Shards and Fusion Cores are crafted at the Pal Alchemy Workbench.** A Shard takes an Evolution Stone, a Core takes a Prestige Stone and five Shards.
 
 ### Fixed
