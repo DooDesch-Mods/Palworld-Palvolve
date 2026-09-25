@@ -10,11 +10,12 @@
 -- Nothing of either Pal is written while this plays: the caller commits the
 -- fusion in onDone, and a phantom that does not appear only skips the show.
 --
--- One LoopAsync driver hands its ticks to the game thread through a function
--- the module holds, as fusionfx.lua does (UE4SS-LESSONS.md section 1).
+-- One game-thread loop (gameloop.lua) drives the ticks through a function the
+-- module holds, as fusionfx.lua does (UE4SS-LESSONS.md section 1).
 
 local Elements = require("elements")
 local FusionFx = require("fusionfx")
+local GameLoop = require("gameloop")
 
 local FusionPartner = {}
 
@@ -159,14 +160,13 @@ local function tickGameThread()
         finish("step failed", false)
     end
 end
-FusionPartner._tickGameThread = tickGameThread
 
 local function tick()
     if not run then
         driving = false
         return true
     end
-    ExecuteInGameThread(FusionPartner._tickGameThread)
+    tickGameThread()
     return false
 end
 FusionPartner._tick = tick -- held by the module so the scheduled callback is never collected
@@ -219,7 +219,7 @@ function FusionPartner.play(opts)
     }
     if not driving then
         driving = true
-        LoopAsync(TICK_MS, FusionPartner._tick)
+        GameLoop.start(TICK_MS, FusionPartner._tick, "partner scene")
     end
     Log("partner scene started (" .. tostring(opts.idB) .. ")")
     return true

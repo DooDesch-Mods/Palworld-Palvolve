@@ -36,6 +36,7 @@ local Config = require("config")
 local Recipes = require("finale_recipes")
 local Finale = require("finale")
 local Timing = require("sequence_timing")
+local GameLoop = require("gameloop")
 
 -- ---------------------------------------------------------------- shared helpers
 
@@ -348,10 +349,9 @@ local M = {
         local totalS = (c.spinUpMs + c.shrinkMs) / 1000
         local spinUpS = c.spinUpMs / 1000
         local shrinkS = c.shrinkMs / 1000
-        -- The step runs on the game thread every tick. It is built once per
-        -- effect and handed over by name: a new closure per tick feeds UE4SS's
-        -- callback collector (UE4SS-LESSONS.md section 1). Same for peakStep
-        -- and growStep below.
+        -- The step runs on the game thread every tick (gameloop.lua). It is
+        -- built once per effect, never per tick (UE4SS-LESSONS.md section 1).
+        -- Same for peakStep and growStep below.
         local function dissolveStep()
             if state.stopped then return end
             local a = ctx.actor
@@ -407,11 +407,11 @@ local M = {
             end
             if t >= totalS then state.stopped = true end
         end
-        LoopAsync(33, function()
+        GameLoop.start(33, function()
             if state.stopped then return true end
-            ExecuteInGameThread(dissolveStep)
+            dissolveStep()
             return state.stopped
-        end)
+        end, "evolution dissolve")
     end,
 
     onHide = function(ctx)
@@ -439,15 +439,15 @@ local M = {
             spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ + zOff,
                 elemAt(ctx.elemsFrom, i))
         end
-        LoopAsync(300, function()
+        GameLoop.start(300, function()
             if stopped then return true end
             if os.clock() - startedAt > 30 then
                 stopped = true
                 return true
             end
-            ExecuteInGameThread(peakStep)
+            peakStep()
             return stopped
-        end)
+        end, "evolution peak")
     end,
 
     onGap = function(ctx) end, -- the peak loop already carries the hold state
@@ -612,11 +612,26 @@ local M = {
                 applySpin()
             end
         end
-        LoopAsync(33, function()
+        GameLoop.start(33, function()
             if state.stopped then return true end
-            ExecuteInGameThread(growStep)
+            local okStep, errStep = pcall(growStep)
+            if not okStep then
+                -- this staging owns the sequence lock, so a failed step ends
+                -- the sequence as an abort instead of leaving it frozen
+                print(string.format("[Palvolve] [ERROR] evolution grow step failed, aborting: %s\n",
+                    tostring(errStep)))
+                state.stopped = true
+                if ctx.completeAbort then
+                    local okAbort, errAbort = pcall(ctx.completeAbort)
+                    if not okAbort then
+                        print(string.format("[Palvolve] [ERROR] evolution abort failed: %s\n",
+                            tostring(errAbort)))
+                    end
+                end
+                return true
+            end
             return state.stopped
-        end)
+        end, "evolution grow")
     end,
 
     cleanup = function(ctx)
@@ -627,7 +642,7 @@ local M = {
         Finale.stopAll(ctx.fx.finale)
         local grow = ctx.fx.growState
         -- "not finished" covers both a running grow AND the finale hold (both
-        -- run in the same LoopAsync driver); stopped halts that driver, and
+        -- run in the same game-thread driver); stopped halts that driver, and
         -- finished marks the run as handled so a repeated cleanup skips the
         -- restore branch below.
         local growUnfinished = grow and not grow.finished

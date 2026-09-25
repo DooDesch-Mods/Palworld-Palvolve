@@ -28,6 +28,8 @@ local M = {}
 local okCfg, Config = pcall(require, "config")
 if not okCfg or type(Config) ~= "table" then Config = { devMode = false } end
 
+local GameLoop = require("gameloop")
+
 local function Log(msg)
     print(string.format("[Palvolve] %s\n", msg))
 end
@@ -209,7 +211,7 @@ local function startTreeWebWatcher(html, firstDelivery)
     local myGen = treeWebGen
     local ticks = 0
     local delivered = not firstDelivery
-    LoopAsync(120, function()
+    GameLoop.start(120, function()
         if treeWebStop or myGen ~= treeWebGen
             or not (treeWebBrowser and treeWebBrowser:IsValid()) then
             return true
@@ -299,7 +301,7 @@ local function startTreeWebWatcher(html, firstDelivery)
             return true
         end
         return false
-    end)
+    end, "tree page watcher")
 end
 
 --- Building the window and starting its browser is what costs the seconds, so
@@ -346,9 +348,9 @@ function M.toggleTreeWindow(keepInput)
         -- shown as plain Visible it takes every click outside the window with
         -- it. That is why the Paldex went dead the second time it was opened.
         pcall(function() treeWebWidget:SetVisibility(4) end)
-        -- The click handler already built this page off the game thread. Building
-        -- it again here is the same work a second time, in the one place where
-        -- the game is waiting for it.
+        -- The click handler already built this page. Building it again here is
+        -- the same work a second time, in the one place where the game is
+        -- waiting for it.
         if not (treeWebPage and treeWebPageFor == treeWebCurrent
             and treeWebPageDocked == treeWebDocked) then
             treeWebPage = html.page(treeWebCurrent)
@@ -401,9 +403,8 @@ function M.toggleTreeWindow(keepInput)
     -- Whatever the opener asked for stands. Cleared here, the first page always
     -- came up on the first Pal in the list while the log said it was opening on
     -- the one the Paldex was showing.
-    -- Reused when the caller already built it off the game thread. Building it
-    -- here costs seconds on a cold icon cache, and every one of them is a
-    -- second the game stands still.
+    -- Reused when the caller already built it. Building it costs seconds on a
+    -- cold icon cache, and every one of them is a second the game stands still.
     local t2 = os.clock()
     if not (treeWebPage and treeWebPageFor == treeWebCurrent
         and treeWebPageDocked == treeWebDocked) then
@@ -930,10 +931,8 @@ local function injectPaldexTab()
 
     paldexTab = tab
     paldexIndex = after - 1
-    -- Resolve the language here, where we are on the game thread anyway. The
-    -- page itself is built off it, and asking the engine from there is a native
-    -- crash; I18n caches the answer, so this is the last safe moment before the
-    -- tab can be clicked.
+    -- Resolve the language here, before the tab can be clicked. I18n caches the
+    -- answer, so the page build reads it without asking the engine again.
     pcall(function() require("i18n").lang() end)
     Log(string.format("Evolutions tab added: children %d -> %d, our index %d",
         before, after, paldexIndex))
@@ -1162,18 +1161,76 @@ function M.start()
         return false
     end
 
-    LoopAsync(500, function()
+    GameLoop.start(500, function()
         local ok, err = pcall(paldexTick)
         if not ok and not loopFailed then
             loopFailed = true
             Log("watching the Palpedia failed: " .. tostring(err))
         end
         return false
-    end)
+    end, "Palpedia watch")
 
     -- What the click asked for, carried out off the hook and quickly enough to
     -- still feel like a click.
     local fastFailed = false
+    local followFailLogged = false
+
+    -- Carries out a queued "open" or "close". The page for an open is built
+    -- by the caller first.
+    local function applyWant(want)
+        if want == "close" then
+            closeTreeWeb()
+            -- A highlight we drew by hand is ours to take back: the game
+            -- unfocuses the tab it thinks was selected, which is not ours.
+            if paldexLit and paldexTab and paldexTab:IsValid() then
+                pcall(function() paldexTab:AnmEvent_Unfocus() end)
+                paldexLit = false
+            end
+            return
+        end
+
+        -- The tabset is told as well, so the bar draws the selection on our
+        -- tab. Its own two report to it through dispatchers bound in the
+        -- editor; a tab built at runtime has nobody listening.
+        local box = parentPanelOf(paldexTab)
+        local ts = selectorForBox(box)
+        if ts and paldexIndex >= 0 then
+            -- The habitat page first, through the game's own handler: it
+            -- clears the model view and the values panel the way it always
+            -- does. Only then is the selection moved onto our tab, so the
+            -- bar reads "Evolutions" while the screen is laid out for a map.
+            -- Everything that calls into the game runs inside one guard,
+            -- and the guard is lifted whatever happens in there: left
+            -- standing it silences the mod's own hooks for good, and with
+            -- them the list, the tab switch and the close.
+            paldexBusy = true
+            local okAll, errAll = pcall(function()
+                showHabitatPage(ts)
+                local before, after = -1, -1
+                pcall(function() before = ts.NowFocusChildIndex end)
+                local ok, err = pcall(function() ts:SelectByIndex(paldexIndex) end)
+                pcall(function() after = ts.NowFocusChildIndex end)
+                Log(string.format("tab selected %s (%s), focus %d -> %d of %d",
+                    tostring(ok), tostring(err), before, after, paldexIndex))
+                -- Lit by hand as well. The tabset does take the index, but
+                -- what draws a tab as selected is an animation the tab
+                -- plays on itself, and the tabset plays it only on the two
+                -- it was built with.
+                paldexLit = lightTab(box, paldexTab)
+            end)
+            paldexBusy = false
+            if not okAll then
+                Log("switching to the tree tab failed: " .. tostring(errAll))
+            end
+        else
+            Log("no tabset owns our tab bar")
+        end
+
+        local id = paldexListPick or paldexCharacter()
+        Log("opening the tree on " .. tostring(id))
+        openTreeWebFor(id, parentPanelOf(ts))
+    end
+
     local function paldexFastTick()
         -- Whether the Palpedia is still on screen, asked at this rate rather than
         -- the slower one, but only while our page is up. Half a second between
@@ -1198,10 +1255,9 @@ function M.start()
             local wanted = paldexPendingRowName
             paldexPendingRowName = nil
 
-            -- Looked up right here. Reading names is read-only work and needs
-            -- no detour over the game thread, and inside that detour a failure
-            -- leaves nothing behind at all - which is exactly how this step
-            -- went missing twice.
+            -- Looked up right here, not in a deferred call: inside one a
+            -- failure left nothing behind at all - which is exactly how this
+            -- step went missing twice.
             local row = nil
             for _, o in ipairs(FindAllOf("WBP_Paldex_List_C") or {}) do
                 local m = ""
@@ -1213,8 +1269,6 @@ function M.start()
                 end
             end
             if row then
-                -- Only the call into the game is deferred, and it says so when
-                -- it fails.
                 -- The row's own property, not its getter: GetCharacterID takes
                 -- an out parameter and refuses a bare call. The name carries a
                 -- typo in the game, and that typo is the property.
@@ -1243,31 +1297,34 @@ function M.start()
         if treeWebOpen and treeWebDocked and paldexListPick
             and paldexListPick ~= treeWebCurrent then
             local id = paldexListPick
-            -- The page is built HERE, not on the game thread. It is string work
-            -- and file reads, and on a cold icon cache it takes seconds - a
-            -- player's log shows 7.4 s for one page. Done inside
-            -- ExecuteInGameThread that time is spent with the game frozen, and
-            -- switching Pals a few times in a row stacks those freezes until
-            -- the game looks dead. Only the handover to the browser needs the
-            -- game thread.
+            -- The page is string work and file reads, and on a cold icon cache
+            -- it takes seconds - a player's log shows 7.4 s for one page. This
+            -- tick runs on the game thread, so that time is spent with the game
+            -- frozen; the portrait warm-up at the bottom of this file is what
+            -- keeps the cache warm long before anyone switches Pals here.
             local okHtml, html = pcall(require, "treehtml")
+            -- once: the check comes round sixteen times a second
+            if not okHtml and not followFailLogged then
+                followFailLogged = true
+                Log("the tree cannot follow to " .. tostring(id) .. ": treehtml did not load - "
+                    .. tostring(html))
+            end
             if okHtml and html then
                 local page = html.page(id)
                 treeWebCurrent = id
                 treeWebPage = page
                 treeWebPageFor = id
                 treeWebPageDocked = treeWebDocked
-                ExecuteInGameThread(function()
-                    -- Several switches can be queued before the game thread
-                    -- gets here; only the newest page is worth showing.
-                    if treeWebPage ~= page then return end
-                    if treeWebBrowser and treeWebBrowser:IsValid() then
-                        pcall(function()
-                            treeWebBrowser:LoadString(page, TREE_ORIGIN)
-                        end)
+                if treeWebBrowser and treeWebBrowser:IsValid() then
+                    local okLoad, errLoad = pcall(function()
+                        treeWebBrowser:LoadString(page, TREE_ORIGIN)
+                    end)
+                    if okLoad then
                         Log("the tree follows to " .. id)
+                    else
+                        Log("the tree did not follow to " .. id .. ": " .. tostring(errLoad))
                     end
-                end)
+                end
             end
         end
 
@@ -1275,9 +1332,8 @@ function M.start()
         if not want then return end
         paldexWant = nil
 
-        -- Built before the handover, for the same reason the switch above is:
-        -- on a cold cache this is seconds of work, and the game thread is the
-        -- one place where those seconds are visible to the player.
+        -- Built before the handover, so the open reuses it instead of building
+        -- it a second time; on a cold cache each build is seconds of work.
         if want == "open" then
             local id = paldexListPick or paldexCharacter()
             local okHtml, html = pcall(require, "treehtml")
@@ -1306,71 +1362,19 @@ function M.start()
             end
         end
 
-        ExecuteInGameThread(function()
-            if want == "close" then
-                closeTreeWeb()
-                -- A highlight we drew by hand is ours to take back: the game
-                -- unfocuses the tab it thinks was selected, which is not ours.
-                if paldexLit and paldexTab and paldexTab:IsValid() then
-                    pcall(function() paldexTab:AnmEvent_Unfocus() end)
-                    paldexLit = false
-                end
-                return
-            end
-
-            -- The tabset is told as well, so the bar draws the selection on our
-            -- tab. Its own two report to it through dispatchers bound in the
-            -- editor; a tab built at runtime has nobody listening.
-            local box = parentPanelOf(paldexTab)
-            local ts = selectorForBox(box)
-            if ts and paldexIndex >= 0 then
-                -- The habitat page first, through the game's own handler: it
-                -- clears the model view and the values panel the way it always
-                -- does. Only then is the selection moved onto our tab, so the
-                -- bar reads "Evolutions" while the screen is laid out for a map.
-                -- Everything that calls into the game runs inside one guard,
-                -- and the guard is lifted whatever happens in there: left
-                -- standing it silences the mod's own hooks for good, and with
-                -- them the list, the tab switch and the close.
-                paldexBusy = true
-                local okAll, errAll = pcall(function()
-                    showHabitatPage(ts)
-                    local before, after = -1, -1
-                    pcall(function() before = ts.NowFocusChildIndex end)
-                    local ok, err = pcall(function() ts:SelectByIndex(paldexIndex) end)
-                    pcall(function() after = ts.NowFocusChildIndex end)
-                    Log(string.format("tab selected %s (%s), focus %d -> %d of %d",
-                        tostring(ok), tostring(err), before, after, paldexIndex))
-                    -- Lit by hand as well. The tabset does take the index, but
-                    -- what draws a tab as selected is an animation the tab
-                    -- plays on itself, and the tabset plays it only on the two
-                    -- it was built with.
-                    paldexLit = lightTab(box, paldexTab)
-                end)
-                paldexBusy = false
-                if not okAll then
-                    Log("switching to the tree tab failed: " .. tostring(errAll))
-                end
-            else
-                Log("no tabset owns our tab bar")
-            end
-
-            local id = paldexListPick or paldexCharacter()
-            Log("opening the tree on " .. tostring(id))
-            openTreeWebFor(id, parentPanelOf(ts))
-        end)
+        applyWant(want)
     end
 
     -- Guarded like the slower loop: an error in here does not skip a beat, it
     -- ends the loop, and everything it drives goes quiet without a word.
-    LoopAsync(60, function()
+    GameLoop.start(60, function()
         local ok, err = pcall(paldexFastTick)
         if not ok and not fastFailed then
             fastFailed = true
             Log("watching the Palpedia clicks failed: " .. tostring(err))
         end
         return false
-    end)
+    end, "Palpedia clicks")
 
     Log("the Palpedia tree is ready")
 end
@@ -1378,47 +1382,57 @@ end
 
 -- Started on load: the tab has to be there the first time the player opens the
 -- Palpedia, and there is no earlier moment to hook it than the mod starting.
--- Warms the icon cache in the background so the first page has nothing left to
+-- Warms the icon cache ahead of time so the first page has nothing left to
 -- encode. Every portrait is read off disk and turned into base64 in plain Lua,
 -- which is cheap once and slow all at once: a player's log shows a first page
 -- taking 7.4 seconds with a cold cache, against 30 ms with a warm one. The
 -- pace below is set to have the whole set warm within a few seconds of the mod
--- starting, long before anyone opens the Palpedia.
+-- starting, long before anyone opens the Palpedia. Each beat runs on the game
+-- thread, so its batch is time that frame waits for.
 local warmStarted = os.clock()
-LoopAsync(400, function()
+GameLoop.start(400, function()
     local ok, html = pcall(require, "treehtml")
-    if not (ok and html and html.warmIcons) then return true end
+    if not ok then
+        Log("portrait warm-up stopped: treehtml did not load - " .. tostring(html))
+        return true
+    end
+    if not (html and html.warmIcons) then
+        Log("portrait warm-up stopped: treehtml has no warmIcons")
+        return true
+    end
     local more = false
     -- Small batches on a slow beat. A faster pace does finish the cache sooner,
     -- but it competes with the engine's own loading for CPU and for the disk,
     -- and that was felt as stutter. The page itself no longer depends on this
     -- being finished, so it stays out of the way.
-    local okWarm = pcall(function() more = html.warmIcons(8) end)
-    if not okWarm then return true end
+    local okWarm, errWarm = pcall(function() more = html.warmIcons(8) end)
+    if not okWarm then
+        Log("portrait warm-up stopped: " .. tostring(errWarm))
+        return true
+    end
     if not more then
         local warmed, total = 0, 0
-        pcall(function() warmed, total = html.warmProgress() end)
+        local okProgress, errProgress = pcall(function() warmed, total = html.warmProgress() end)
+        if not okProgress then Log("[WARN] portrait count unreadable: " .. tostring(errProgress)) end
         Log(string.format("Pal portraits ready: %d of %d in %d ms",
             warmed, total, math.floor((os.clock() - warmStarted) * 1000)))
         -- Verdict on the pak while nobody is waiting on it, so a support log
         -- answers "is the page even installed" without anyone having to open a
         -- Palpedia first. Loading it here also takes the cost off the first open.
-        ExecuteInGameThread(function()
-            -- Guarded, so a load that throws instead of returning nil neither
-            -- takes the game thread down nor gets reported as a missing file.
-            local ok, cls, how = pcall(loadClass, WEB_PKG, WEB_ASSET)
-            if not ok then
-                Log("checking the tree page asset failed: " .. tostring(cls))
-            elseif cls then
-                Log(string.format("tree page asset ready (%s)", how))
-            else
-                logMissingPak(how)
-            end
-        end)
+        -- Guarded, so a load that throws instead of returning nil neither
+        -- takes the game thread down nor gets reported as a missing file.
+        local okLoad, cls, how = pcall(loadClass, WEB_PKG, WEB_ASSET)
+        if not okLoad then
+            Log("checking the tree page asset failed: " .. tostring(cls))
+        elseif cls then
+            Log(string.format("tree page asset ready (%s)", how))
+        else
+            logMissingPak(how)
+        end
         return true
     end
     return false
-end)
+end, "portrait warm-up")
 
 ExecuteInGameThread(function() M.start() end)
 

@@ -697,7 +697,9 @@ end
 armLegacyTimer = function()
     if legacyTimerArmed then return end
     legacyTimerArmed = true
-    if not pcall(LoopAsync, LEGACY_GRACE_MS, drainLegacySignals) then
+    if not GameLoop.after(LEGACY_GRACE_MS, drainLegacySignals, "legacy phase signals") then
+        Log(string.format("[WARN] [net] %d legacy phase signal(s) dropped: grace timer did not start",
+            #legacyPending))
         legacyTimerArmed = false
         legacyPending = {}
     end

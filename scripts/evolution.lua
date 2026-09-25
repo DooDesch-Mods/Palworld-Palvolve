@@ -22,6 +22,7 @@ local WazaInherit = require("wazainherit")
 local PalSlots = require("palslots")
 local Prestige = require("prestige")
 local Sound = require("sound")
+local GameLoop = require("gameloop")
 
 local Evolution = {}
 
@@ -298,15 +299,14 @@ local function prewarmNames(id)
     local pairList = Config.findPairs(id)
     if #pairList == 0 then return end
     local i = 0
-    LoopAsync(100, function()
+    GameLoop.start(100, function()
         i = i + 1
         local pair = pairList[i]
         if not pair then return true end
-        ExecuteInGameThread(function()
-            pcall(function() palDisplayName(pair.to) end)
-        end)
+        local ok, err = pcall(palDisplayName, pair.to)
+        if not ok then Log("[WARN] [radial] name prewarm for " .. tostring(pair.to) .. " failed: " .. tostring(err)) end
         return false
-    end)
+    end, "name prewarm")
 end
 
 -- Otomo holder of a SPECIFIC player (never FindFirstOf: on a host with
@@ -433,25 +433,22 @@ local function resummonAfterRollback(playerCtx, param)
 
     -- The recall needs a moment before the slot can be loaded again; a single
     -- delayed shot, not a poller, so nothing keeps ticking if it does not work.
-    local fired = false
-    LoopAsync(700, function()
-        if fired then return true end
-        fired = true
-        ExecuteInGameThread(function()
-            local ok, err = pcall(function()
-                if not (holder and holder:IsValid()
-                    and playerCtx.pc and playerCtx.pc:IsValid()) then return end
-                playerCtx.pc:SetOtomoSlot(slot)
-                holder:SpawnOtomoByLoad(slot)
-            end)
-            if ok then
-                Log(string.format("Resummoned slot %d after rollback", slot))
-            else
-                Log("Resummon failed: " .. tostring(err))
-            end
+    GameLoop.after(700, function()
+        if not (holder and holder:IsValid()
+            and playerCtx.pc and playerCtx.pc:IsValid()) then
+            Log("Resummon skipped: player or holder gone before the reload")
+            return
+        end
+        local ok, err = pcall(function()
+            playerCtx.pc:SetOtomoSlot(slot)
+            holder:SpawnOtomoByLoad(slot)
         end)
-        return true
-    end)
+        if ok then
+            Log(string.format("Resummoned slot %d after rollback", slot))
+        else
+            Log("Resummon failed: " .. tostring(err))
+        end
+    end, "resummon after rollback")
     return true
 end
 
@@ -647,24 +644,22 @@ end
 local function pollUntil(intervalMs, timeoutMs, checkFn, doneFn)
     local elapsed = 0
     local finished = false
-    LoopAsync(intervalMs, function()
+    GameLoop.start(intervalMs, function()
         if finished then return true end
         elapsed = elapsed + intervalMs
-        ExecuteInGameThread(function()
-            if finished then return end
-            local ok, res = pcall(checkFn)
-            if ok and res then
-                finished = true
-                local okDone, errDone = pcall(doneFn, true)
-                if not okDone then Log("pollUntil doneFn FAIL: " .. tostring(errDone)) end
-            elseif elapsed >= timeoutMs then
-                finished = true
-                local okDone, errDone = pcall(doneFn, false)
-                if not okDone then Log("pollUntil doneFn FAIL: " .. tostring(errDone)) end
-            end
-        end)
+        local ok, res = pcall(checkFn)
+        if ok and res then
+            finished = true
+            local okDone, errDone = pcall(doneFn, true)
+            if not okDone then Log("pollUntil doneFn FAIL: " .. tostring(errDone)) end
+        elseif elapsed >= timeoutMs then
+            finished = true
+            if not ok then Log("pollUntil checkFn FAIL: " .. tostring(res)) end
+            local okDone, errDone = pcall(doneFn, false)
+            if not okDone then Log("pollUntil doneFn FAIL: " .. tostring(errDone)) end
+        end
         return finished
-    end)
+    end, "poll")
 end
 
 -- ---------------------------------------------------------------- diagnostics
@@ -673,62 +668,62 @@ end
 -- (position, attach parent, movement mode, scale, height above the player)
 local function startRevealDiagnostics(holderRef, label, playerCtx)
     if not Config.devMode then return end
-    -- Opt-in on top of devMode. Each call leaves a LoopAsync closure running for 12s with an
-    -- ExecuteInGameThread nested inside it; two evolutions in quick succession overlap two of
-    -- them and the game dies with "Ref was not function" - the callback GC trap from
+    -- Opt-in on top of devMode. Each call leaves a loop running for 12s. As a LoopAsync with
+    -- an ExecuteInGameThread nested inside it, two evolutions in quick succession overlapped
+    -- two of them and the game died with "Ref was not function" - the callback GC trap from
     -- UE4SS-LESSONS.md. Off by default so repeated evolutions can be tested at all.
     if not Config.diagReveal then return end
     local ticks = 0
-    LoopAsync(500, function()
-        ticks = ticks + 1
-        if ticks > 24 then return true end
-        ExecuteInGameThread(function()
-            pcall(function()
-                local a = nil
-                pcall(function() a = holderRef:TryGetSpawnedOtomo() end)
-                if not (a and a:IsValid()) then
-                    Log(string.format("[diag %s t=%d] no spawned otomo", label, ticks))
-                    return
-                end
-                local loc = a:K2_GetActorLocation()
-                local inst = "?"
-                pcall(function() inst = a:GetFullName():match("([^%.]+)$") or "?" end)
-                local mode = "?"
-                pcall(function() mode = tostring(a.CharacterMovement.MovementMode) end)
-                local scaleX = -1
-                pcall(function() scaleX = a:GetActorScale3D().X end)
-                local dz = 0
+    local function diagStep()
+        local a = nil
+        pcall(function() a = holderRef:TryGetSpawnedOtomo() end)
+        if not (a and a:IsValid()) then
+            Log(string.format("[diag %s t=%d] no spawned otomo", label, ticks))
+            return
+        end
+        local loc = a:K2_GetActorLocation()
+        local inst = "?"
+        pcall(function() inst = a:GetFullName():match("([^%.]+)$") or "?" end)
+        local mode = "?"
+        pcall(function() mode = tostring(a.CharacterMovement.MovementMode) end)
+        local scaleX = -1
+        pcall(function() scaleX = a:GetActorScale3D().X end)
+        local dz = 0
+        pcall(function()
+            local pawn = playerCtx and playerCtx.pawn
+            if pawn and pawn:IsValid() then dz = loc.Z - pawn:K2_GetActorLocation().Z end
+        end)
+        local active = "?"
+        pcall(function() active = tostring(a.bIsPalActiveActor) end)
+        -- census: EVERY actor of the target class, to catch duplicate
+        -- spawns (holder flipping between two actors)
+        local census = ""
+        pcall(function()
+            local all = FindAllOf("BP_" .. label .. "_C") or {}
+            census = string.format(" census=%d", #all)
+            for i, o in ipairs(all) do
                 pcall(function()
-                    local pawn = playerCtx and playerCtx.pawn
-                    if pawn and pawn:IsValid() then dz = loc.Z - pawn:K2_GetActorLocation().Z end
-                end)
-                local active = "?"
-                pcall(function() active = tostring(a.bIsPalActiveActor) end)
-                -- census: EVERY actor of the target class, to catch duplicate
-                -- spawns (holder flipping between two actors)
-                local census = ""
-                pcall(function()
-                    local all = FindAllOf("BP_" .. label .. "_C") or {}
-                    census = string.format(" census=%d", #all)
-                    for i, o in ipairs(all) do
-                        pcall(function()
-                            if o and o:IsValid() then
-                                local oi = o:GetFullName():match("([^%.]+)$") or "?"
-                                local ol = o:K2_GetActorLocation()
-                                local hid = "?"
-                                pcall(function() hid = tostring(o.bHidden) end)
-                                census = census .. string.format(" [%s @(%.0f,%.0f,%.0f) hidden=%s]",
-                                    oi, ol.X, ol.Y, ol.Z, hid)
-                            end
-                        end)
+                    if o and o:IsValid() then
+                        local oi = o:GetFullName():match("([^%.]+)$") or "?"
+                        local ol = o:K2_GetActorLocation()
+                        local hid = "?"
+                        pcall(function() hid = tostring(o.bHidden) end)
+                        census = census .. string.format(" [%s @(%.0f,%.0f,%.0f) hidden=%s]",
+                            oi, ol.X, ol.Y, ol.Z, hid)
                     end
                 end)
-                Log(string.format("[diag %s t=%d] inst=%s pos=(%.0f,%.0f,%.0f) dzPlayer=%.0f scale=%.2f moveMode=%s active=%s%s",
-                    label, ticks, inst, loc.X, loc.Y, loc.Z, dz, scaleX, mode, active, census))
-            end)
+            end
         end)
+        Log(string.format("[diag %s t=%d] inst=%s pos=(%.0f,%.0f,%.0f) dzPlayer=%.0f scale=%.2f moveMode=%s active=%s%s",
+            label, ticks, inst, loc.X, loc.Y, loc.Z, dz, scaleX, mode, active, census))
+    end
+    GameLoop.start(500, function()
+        ticks = ticks + 1
+        if ticks > 24 then return true end
+        local ok, err = pcall(diagStep)
+        if not ok then Log(string.format("[diag %s t=%d] read failed: %s", label, ticks, tostring(err))) end
         return ticks > 24
-    end)
+    end, "reveal diagnostics")
 end
 
 -- ---------------------------------------------------------------- core sequence
@@ -747,19 +742,21 @@ local sequenceStartedAt = 0
 local sequenceBudgetS = 30
 local currentAbort = nil
 
--- Heartbeat for the mod's own timers. Every timed step runs on callbacks that
--- UE4SS delivers from its Lua tick hook, and that hook is removed as soon as
--- one callback reference has been garbage collected while still scheduled
--- ("Ref was not function"). From then on nothing timed happens: an evolution
--- that is mid-flight never reaches its next phase, the Pal stays hidden and
--- the stone is already spent, with no line in the log to say why. Hooks keep
--- firing though, so anything hook-driven can still notice the silence.
+-- Heartbeat for the mod's own timers. Every timed step runs on a game-thread
+-- loop UE4SS schedules for the mod (gameloop.lua). When those were LoopAsync
+-- loops, one callback reference garbage collected while still scheduled ("Ref
+-- was not function") removed UE4SS's Lua tick hook, and from then on nothing
+-- timed happened: an evolution that is mid-flight never reaches its next
+-- phase, the Pal stays hidden and the stone is already spent, with no line in
+-- the log to say why. The beat runs on the same mechanism as every timed step,
+-- so it goes quiet with them. Hooks keep firing though, so anything
+-- hook-driven can still notice the silence.
 local lastBeat = os.clock()
 local lastTimersNotice = -1000
-LoopAsync(1000, function()
+GameLoop.start(1000, function()
     lastBeat = os.clock()
     return false
-end)
+end, "heartbeat")
 
 -- Deliberately generous: five missed beats, so a loading screen or a frame
 -- spike is never mistaken for a dead tick.
@@ -2003,235 +2000,239 @@ local function performEvolution(p)
             local spawnedAt = nil
             local nhTries = 0
             local nhBest = 0
-            LoopAsync(150, function()
-                if watcherDone then return true end
-                ExecuteInGameThread(function()
-                    if watcherDone then return end
-                    if seq.done then watcherDone = true; return end
-                    -- Disconnect guard: on a dedicated server the requesting
-                    -- player's controller (and its otomo holder) are destroyed
-                    -- when they leave. Calling a UFunction on a torn-down UObject
-                    -- raises a native "Pure virtual not implemented" assert that
-                    -- pcall does NOT catch, so gate every deferred touch on
-                    -- :IsValid() and end the presentation (the data mutation is
-                    -- already committed, but the sequence lock is still ours).
-                    if not (holder and holder:IsValid() and pcSender and pcSender:IsValid()) then
-                        Log("[mpseq] requester left mid-sequence - aborting server presentation")
+            local function watcherStep()
+                if watcherDone then return end
+                if seq.done then watcherDone = true; return end
+                -- Disconnect guard: on a dedicated server the requesting
+                -- player's controller (and its otomo holder) are destroyed
+                -- when they leave. Calling a UFunction on a torn-down UObject
+                -- raises a native "Pure virtual not implemented" assert that
+                -- pcall does NOT catch, so gate every deferred touch on
+                -- :IsValid() and end the presentation (the data mutation is
+                -- already committed, but the sequence lock is still ours).
+                if not (holder and holder:IsValid() and pcSender and pcSender:IsValid()) then
+                    Log("[mpseq] requester left mid-sequence - aborting server presentation")
+                    watcherDone = true
+                    finishOk()
+                    return
+                end
+                if phase == "await_recall" then
+                    local out = nil
+                    pcall(function() out = holder:TryGetSpawnedOtomo() end)
+                    if not (out and out:IsValid()) then
+                        pcall(function() mgr:DespawnCharacterByHandle(handle, nil) end)
+                        pcall(function() holder:InactivateCurrentOtomo() end)
+                        pcall(function() pcSender:SetOtomoSlot(savedSlot) end)
+                        pcall(function() holder:SpawnOtomoByLoad(savedSlot) end)
+                        spawnedAt = os.clock()
+                        phase = "await_actor"
+                        Log("[mpseq] recall done -> reload (SpawnOtomoByLoad)")
+                    end
+                elseif phase == "await_actor" then
+                    -- wait for the freshly loaded reserve actor (must be a
+                    -- DIFFERENT UObject than the old pooled body)
+                    local cand = nil
+                    pcall(function() cand = handle:TryGetIndividualActor() end)
+                    if cand and cand:IsValid() and cand ~= oldActor then
+                        phase = "activate"
+                        Log("[mpseq] fresh actor -> activate")
+                    elseif (os.clock() - (spawnedAt or 0)) > 5 then
+                        Log("[mpseq] reload produced no new actor (timeout)")
+                        watcherDone = true
+                        if oldActor and oldActor:IsValid() then setRevealFrozen(oldActor, false) end
+                        finishOk()
+                    end
+                elseif phase == "activate" then
+                    local cand = nil
+                    pcall(function() cand = handle:TryGetIndividualActor() end)
+                    if not (cand and cand:IsValid()) then
                         watcherDone = true
                         finishOk()
                         return
                     end
-                    if phase == "await_recall" then
-                        local out = nil
-                        pcall(function() out = holder:TryGetSpawnedOtomo() end)
-                        if not (out and out:IsValid()) then
-                            pcall(function() mgr:DespawnCharacterByHandle(handle, nil) end)
-                            pcall(function() holder:InactivateCurrentOtomo() end)
-                            pcall(function() pcSender:SetOtomoSlot(savedSlot) end)
-                            pcall(function() holder:SpawnOtomoByLoad(savedSlot) end)
-                            spawnedAt = os.clock()
-                            phase = "await_actor"
-                            Log("[mpseq] recall done -> reload (SpawnOtomoByLoad)")
+                    -- Read the new pal's SCALED COLLISION capsule - the
+                    -- engine's grounding measure (~30 for most
+                    -- species). The mesh-space
+                    -- MeshCapsuleHalfHeight must never feed physics Z
+                    -- (deriving ground from it sank targets into the
+                    -- floor); it stays only as the last resort when no
+                    -- capsule is readable. Poll a few frames only while
+                    -- the capsule is not readable yet.
+                    local nh = nil
+                    pcall(function()
+                        local cap = cand.CapsuleComponent
+                        if cap and cap:IsValid() then
+                            nh = cap:GetScaledCapsuleHalfHeight()
                         end
-                    elseif phase == "await_actor" then
-                        -- wait for the freshly loaded reserve actor (must be a
-                        -- DIFFERENT UObject than the old pooled body)
-                        local cand = nil
-                        pcall(function() cand = handle:TryGetIndividualActor() end)
-                        if cand and cand:IsValid() and cand ~= oldActor then
-                            phase = "activate"
-                            Log("[mpseq] fresh actor -> activate")
-                        elseif (os.clock() - (spawnedAt or 0)) > 5 then
-                            Log("[mpseq] reload produced no new actor (timeout)")
-                            watcherDone = true
-                            if oldActor and oldActor:IsValid() then setRevealFrozen(oldActor, false) end
-                            finishOk()
-                        end
-                    elseif phase == "activate" then
-                        local cand = nil
-                        pcall(function() cand = handle:TryGetIndividualActor() end)
-                        if not (cand and cand:IsValid()) then
-                            watcherDone = true
-                            finishOk()
-                            return
-                        end
-                        -- Read the new pal's SCALED COLLISION capsule - the
-                        -- engine's grounding measure (~30 for most
-                        -- species). The mesh-space
-                        -- MeshCapsuleHalfHeight must never feed physics Z
-                        -- (deriving ground from it sank targets into the
-                        -- floor); it stays only as the last resort when no
-                        -- capsule is readable. Poll a few frames only while
-                        -- the capsule is not readable yet.
-                        local nh = nil
-                        pcall(function()
-                            local cap = cand.CapsuleComponent
-                            if cap and cap:IsValid() then
-                                nh = cap:GetScaledCapsuleHalfHeight()
+                    end)
+                    if not (nh and nh > 0) then
+                        nh = staticCapsuleHalf(cand)
+                    end
+                    nh = nh or 0
+                    if nh > nhBest then nhBest = nh end
+                    if nhBest <= 0 and nhTries < 8 then
+                        nhTries = nhTries + 1
+                        return -- stay in "activate"; capsule not readable yet
+                    end
+                    nh = (nhBest > 0) and nhBest or nh
+                    -- feet-on-ground plus a small lift so the new pal
+                    -- never spawns sunk into the ground
+                    local destZ = (savedZ or 0) + 40
+                    if groundZ and nh > 0 then
+                        destZ = groundZ + nh + 40
+                    elseif savedZ and savedHalf and savedHalf > 0 and nh > 0 then
+                        destZ = savedZ - savedHalf + nh + 40
+                    end
+                    Log(string.format("[mpseq] place nh=%.0f destZ=%.0f", nh or 0, destZ))
+                    local activated = false
+                    pcall(function()
+                        activated = holder:ActivateCurrentOtomo({
+                            Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
+                            Translation = { X = savedX or 0, Y = savedY or 0, Z = destZ },
+                            Scale3D = { X = 1, Y = 1, Z = 1 },
+                        })
+                    end)
+                    if activated then
+                        local newActor = nil
+                        pcall(function() newActor = holder:TryGetSpawnedOtomo() end)
+                        if newActor and newActor:IsValid() and newActor ~= oldActor then
+                            -- Re-read the scaled collision half from the
+                            -- activated actor and recompute destZ from the
+                            -- best value (belt and braces).
+                            local nh2 = nil
+                            pcall(function()
+                                local cap = newActor.CapsuleComponent
+                                if cap and cap:IsValid() then
+                                    nh2 = cap:GetScaledCapsuleHalfHeight()
+                                end
+                            end)
+                            if not (nh2 and nh2 > 0) then
+                                nh2 = staticCapsuleHalf(newActor) or 0
                             end
-                        end)
-                        if not (nh and nh > 0) then
-                            nh = staticCapsuleHalf(cand)
-                        end
-                        nh = nh or 0
-                        if nh > nhBest then nhBest = nh end
-                        if nhBest <= 0 and nhTries < 8 then
-                            nhTries = nhTries + 1
-                            return -- stay in "activate"; capsule not readable yet
-                        end
-                        nh = (nhBest > 0) and nhBest or nh
-                        -- feet-on-ground plus a small lift so the new pal
-                        -- never spawns sunk into the ground
-                        local destZ = (savedZ or 0) + 40
-                        if groundZ and nh > 0 then
-                            destZ = groundZ + nh + 40
-                        elseif savedZ and savedHalf and savedHalf > 0 and nh > 0 then
-                            destZ = savedZ - savedHalf + nh + 40
-                        end
-                        Log(string.format("[mpseq] place nh=%.0f destZ=%.0f", nh or 0, destZ))
-                        local activated = false
-                        pcall(function()
-                            activated = holder:ActivateCurrentOtomo({
-                                Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
-                                Translation = { X = savedX or 0, Y = savedY or 0, Z = destZ },
-                                Scale3D = { X = 1, Y = 1, Z = 1 },
-                            })
-                        end)
-                        if activated then
-                            local newActor = nil
-                            pcall(function() newActor = holder:TryGetSpawnedOtomo() end)
-                            if newActor and newActor:IsValid() and newActor ~= oldActor then
-                                -- Re-read the scaled collision half from the
-                                -- activated actor and recompute destZ from the
-                                -- best value (belt and braces).
-                                local nh2 = nil
-                                pcall(function()
-                                    local cap = newActor.CapsuleComponent
-                                    if cap and cap:IsValid() then
-                                        nh2 = cap:GetScaledCapsuleHalfHeight()
-                                    end
-                                end)
-                                if not (nh2 and nh2 > 0) then
-                                    nh2 = staticCapsuleHalf(newActor) or 0
+                            local nhUse = math.max(nhBest or 0, nh2 or 0)
+                            if groundZ and nhUse > 0 then
+                                destZ = groundZ + nhUse + 40
+                            elseif savedZ and savedHalf and savedHalf > 0 and nhUse > 0 then
+                                destZ = savedZ - savedHalf + nhUse + 40
+                            end
+                            -- hard transform-safe freeze (suppresses the
+                            -- movement tick + AI + actions, leaves rotation
+                            -- writable for the client spin), then place once
+                            setRevealFrozen(newActor, true)
+                            pcall(function()
+                                newActor:K2_TeleportTo({ X = savedX or 0, Y = savedY or 0, Z = destZ },
+                                    { Pitch = 0, Yaw = savedYaw or 0, Roll = 0 })
+                            end)
+                            pcall(function() newActor:ForceNetUpdate() end)
+                            -- fresh actor now carries the new species; refresh
+                            -- work suitability HERE (the swap-time call ran on
+                            -- the old actor and could not re-derive the base)
+                            refreshWorkSuitability(param, playerCtx, newActor, pair.from)
+                            Log("[mpseq] activated fresh " .. targetId .. " -> reveal")
+                            -- Second read, on the far side of the reload. The
+                            -- write before the swap reports success, so what
+                            -- is left to learn is whether SpawnOtomoByLoad
+                            -- rebuilds the move lists from the new species and
+                            -- drops what was written into them.
+                            local probeParam = paramOf(newActor)
+                            if probeParam then
+                                local afterReload = WazaInherit.capture(probeParam)
+                                if afterReload then
+                                    Log(string.format("[waza] after reload: equip %d, mastered %d",
+                                        #(afterReload.save.equip or {}),
+                                        #(afterReload.save.mastered or {})))
+                                else
+                                    Log("[waza] after reload: read-back failed")
                                 end
-                                local nhUse = math.max(nhBest or 0, nh2 or 0)
-                                if groundZ and nhUse > 0 then
-                                    destZ = groundZ + nhUse + 40
-                                elseif savedZ and savedHalf and savedHalf > 0 and nhUse > 0 then
-                                    destZ = savedZ - savedHalf + nhUse + 40
+                            end
+                            pcall(NetChannel.sendPhaseReveal, pcSender, phaseSequence)
+                            -- The evolution flash VFX (VisualEffectComponent:
+                            -- AddVisualEffect) is a LOCAL call - on a client
+                            -- proxy it does not render (the component is
+                            -- server-authoritative), so the SP "grand finale"
+                            -- flash was missing in MP. Broadcast it from the
+                            -- authority via the replicated multicast so every
+                            -- client sees it (issuerID 0 = play for all).
+                            -- Delay it so it lands after the client's
+                            -- onPreReveal has shrunk the actor to 0.02 and the
+                            -- grow-reveal has begun - the flash then grows with
+                            -- the pal exactly as in SP, no full-size pop.
+                            GameLoop.after(250, function()
+                                -- disconnect guard (see the main loop above)
+                                if not (holder and holder:IsValid()) then
+                                    Log("[mpseq] requester left before the evolve flash")
+                                    return
                                 end
-                                -- hard transform-safe freeze (suppresses the
-                                -- movement tick + AI + actions, leaves rotation
-                                -- writable for the client spin), then place once
-                                setRevealFrozen(newActor, true)
-                                pcall(function()
-                                    newActor:K2_TeleportTo({ X = savedX or 0, Y = savedY or 0, Z = destZ },
-                                        { Pitch = 0, Yaw = savedYaw or 0, Roll = 0 })
-                                end)
-                                pcall(function() newActor:ForceNetUpdate() end)
-                                -- fresh actor now carries the new species; refresh
-                                -- work suitability HERE (the swap-time call ran on
-                                -- the old actor and could not re-derive the base)
-                                refreshWorkSuitability(param, playerCtx, newActor, pair.from)
-                                Log("[mpseq] activated fresh " .. targetId .. " -> reveal")
-                                -- Second read, on the far side of the reload. The
-                                -- write before the swap reports success, so what
-                                -- is left to learn is whether SpawnOtomoByLoad
-                                -- rebuilds the move lists from the new species and
-                                -- drops what was written into them.
-                                local probeParam = paramOf(newActor)
-                                if probeParam then
-                                    local afterReload = WazaInherit.capture(probeParam)
-                                    if afterReload then
-                                        Log(string.format("[waza] after reload: equip %d, mastered %d",
-                                            #(afterReload.save.equip or {}),
-                                            #(afterReload.save.mastered or {})))
-                                    else
-                                        Log("[waza] after reload: read-back failed")
-                                    end
-                                end
-                                pcall(NetChannel.sendPhaseReveal, pcSender, phaseSequence)
-                                -- The evolution flash VFX (VisualEffectComponent:
-                                -- AddVisualEffect) is a LOCAL call - on a client
-                                -- proxy it does not render (the component is
-                                -- server-authoritative), so the SP "grand finale"
-                                -- flash was missing in MP. Broadcast it from the
-                                -- authority via the replicated multicast so every
-                                -- client sees it (issuerID 0 = play for all).
-                                -- Delay it so it lands after the client's
-                                -- onPreReveal has shrunk the actor to 0.02 and the
-                                -- grow-reveal has begun - the flash then grows with
-                                -- the pal exactly as in SP, no full-size pop.
-                                local vfxFired = false
-                                LoopAsync(250, function()
-                                    if vfxFired then return true end
-                                    vfxFired = true
-                                    -- disconnect guard (see the main loop above)
-                                    if not (holder and holder:IsValid()) then return true end
-                                    pcall(function()
-                                        local na = holder:TryGetSpawnedOtomo()
-                                        if na and na:IsValid() then
-                                            local vec = na.VisualEffectComponent
-                                            if vec and vec:IsValid() then
-                                                vec:AddVisualEffect_ToALL(2, { FloatValues = {} }, 0)
-                                            end
+                                local okFlash, errFlash = pcall(function()
+                                    local na = holder:TryGetSpawnedOtomo()
+                                    if na and na:IsValid() then
+                                        local vec = na.VisualEffectComponent
+                                        if vec and vec:IsValid() then
+                                            vec:AddVisualEffect_ToALL(2, { FloatValues = {} }, 0)
                                         end
-                                    end)
-                                    return true
+                                    end
                                 end)
-                                watcherDone = true
-                                -- Keep it pinned for the reveal. The named flags
-                                -- are persistent, so only re-assert if the AI
-                                -- flips back on (init race). NO transform writes -
-                                -- re-teleporting jittered the pal and reset the
-                                -- client spin. Release at the end.
-                                local holdStart = os.clock()
-                                local digimon = Config.digimon or {}
-                                local holdSeconds = ((tonumber(digimon.growMs) or 0)
-                                    + (tonumber(digimon.finaleHoldMs) or 0)) / 1000
-                                local held = false
-                                LoopAsync(300, function()
-                                    if held then return true end
-                                    if seq.done then held = true; return true end
-                                    -- disconnect guard: never touch a dead holder,
-                                    -- and do not attempt an unfreeze on it
-                                    if not (holder and holder:IsValid()) then
-                                        Log("[mpseq] requester left during reveal hold - releasing")
-                                        held = true
-                                        finishOk()
-                                        return true
-                                    end
-                                    local na = nil
-                                    pcall(function() na = holder:TryGetSpawnedOtomo() end)
-                                    if not (na and na:IsValid()) then
-                                        held = true
-                                        finishOk()
-                                        return true
-                                    end
-                                    if (os.clock() - holdStart) < holdSeconds then
-                                        if isAiActive(na) then setRevealFrozen(na, true) end
-                                        return false
-                                    end
+                                if not okFlash then
+                                    Log("[mpseq] evolve flash failed: " .. tostring(errFlash))
+                                end
+                            end, "mp evolve flash")
+                            watcherDone = true
+                            -- Keep it pinned for the reveal. The named flags
+                            -- are persistent, so only re-assert if the AI
+                            -- flips back on (init race). NO transform writes -
+                            -- re-teleporting jittered the pal and reset the
+                            -- client spin. Release at the end.
+                            local holdStart = os.clock()
+                            local digimon = Config.digimon or {}
+                            local holdSeconds = ((tonumber(digimon.growMs) or 0)
+                                + (tonumber(digimon.finaleHoldMs) or 0)) / 1000
+                            local held = false
+                            GameLoop.start(300, function()
+                                if held then return true end
+                                if seq.done then held = true; return true end
+                                -- disconnect guard: never touch a dead holder,
+                                -- and do not attempt an unfreeze on it
+                                if not (holder and holder:IsValid()) then
+                                    Log("[mpseq] requester left during reveal hold - releasing")
                                     held = true
-                                    setRevealFrozen(na, false)
                                     finishOk()
                                     return true
-                                end)
-                            end
+                                end
+                                local na = nil
+                                pcall(function() na = holder:TryGetSpawnedOtomo() end)
+                                if not (na and na:IsValid()) then
+                                    held = true
+                                    finishOk()
+                                    return true
+                                end
+                                if (os.clock() - holdStart) < holdSeconds then
+                                    if isAiActive(na) then setRevealFrozen(na, true) end
+                                    return false
+                                end
+                                held = true
+                                setRevealFrozen(na, false)
+                                finishOk()
+                                return true
+                            end, "mp reveal hold")
                         end
                     end
-                    -- hard deadline: never leave a pal frozen on a lost packet
-                    if (not watcherDone) and (os.clock() - startedAt) > 20 then
-                        watcherDone = true
-                        pcall(function()
-                            local na = holder:TryGetSpawnedOtomo()
-                            if na and na:IsValid() then setRevealFrozen(na, false) end
-                        end)
-                        finishOk()
-                    end
-                end)
+                end
+                -- hard deadline: never leave a pal frozen on a lost packet
+                if (not watcherDone) and (os.clock() - startedAt) > 20 then
+                    watcherDone = true
+                    pcall(function()
+                        local na = holder:TryGetSpawnedOtomo()
+                        if na and na:IsValid() then setRevealFrozen(na, false) end
+                    end)
+                    finishOk()
+                end
+            end
+            GameLoop.start(150, function()
+                if watcherDone then return true end
+                local okStep, errStep = pcall(watcherStep)
+                if not okStep then Log("[mpseq] watcher step failed: " .. tostring(errStep)) end
                 return watcherDone
-            end)
+            end, "mp reveal watcher")
             return
         end
 
@@ -2341,49 +2342,46 @@ local function performEvolution(p)
                     end)
                 end
                 pcall(function() fx.onPreReveal(ctx, newActor) end)
-                -- one-shot LoopAsync instead of ExecuteWithDelay: the delay
-                -- API's transient callback refs get freed by UE4SS's callback
-                -- GC under load ("Ref was not function"), killing every
-                -- deferred callback of the mod at once
-                LoopAsync(fx.revealDelayMs(), function()
-                    ExecuteInGameThread(function()
-                        if seq.done then return end
-                        -- refetch: the reference may change after the spawn
-                        local a = nil
-                        pcall(function() a = holder:TryGetSpawnedOtomo() end)
-                        if not (a and a:IsValid()) then a = newActor end
-                        if not (a and a:IsValid()) then
-                            Log(string.format("EVOLVED (data only): %s -> %s (level %d) - actor missing at reveal; please resummon manually",
-                                pair.from, pair.to, level))
-                            finishAbort()
-                            return
-                        end
-                        revealActor(a)
-                        -- No activation fixup here: the pal arrives landed
-                        -- and active through the clean two-phase activation,
-                        -- and forcing movement state made the character
-                        -- visibly fight the staged reveal spin.
-                        local okReveal = pcall(function() fx.onReveal(ctx, a) end)
-                        if playerCtx and playerCtx.isLocal then refreshPartyHud(holder) end
-                        playFanfare(a)
-                        Log(string.format("EVOLVED: %s -> %s (level %d)%s",
-                            pair.from, pair.to, level,
-                            nickname ~= "" and (" '" .. nickname .. "'") or ""))
-                        startRevealDiagnostics(holder, pair.to, playerCtx)
-                        if fx.keepsFrozenUntilDone and okReveal then
-                            -- the prototype ends the sequence via ctx.completeOk/Abort
-                            return
-                        end
-                        setFrozen(a, false)
-                        if okReveal then
-                            finishOk()
-                        else
-                            Log("Reveal staging failed - cleaning up")
-                            finishAbort()
-                        end
-                    end)
-                    return true
-                end)
+                -- game-thread one-shot (gameloop.lua) instead of
+                -- ExecuteWithDelay: the delay API's transient callback refs get
+                -- freed by UE4SS's callback GC under load ("Ref was not
+                -- function"), killing every deferred callback of the mod at once
+                GameLoop.after(fx.revealDelayMs(), function()
+                    if seq.done then return end
+                    -- refetch: the reference may change after the spawn
+                    local a = nil
+                    pcall(function() a = holder:TryGetSpawnedOtomo() end)
+                    if not (a and a:IsValid()) then a = newActor end
+                    if not (a and a:IsValid()) then
+                        Log(string.format("EVOLVED (data only): %s -> %s (level %d) - actor missing at reveal; please resummon manually",
+                            pair.from, pair.to, level))
+                        finishAbort()
+                        return
+                    end
+                    revealActor(a)
+                    -- No activation fixup here: the pal arrives landed
+                    -- and active through the clean two-phase activation,
+                    -- and forcing movement state made the character
+                    -- visibly fight the staged reveal spin.
+                    local okReveal, errReveal = pcall(function() fx.onReveal(ctx, a) end)
+                    if playerCtx and playerCtx.isLocal then refreshPartyHud(holder) end
+                    playFanfare(a)
+                    Log(string.format("EVOLVED: %s -> %s (level %d)%s",
+                        pair.from, pair.to, level,
+                        nickname ~= "" and (" '" .. nickname .. "'") or ""))
+                    startRevealDiagnostics(holder, pair.to, playerCtx)
+                    if fx.keepsFrozenUntilDone and okReveal then
+                        -- the prototype ends the sequence via ctx.completeOk/Abort
+                        return
+                    end
+                    setFrozen(a, false)
+                    if okReveal then
+                        finishOk()
+                    else
+                        Log("Reveal staging failed - cleaning up: " .. tostring(errReveal))
+                        finishAbort()
+                    end
+                end, "evolution reveal")
             else
                 -- failure path: never leave anything invisible behind
                 if newActor and newActor:IsValid() then
@@ -2417,34 +2415,36 @@ local function performEvolution(p)
         local function startLandingWatch()
             local watchStart = os.clock()
             local watchDone = false
-            LoopAsync(200, function()
-                if watchDone then return true end
-                ExecuteInGameThread(function()
-                    if watchDone then return end
-                    if seq.done then
-                        watchDone = true
-                        return
-                    end
-                    local landed, activeFlag = false, false
-                    pcall(function()
-                        local a = holder:TryGetSpawnedOtomo()
-                        activeFlag = (a.bIsPalActiveActor == true)
-                        local mode = a.CharacterMovement.MovementMode
-                        landed = (mode == 1 or mode == 5) -- Walking or Flying (hoverers)
-                    end)
-                    local waited = os.clock() - watchStart
-                    if (landed and activeFlag) or waited > 10 then
-                        watchDone = true
-                        if Config.devMode or not (landed and activeFlag) then
-                            Log(string.format("Landing %s after %.1fs (landed=%s active=%s)",
-                                (landed and activeFlag) and "confirmed" or "timeout - proceeding",
-                                waited, tostring(landed), tostring(activeFlag)))
-                        end
-                        finishRespawn(true)
-                    end
+            local function landingStep()
+                if watchDone then return end
+                if seq.done then
+                    watchDone = true
+                    return
+                end
+                local landed, activeFlag = false, false
+                pcall(function()
+                    local a = holder:TryGetSpawnedOtomo()
+                    activeFlag = (a.bIsPalActiveActor == true)
+                    local mode = a.CharacterMovement.MovementMode
+                    landed = (mode == 1 or mode == 5) -- Walking or Flying (hoverers)
                 end)
+                local waited = os.clock() - watchStart
+                if (landed and activeFlag) or waited > 10 then
+                    watchDone = true
+                    if Config.devMode or not (landed and activeFlag) then
+                        Log(string.format("Landing %s after %.1fs (landed=%s active=%s)",
+                            (landed and activeFlag) and "confirmed" or "timeout - proceeding",
+                            waited, tostring(landed), tostring(activeFlag)))
+                    end
+                    finishRespawn(true)
+                end
+            end
+            GameLoop.start(200, function()
+                if watchDone then return true end
+                local okStep, errStep = pcall(landingStep)
+                if not okStep then Log("[ERROR] landing watch step failed: " .. tostring(errStep)) end
                 return watchDone
-            end)
+            end, "landing watch")
         end
 
         -- Activation pump. The holder BP
@@ -2461,74 +2461,76 @@ local function performEvolution(p)
         local nudgeCount = 0
         local pumpDone = false
         pcall(function() fx.onGap(ctx) end)
-        LoopAsync(100, function()
+        local function pumpStep()
+            if pumpDone then return end
+            if seq.done then
+                pumpDone = true
+                return
+            end
+            if isRespawned() then
+                pumpDone = true
+                startLandingWatch()
+                return
+            end
+            local now = os.clock()
+            if (now - startedAt) > 25 then
+                pumpDone = true
+                finishRespawn(false)
+                return
+            end
+            if (now - lastNudge) >= 1.5 then
+                lastNudge = now
+                nudgeCount = nudgeCount + 1
+                -- Two-phase respawn:
+                -- 1. SpawnOtomoByLoad CREATES the fresh actor - it sits in
+                --    the holders ReservePalLocationList, invisible to
+                --    TryGetSpawnedOtomo, so no spawn is "seen" yet.
+                -- 2. ActivateCurrentOtomo(transform) returns false while
+                --    no actor exists and true once it activates the
+                --    reserve actor AT OUR POSITION (landed+active 0.2s
+                --    later, no trainer-anchor placement).
+                -- Re-fire the load every 5th attempt in case the first
+                -- one raced the engines teardown settle.
+                local how, okNudge, ret
+                if nudgeCount == 1 or (nudgeCount % 5 == 0) then
+                    how = "SpawnOtomoByLoad"
+                    okNudge = pcall(function()
+                        local idx = holder:GetSlotIndexByIndividualHandle(handle)
+                        holder:SpawnOtomoByLoad(idx)
+                    end)
+                else
+                    how = "ActivateCurrentOtomo"
+                    okNudge = pcall(function()
+                        ret = holder:ActivateCurrentOtomo({
+                            Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
+                            Translation = { X = oldX or 0, Y = oldY or 0, Z = (oldZ or 0) + 50 },
+                            Scale3D = { X = 1, Y = 1, Z = 1 },
+                        })
+                    end)
+                    -- Hide in the SAME game-thread tick: the activation
+                    -- places the pal full-size at our spot, and waiting
+                    -- for the next verify poll (100ms) shows it as a
+                    -- brief flash before the staged tiny-grow reveal.
+                    if ret == true then
+                        pcall(function()
+                            local a = holder:TryGetSpawnedOtomo()
+                            a:SetActorHiddenInGame(true)
+                        end)
+                    end
+                end
+                pcall(function() fx.onGap(ctx) end)
+                if Config.devMode then
+                    Log(string.format("Activation attempt #%d (%s) ok=%s ret=%s",
+                        nudgeCount, how, tostring(okNudge), tostring(ret)))
+                end
+            end
+        end
+        GameLoop.start(100, function()
             if pumpDone then return true end
-            ExecuteInGameThread(function()
-                if pumpDone then return end
-                if seq.done then
-                    pumpDone = true
-                    return
-                end
-                if isRespawned() then
-                    pumpDone = true
-                    startLandingWatch()
-                    return
-                end
-                local now = os.clock()
-                if (now - startedAt) > 25 then
-                    pumpDone = true
-                    finishRespawn(false)
-                    return
-                end
-                if (now - lastNudge) >= 1.5 then
-                    lastNudge = now
-                    nudgeCount = nudgeCount + 1
-                    -- Two-phase respawn:
-                    -- 1. SpawnOtomoByLoad CREATES the fresh actor - it sits in
-                    --    the holders ReservePalLocationList, invisible to
-                    --    TryGetSpawnedOtomo, so no spawn is "seen" yet.
-                    -- 2. ActivateCurrentOtomo(transform) returns false while
-                    --    no actor exists and true once it activates the
-                    --    reserve actor AT OUR POSITION (landed+active 0.2s
-                    --    later, no trainer-anchor placement).
-                    -- Re-fire the load every 5th attempt in case the first
-                    -- one raced the engines teardown settle.
-                    local how, okNudge, ret
-                    if nudgeCount == 1 or (nudgeCount % 5 == 0) then
-                        how = "SpawnOtomoByLoad"
-                        okNudge = pcall(function()
-                            local idx = holder:GetSlotIndexByIndividualHandle(handle)
-                            holder:SpawnOtomoByLoad(idx)
-                        end)
-                    else
-                        how = "ActivateCurrentOtomo"
-                        okNudge = pcall(function()
-                            ret = holder:ActivateCurrentOtomo({
-                                Rotation = { X = 0, Y = 0, Z = 0, W = 1 },
-                                Translation = { X = oldX or 0, Y = oldY or 0, Z = (oldZ or 0) + 50 },
-                                Scale3D = { X = 1, Y = 1, Z = 1 },
-                            })
-                        end)
-                        -- Hide in the SAME game-thread tick: the activation
-                        -- places the pal full-size at our spot, and waiting
-                        -- for the next verify poll (100ms) shows it as a
-                        -- brief flash before the staged tiny-grow reveal.
-                        if ret == true then
-                            pcall(function()
-                                local a = holder:TryGetSpawnedOtomo()
-                                a:SetActorHiddenInGame(true)
-                            end)
-                        end
-                    end
-                    pcall(function() fx.onGap(ctx) end)
-                    if Config.devMode then
-                        Log(string.format("Activation attempt #%d (%s) ok=%s ret=%s",
-                            nudgeCount, how, tostring(okNudge), tostring(ret)))
-                    end
-                end
-            end)
+            local okStep, errStep = pcall(pumpStep)
+            if not okStep then Log("[ERROR] activation pump step failed: " .. tostring(errStep)) end
             return pumpDone
-        end)
+        end, "activation pump")
     end
 
     -- Headless (dedicated server): skip the whole teardown/reveal machinery.
@@ -2546,34 +2548,32 @@ local function performEvolution(p)
     pcall(function()
         if fx.dissolveDurationMs then dissolveMs = fx.dissolveDurationMs(ctx) end
     end)
-    -- one-shot LoopAsync instead of ExecuteWithDelay: the delay API's
-    -- transient callback refs get freed by UE4SS's callback GC under load
-    -- ("Ref was not function"), killing every deferred callback of the mod
-    LoopAsync(dissolveMs, function()
-        ExecuteInGameThread(function()
-            if seq.done then return end
-            -- the world can be gone by now: this fires a full dissolve after it
-            -- was armed, which is ample time to hit ESC and leave
-            if not handlesAlive() then
-                abandonOnTeardown()
-                return
+    -- game-thread one-shot (gameloop.lua) instead of ExecuteWithDelay: the
+    -- delay API's transient callback refs get freed by UE4SS's callback GC
+    -- under load ("Ref was not function"), killing every deferred callback of
+    -- the mod
+    GameLoop.after(dissolveMs, function()
+        if seq.done then return end
+        -- the world can be gone by now: this fires a full dissolve after it
+        -- was armed, which is ample time to hit ESC and leave
+        if not handlesAlive() then
+            abandonOnTeardown()
+            return
+        end
+        local ok, err = pcall(function()
+            if actor:IsValid() then
+                pcall(function() fx.onHide(ctx) end)
+                pcall(function() actor:SetActorHiddenInGame(true) end)
+                pcall(function() actor:SetActorEnableCollision(false) end)
             end
-            local ok, err = pcall(function()
-                if actor:IsValid() then
-                    pcall(function() fx.onHide(ctx) end)
-                    pcall(function() actor:SetActorHiddenInGame(true) end)
-                    pcall(function() actor:SetActorEnableCollision(false) end)
-                end
-                tryRecall(1)
-            end)
-            if not ok then
-                Log("Teardown start FAIL: " .. tostring(err))
-                refundCost("sequence error")
-                finishAbort()
-            end
+            tryRecall(1)
         end)
-        return true
-    end)
+        if not ok then
+            Log("Teardown start FAIL: " .. tostring(err))
+            refundCost("sequence error")
+            finishAbort()
+        end
+    end, "evolution teardown start")
     -- the sequence is started; asynchronous stages report their outcome
     -- through the sequence's own logging/abort paths
     return true
@@ -3021,16 +3021,14 @@ function Evolution.runPrestigeCommand(senderCtx, args)
     setRevealFrozen(actor, true)
     local frozenActor = actor
     local until_ = os.clock() + lease
-    LoopAsync(250, function()
+    GameLoop.start(250, function()
         if os.clock() < until_ then return false end
-        ExecuteInGameThread(function()
-            if frozenActor and frozenActor:IsValid() then
-                setRevealFrozen(frozenActor, false)
-            end
-        end)
+        if frozenActor and frozenActor:IsValid() then
+            setRevealFrozen(frozenActor, false)
+        end
         Log("prestige preview: pal released")
         return true
-    end)
+    end, "prestige preview release")
 
     Log(string.format("prestige preview: %s stage %d%s", id, stage,
         beatName and (" beat " .. beatName) or ""))
@@ -3134,11 +3132,11 @@ function Evolution.playPrestigePreview(holder, actor, stage, beatName)
             local pawn = Role.localPlayerCtx() and Role.localPlayerCtx().pawn or nil
             intro = FX.previewIntro(holder, pawn, loc.X, loc.Y, loc.Z, half)
             local doneAt = os.clock() + Timing.resolve(true, stage).fullPresentationMs / 1000 + 1.5
-            LoopAsync(250, function()
+            GameLoop.start(250, function()
                 if os.clock() < doneAt then return false end
-                ExecuteInGameThread(function() FX.previewOutro(intro) end)
+                FX.previewOutro(intro)
                 return true
-            end)
+            end, "prestige preview outro")
         end
     end
 
@@ -3899,29 +3897,25 @@ function Evolution.onNetSignal(kind, phaseInfo)
         -- after the dissolve, start the hold loop and recall the pal
         local dur = 1200
         pcall(function() if FX.dissolveDurationMs then dur = FX.dissolveDurationMs(remoteCtx) end end)
-        local done = false
-        LoopAsync(dur, function()
-            if done then return true end
-            done = true
-            ExecuteInGameThread(function()
-                -- Teardown guard, same reason as the server watcher above:
-                -- leaving for the main menu destroys the controller while this
-                -- deferred callback is still scheduled, and a UFunction call on
-                -- a freed UObject is a native fault that pcall does NOT catch.
-                -- Re-resolve instead of trusting the handle captured a full
-                -- dissolve ago, and abort the presentation if the world is gone.
-                local livePc = Role.getLocalPlayerController()
-                if not (livePc and livePc:IsValid()) then
-                    if remoteCtx then pcall(function() FX.cleanup(remoteCtx) end) end
-                    remoteRevealBusy = false
-                    remoteCtx = nil
-                    return
-                end
-                if remoteCtx then pcall(function() FX.onHide(remoteCtx) end) end
-                pcall(function() livePc:InactiveOtomo() end)
-            end)
-            return true
-        end)
+        GameLoop.after(dur, function()
+            -- Teardown guard, same reason as the server watcher above:
+            -- leaving for the main menu destroys the controller while this
+            -- deferred callback is still scheduled, and a UFunction call on
+            -- a freed UObject is a native fault that pcall does NOT catch.
+            -- Re-resolve instead of trusting the handle captured a full
+            -- dissolve ago, and abort the presentation if the world is gone.
+            local livePc = Role.getLocalPlayerController()
+            if not (livePc and livePc:IsValid()) then
+                Log("remote reveal: player controller gone after the dissolve, cleaning up")
+                if remoteCtx then pcall(function() FX.cleanup(remoteCtx) end) end
+                remoteRevealBusy = false
+                remoteCtx = nil
+                return
+            end
+            if remoteCtx then pcall(function() FX.onHide(remoteCtx) end) end
+            local okRecall, errRecall = pcall(function() livePc:InactiveOtomo() end)
+            if not okRecall then Log("remote reveal: recall failed: " .. tostring(errRecall)) end
+        end, "remote reveal recall")
 
     elseif kind == "reveal" then
         if not remoteCtx then return end
@@ -3957,25 +3951,16 @@ function Evolution.onNetSignal(kind, phaseInfo)
             remoteCtx.centerAnchored = true
         end)
         pcall(function() FX.onPreReveal(remoteCtx, a) end)
-        local rd = false
-        LoopAsync((FX.revealDelayMs and FX.revealDelayMs()) or 100, function()
-            if rd then return true end
-            rd = true
-            ExecuteInGameThread(function()
-                pcall(function() FX.onReveal(remoteCtx, a) end)
-                pcall(function() playFanfare(a) end)
-                refreshPartyHud(findHolderFor(Role.localPlayerCtx(), nil))
-            end)
-            return true
-        end)
+        GameLoop.after((FX.revealDelayMs and FX.revealDelayMs()) or 100, function()
+            local okReveal, errReveal = pcall(function() FX.onReveal(remoteCtx, a) end)
+            if not okReveal then Log("remote reveal: staging failed: " .. tostring(errReveal)) end
+            pcall(function() playFanfare(a) end)
+            refreshPartyHud(findHolderFor(Role.localPlayerCtx(), nil))
+        end, "remote reveal")
         -- safety: never leave the busy flag stuck if the reveal driver stalls
-        local sd = false
-        LoopAsync(9000, function()
-            if sd then return true end
-            sd = true
+        GameLoop.after(9000, function()
             remoteRevealBusy = false
-            return true
-        end)
+        end, "remote reveal busy reset")
     end
 end
 
@@ -4285,15 +4270,13 @@ end
 
 -- ---------------------------------------------------------------- auto evolve
 
--- The scheduler wakes cheaply, but only enters the game thread when the
--- adaptive deadline arrives. This keeps idle ticks free of transient callback
--- registrations while still allowing a half-second condition window near a
--- completed rule set.
+-- The scheduler wakes cheaply on the game thread (gameloop.lua) and only scans
+-- when the adaptive deadline arrives, which still allows a half-second
+-- condition window near a completed rule set.
 local AUTO_SLOW_S = 5.0
 local AUTO_FAST_S = 0.5
 local AUTO_SCHEDULER_MS = 250
 local autoWatchNextAt = 0
-local autoWatchQueued = false
 local autoOwnershipSkipped = {}
 -- Pals already told "two ways are open", so a timer that runs every few seconds
 -- does not repeat one line into the chat forever.
@@ -4444,7 +4427,6 @@ local function scanAutoController(pc)
 end
 
 local function runAutoWatcherUnsafe()
-    autoWatchQueued = false
     local nextDelay = AUTO_SLOW_S
     if not Config.autoEvolve or sequenceRunning then
         autoWatchNextAt = os.clock() + nextDelay
@@ -4461,29 +4443,30 @@ end
 
 local function runAutoWatcher()
     local ok, err = pcall(runAutoWatcherUnsafe)
-    autoWatchQueued = false
     if not ok then
         autoWatchNextAt = os.clock() + AUTO_SLOW_S
-        if Config.devMode then Log("auto-evolve watcher failed: " .. tostring(err)) end
+        -- once per distinct failure, like the scan above: this retries every
+        -- five seconds
+        local reason = tostring(err)
+        if Config.devMode or not autoScanFailures[reason] then
+            autoScanFailures[reason] = true
+            Log("auto-evolve watcher failed: " .. reason)
+        end
     end
 end
 
 local function autoWatcherLoop()
-    if autoWatchQueued or os.clock() < autoWatchNextAt then return false end
-    autoWatchQueued = true
-    local ok = pcall(ExecuteInGameThread, runAutoWatcher)
-    if not ok then
-        autoWatchQueued = false
-        autoWatchNextAt = os.clock() + AUTO_SLOW_S
-    end
+    if os.clock() < autoWatchNextAt then return false end
+    runAutoWatcher()
     return false
 end
 
 local function startAutoWatcher()
     if not Config.autoEvolve then return end
     autoWatchNextAt = 0
-    local ok, err = pcall(LoopAsync, AUTO_SCHEDULER_MS, autoWatcherLoop)
-    if not ok then Log("auto-evolve watcher failed to start: " .. tostring(err)) end
+    if not GameLoop.start(AUTO_SCHEDULER_MS, autoWatcherLoop, "auto-evolve watcher") then
+        Log("auto-evolve watcher failed to start")
+    end
 end
 
 function Evolution.init()
@@ -4665,15 +4648,12 @@ function Evolution.init()
         return ok
     end
     -- The notification is client-side UX (fanfare + on-screen hint); on a
-    -- dedicated server the poll would churn transient callback refs forever
-    -- (no local player pawn ever exists), so it must not run there.
+    -- dedicated server the poll would run forever (no local player pawn ever
+    -- exists), so it must not run there.
     if not Role.isDedicated() then
         if not tryHook() then
-            LoopAsync(5000, function()
-                if hookRegistered then return true end
-                ExecuteInGameThread(function() tryHook() end)
-                return hookRegistered
-            end)
+            -- tryHook returns true once the hook is in, which ends the loop
+            GameLoop.start(5000, tryHook, "level-up hook")
         end
     end
 

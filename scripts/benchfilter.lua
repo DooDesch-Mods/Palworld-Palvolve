@@ -11,12 +11,14 @@
 -- form appends rather than replaces, so any other mod that adds an item type to
 -- the same converter shifts the list under us.
 --
--- Timing: NotifyOnNewObject only ENQUEUES; a single LoopAsync drains the
--- queue with retries. ExecuteWithDelay is avoided on purpose - its transient
--- callback refs get garbage collected under load ("Ref was not function"),
--- which can free every deferred callback of the mod at once.
+-- Timing: NotifyOnNewObject only ENQUEUES; a single game-thread loop
+-- (gameloop.lua) drains the queue with retries. One loop instead of a delayed
+-- call per object: transient callback refs get garbage collected under load
+-- ("Ref was not function"), which can free every deferred callback of the mod
+-- at once.
 local Config = require("config")
 local ServerCheck = require("servercheck")
+local GameLoop = require("gameloop")
 
 local BenchFilter = {}
 
@@ -168,88 +170,87 @@ function BenchFilter.init()
         pending[#pending + 1] = { model = model, tries = 0 }
     end)
 
-    LoopAsync(1000, function()
-        -- Only enter the game thread when there is actual work: every
-        -- ExecuteInGameThread call registers a transient callback ref, and
-        -- UE4SS's callback GC occasionally frees such refs while they are
-        -- still scheduled (corrupted closures, in the worst case a silent
-        -- process death). Idle ticks must therefore stay ref-free.
-        if swept and #pending == 0
-            and (installChecked or installTries >= INSTALL_CHECK_TRIES) then return false end
-        ExecuteInGameThread(function()
-            pcall(function()
-                if not swept then
-                    -- converter models of buildings placed before the mod
-                    -- loaded (world already running / hot reload)
-                    swept = true
-                    local models = FindAllOf("PalMapObjectConvertItemModel") or {}
-                    for _, m in ipairs(models) do
-                        pending[#pending + 1] = { model = m, tries = 0 }
+    -- One pass of work, created once so the tick below allocates no closure.
+    local function work()
+        if not swept then
+            -- converter models of buildings placed before the mod
+            -- loaded (world already running / hot reload)
+            swept = true
+            local models = FindAllOf("PalMapObjectConvertItemModel") or {}
+            for _, m in ipairs(models) do
+                pending[#pending + 1] = { model = m, tries = 0 }
+            end
+        end
+        -- Install check: the Evolution Stone is PalSchema data, so a
+        -- world without it means PalSchema did not apply this mod's
+        -- files. Silent when the item is there, because a healthy
+        -- install has nothing to report. The item manager belongs to the
+        -- game instance and is not necessarily up when this loop first
+        -- reaches the game thread, so the check rides along on the
+        -- entries that happen anyway instead of asking for one of its
+        -- own, and stops asking after a handful.
+        if not installChecked and installTries < INSTALL_CHECK_TRIES then
+            installTries = installTries + 1
+            local okCheck, errCheck = pcall(function()
+                local mgr = FindFirstOf("PalItemIDManager")
+                if not (mgr and mgr:IsValid()) then return end
+                installChecked = true
+                local data = mgr:GetStaticItemData(FName("Palvolve_EvolutionStone"))
+                if data and data:IsValid() then
+                    if PROBE or Config.devMode then
+                        Log(string.format("Evolution Stone registered, SortId=%s",
+                            tostring(data.SortId)))
                     end
-                end
-                -- Install check: the Evolution Stone is PalSchema data, so a
-                -- world without it means PalSchema did not apply this mod's
-                -- files. Silent when the item is there, because a healthy
-                -- install has nothing to report. The item manager belongs to the
-                -- game instance and is not necessarily up when this loop first
-                -- reaches the game thread, so the check rides along on the
-                -- entries that happen anyway instead of asking for one of its
-                -- own, and stops asking after a handful.
-                if not installChecked and installTries < INSTALL_CHECK_TRIES then
-                    installTries = installTries + 1
-                    pcall(function()
-                        local mgr = FindFirstOf("PalItemIDManager")
-                        if not (mgr and mgr:IsValid()) then return end
-                        installChecked = true
-                        local data = mgr:GetStaticItemData(FName("Palvolve_EvolutionStone"))
-                        if data and data:IsValid() then
-                            if PROBE or Config.devMode then
-                                Log(string.format("Evolution Stone registered, SortId=%s",
-                                    tostring(data.SortId)))
-                            end
-                            -- The data applied, so the recipes are worth reading
-                            -- back: a single material the world does not have
-                            -- drops its own row silently, and the product item
-                            -- stays registered while it happens.
-                            local okRecipes, errRecipes = pcall(function()
-                                require("recipecheck").run()
-                            end)
-                            if not okRecipes then
-                                Log("[WARN] recipe check did not run: " .. tostring(errRecipes))
-                            end
-                        else
-                            -- This line has shipped since 1.6.3 and eight people
-                            -- still needed a support thread, because it named the
-                            -- fault and not the fix. Every one of those threads
-                            -- ended the same way, so that ending is in here now.
-                            Log("the Evolution Stone item does not exist in this world: PalSchema "
-                                .. "did not apply Palvolve's data, so the Pal Alchemy Workbench, its "
-                                .. "technology entry and every stone are missing. Evolving from the "
-                                .. "wheel still works. Search UE4SS.log for the word PalSchema: if it "
-                                .. "does not appear, PalSchema itself never started. On the Workshop "
-                                .. "the order decides it, UE4SS first, then PalSchema, then Palvolve. "
-                                .. "Otherwise it is usually a leftover copy: delete the PalSchema "
-                                .. "folder from Mods\\ManagedMods and from ue4ss\\Mods, then subscribe "
-                                .. "again. Manual installs need "
-                                .. "Pal\\Binaries\\Win64\\ue4ss\\Mods\\PalSchema\\mods\\Palvolve")
-                        end
+                    -- The data applied, so the recipes are worth reading
+                    -- back: a single material the world does not have
+                    -- drops its own row silently, and the product item
+                    -- stays registered while it happens.
+                    local okRecipes, errRecipes = pcall(function()
+                        require("recipecheck").run()
                     end)
-                end
-                if #pending == 0 then return end
-                local batch = pending
-                pending = {}
-                for _, entry in ipairs(batch) do
-                    if not patchModel(entry.model) then
-                        entry.tries = entry.tries + 1
-                        if entry.tries < MAX_TRIES then
-                            pending[#pending + 1] = entry
-                        end
+                    if not okRecipes then
+                        Log("[WARN] recipe check did not run: " .. tostring(errRecipes))
                     end
+                else
+                    -- This line has shipped since 1.6.3 and eight people
+                    -- still needed a support thread, because it named the
+                    -- fault and not the fix. Every one of those threads
+                    -- ended the same way, so that ending is in here now.
+                    Log("the Evolution Stone item does not exist in this world: PalSchema "
+                        .. "did not apply Palvolve's data, so the Pal Alchemy Workbench, its "
+                        .. "technology entry and every stone are missing. Evolving from the "
+                        .. "wheel still works. Search UE4SS.log for the word PalSchema: if it "
+                        .. "does not appear, PalSchema itself never started. On the Workshop "
+                        .. "the order decides it, UE4SS first, then PalSchema, then Palvolve. "
+                        .. "Otherwise it is usually a leftover copy: delete the PalSchema "
+                        .. "folder from Mods\\ManagedMods and from ue4ss\\Mods, then subscribe "
+                        .. "again. Manual installs need "
+                        .. "Pal\\Binaries\\Win64\\ue4ss\\Mods\\PalSchema\\mods\\Palvolve")
                 end
             end)
-        end)
+            if not okCheck then Log("[WARN] install check failed: " .. tostring(errCheck)) end
+        end
+        if #pending == 0 then return end
+        local batch = pending
+        pending = {}
+        for _, entry in ipairs(batch) do
+            if not patchModel(entry.model) then
+                entry.tries = entry.tries + 1
+                if entry.tries < MAX_TRIES then
+                    pending[#pending + 1] = entry
+                end
+            end
+        end
+    end
+
+    -- Runs on the game thread; idle ticks return before doing any work.
+    GameLoop.start(1000, function()
+        if swept and #pending == 0
+            and (installChecked or installTries >= INSTALL_CHECK_TRIES) then return false end
+        local ok, err = pcall(work)
+        if not ok then Log("[ERROR] bench filter pass failed: " .. tostring(err)) end
         return false
-    end)
+    end, "bench filter")
 end
 
 return BenchFilter

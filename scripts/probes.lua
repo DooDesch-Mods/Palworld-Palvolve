@@ -24,6 +24,8 @@
 --
 local M = {}
 
+local GameLoop = require("gameloop")
+
 -- Every keybind listed above is OFF. They fire during ordinary play, and two of
 -- them change the world while they do: BACKSPACE runs a full evolution, F7
 -- morphs the summoned pal's species. The chat commands stay - those only fire
@@ -115,20 +117,16 @@ RegisterKeyBind(Key.F5, Debounced("overlay", function()
             if not glow or not glow:IsValid() then Log("[probe-overlay] M_Glow not found") return end
             local mesh = pal:GetMainMesh()
             mesh:SetOverlayMaterial(glow)
-            -- one-shot LoopAsync instead of ExecuteWithDelay (callback GC
-            -- trap, see UE4SS-LESSONS section 1)
-            local restored = false
-            LoopAsync(2000, function()
-                if restored then return true end
-                restored = true
-                ExecuteInGameThread(function()
-                    if pal:IsValid() and mesh:IsValid() then
-                        mesh:SetOverlayMaterial(nil)
-                        Log("[probe-overlay] restored")
-                    end
-                end)
-                return true
-            end)
+            -- game-thread one-shot (gameloop.lua) instead of ExecuteWithDelay
+            -- (callback GC trap, see UE4SS-LESSONS section 1)
+            GameLoop.after(2000, function()
+                if pal:IsValid() and mesh:IsValid() then
+                    mesh:SetOverlayMaterial(nil)
+                    Log("[probe-overlay] restored")
+                else
+                    Log("[probe-overlay] pal gone before the restore")
+                end
+            end, "probe overlay restore")
             Log("[probe-overlay] set on " .. pal:GetFullName())
         end)
         if not suc then Log("[probe-overlay] FAIL: " .. tostring(e)) end
@@ -478,25 +476,24 @@ function M.armRadialProbes()
 
     -- identify the concrete radial WBP class as soon as an instance exists
     local found = false
-    LoopAsync(1000, function()
+    local function findWidget()
+        local widgets = FindAllOf("PalUIRadialMenuWidgetBase") or {}
+        for _, w in ipairs(widgets) do
+            if w and w:IsValid() then
+                found = true
+                local cls, menuNum = "?", "?"
+                pcall(function() cls = w:GetClass():GetFullName() end)
+                pcall(function() menuNum = tostring(w.menuNum) end)
+                Log(string.format("[probe-radial] widget instance: class=%s menuNum=%s", cls, menuNum))
+            end
+        end
+    end
+    GameLoop.start(1000, function()
         if found then return true end
-        ExecuteInGameThread(function()
-            if found then return end
-            pcall(function()
-                local widgets = FindAllOf("PalUIRadialMenuWidgetBase") or {}
-                for _, w in ipairs(widgets) do
-                    if w and w:IsValid() then
-                        found = true
-                        local cls, menuNum = "?", "?"
-                        pcall(function() cls = w:GetClass():GetFullName() end)
-                        pcall(function() menuNum = tostring(w.menuNum) end)
-                        Log(string.format("[probe-radial] widget instance: class=%s menuNum=%s", cls, menuNum))
-                    end
-                end
-            end)
-        end)
+        local okFind, errFind = pcall(findWidget)
+        if not okFind then Log("[probe-radial] widget search failed: " .. tostring(errFind)) end
         return found
-    end)
+    end, "probe radial widget")
     local function idx(self)
         local i = "?"
         pcall(function() i = tostring(self:get().nowSelectedIndex) end)
@@ -1060,10 +1057,7 @@ function M.dumpWeatherPresets()
 end
 
 -- one-shot, delayed so the technology tables are past their load
-LoopAsync(15000, function()
-    ExecuteInGameThread(function() pcall(probeTechnologyTable) end)
-    return true
-end)
+GameLoop.after(15000, probeTechnologyTable, "probe technology table")
 
 -- ---------------------------------------------------------------- work suitability
 
@@ -1218,7 +1212,7 @@ function M.maybeBurstOnJoin(playerCtx)
     local sent = 0
     Log(string.format("[probe-burst] %d messages of %d bytes every %d ms",
         BURST_COUNT, BURST_SIZE, BURST_INTERVAL_MS))
-    LoopAsync(BURST_INTERVAL_MS, function()
+    GameLoop.start(BURST_INTERVAL_MS, function()
         sent = sent + 1
         if sent > BURST_COUNT then
             Log("[probe-burst] burst done")
@@ -1232,12 +1226,13 @@ function M.maybeBurstOnJoin(playerCtx)
         for i = 1, #fill do sum = (sum * 31 + fill:byte(i)) % 1000000007 end
         local payload = string.format("%s%s|%010d%s", head, fill, sum, tail)
         Log(string.format("[probe-burst] send seq=%d size=%d", sent, #payload))
-        pcall(function()
+        local okSend, errSend = pcall(function()
             playerCtx.pc:SendScreenLogToClient("PVLV1|xnet|" .. payload,
                 { R = 0.2, G = 1.0, B = 0.4, A = 1.0 }, 0.1, FName("PalvolveXnet"))
         end)
+        if not okSend then Log("[probe-burst] send failed: " .. tostring(errSend)) end
         return false
-    end)
+    end, "probe burst")
 end
 
 function M.probeNetPayload(playerCtx)
@@ -1258,7 +1253,7 @@ function M.probeNetPayload(playerCtx)
     -- 250 ms between rungs is a size test, not a rate test. The burst below
     -- answers the second question: whether the channel also carries the same
     -- size back to back, which is what a real transfer would do.
-    LoopAsync(250, function()
+    GameLoop.start(250, function()
         if rung > #LADDER then
             Log("[probe-xnet] ladder done")
             return true
@@ -1291,15 +1286,16 @@ function M.probeNetPayload(playerCtx)
         -- Straight down the wire, not through Role.notify: that one mirrors
         -- every line into the player's chat, and a ladder of 45 lines would
         -- bury the chat while measuring nothing extra.
-        pcall(function()
+        local okSend, errSend = pcall(function()
             playerCtx.pc:SendScreenLogToClient(
                 "PVLV1|xnet|" .. payload,
                 { R = 0.2, G = 1.0, B = 0.4, A = 1.0 },
                 0.1,
                 FName("PalvolveXnet"))
         end)
+        if not okSend then Log("[probe-xnet] send failed: " .. tostring(errSend)) end
         return false
-    end)
+    end, "probe xnet ladder")
 end
 
 -- Abort test for the in-game browser (1.6.0). The whole design rests on one
@@ -1408,12 +1404,13 @@ function M.probeBrowserWindow()
     -- reach and the command cannot close it again. Without this, every single
     -- candidate costs a full game restart.
     local myId = result
-    ExecuteWithDelay(8000, function()
+    GameLoop.after(8000, function()
         if openWindowId ~= myId then return end
-        local okClose = pcall(function() hud:Close(myId) end)
+        local okClose, errClose = pcall(function() hud:Close(myId) end)
         openWindowId = nil
-        Log(string.format("[probe-browser] auto-close: ok=%s", tostring(okClose)))
-    end)
+        Log(string.format("[probe-browser] auto-close: ok=%s%s", tostring(okClose),
+            okClose and "" or (" err=" .. tostring(errClose))))
+    end, "probe browser auto-close")
 
     -- Push returning an id says the call went through, not that a widget was
     -- built. Counting instances of the class just pushed separates "the stack
@@ -1636,16 +1633,18 @@ function M.probeWebView()
     -- The page is therefore put back whenever the address drifts away from it.
     local function reassert()
         if not (webViewBrowser and webViewBrowser:IsValid()) then return end
-        pcall(function() webViewBrowser:LoadString(html, VIEW_ORIGIN) end)
+        local okRe, errRe = pcall(function() webViewBrowser:LoadString(html, VIEW_ORIGIN) end)
+        if not okRe then Log("[probe-web] reassert failed: " .. tostring(errRe)) end
     end
 
     -- Fixed retries rather than a reaction to the address, so this works even
     -- when the watcher below fails. The news page arrives on its own schedule
-    -- and has beaten every single attempt so far.
+    -- and has beaten every single attempt so far. One closure for all four.
+    local function reassertIfOpen()
+        if webViewWidget then reassert() end
+    end
     for _, delay in ipairs({800, 2000, 4000, 7000}) do
-        ExecuteWithDelay(delay, function()
-            if webViewWidget then reassert() end
-        end)
+        GameLoop.after(delay, reassertIfOpen, "probe web reassert")
     end
 
     -- The way back. Binding the console or url delegates from Lua is fragile,
@@ -1654,7 +1653,7 @@ function M.probeWebView()
     local lastUrl, lastTitle = "", ""
     local reportedUrlError, reportedTitleError = false, false
     local beats = 0
-    webViewPoll = LoopAsync(150, function()
+    webViewPoll = GameLoop.start(150, function()
         -- Unconditional sign of life. Silence used to mean either "nothing to
         -- report" or "this loop is dead", and those need opposite fixes.
         beats = beats + 1
@@ -1705,27 +1704,31 @@ function M.probeWebView()
             return true
         end
         return false
-    end)
+    end, "probe web watcher")
     -- Fires the page's own reporting path without a mouse. That splits two
     -- questions that otherwise hide each other: does the way back work at all,
     -- and does a click reach the page. A silent log after this means the route
     -- is broken; a log here but none on click means only the input is.
-    ExecuteWithDelay(3000, function()
-        if not (webViewBrowser and webViewBrowser:IsValid()) then return end
-        pcall(function() webViewBrowser:ExecuteJavascript("send('selftest/no-mouse')") end)
+    GameLoop.after(3000, function()
+        if not (webViewBrowser and webViewBrowser:IsValid()) then
+            Log("[probe-web] self-test skipped: no browser")
+            return
+        end
+        local okJs, errJs = pcall(function() webViewBrowser:ExecuteJavascript("send('selftest/no-mouse')") end)
+        if not okJs then Log("[probe-web] self-test call failed: " .. tostring(errJs)) end
         Log("[probe-web] self-test fired from lua, watch for a message below")
-    end)
+    end, "probe web self-test")
 
     -- Safety net. The view owns the input, so a page that fails to report a
     -- close would leave the player unable to move or reach the chat that opened
     -- it. This does not depend on the page working at all.
     local generation = widget
-    ExecuteWithDelay(90000, function()
+    GameLoop.after(90000, function()
         if webViewWidget == generation then
             Log("[probe-web] safety timeout reached")
             closeWebView()
         end
-    end)
+    end, "probe web safety timeout")
 
     Log("[probe-web] stage 9: watching the page for messages - click the buttons (closes itself after 90s)")
 end
@@ -2088,7 +2091,7 @@ function M.probeLinkClick()
     -- the first run actually measured.
     linkStop = false
     local last, ticks = nil, 0
-    LoopAsync(250, function()
+    GameLoop.start(250, function()
         if linkStop or not (linkBrowser and linkBrowser:IsValid()) then
             Log("[probe-link] watcher done after " .. ticks .. " ticks")
             return true
@@ -2124,7 +2127,7 @@ function M.probeLinkClick()
             return true
         end
         return false
-    end)
+    end, "probe link watcher")
 end
 
 -- ---------------------------------------------------------------------------
@@ -2288,7 +2291,7 @@ function M.probePak()
     -- pressed, this lowers it again and reports which Pal it was.
     pakStop = false
     local ticks = 0
-    LoopAsync(200, function()
+    GameLoop.start(200, function()
         if pakStop or not (pakWindow and pakWindow:IsValid()) then
             Log("[probe-pak] watcher done after " .. ticks .. " ticks")
             return true
@@ -2309,7 +2312,7 @@ function M.probePak()
             return true
         end
         return false
-    end)
+    end, "probe pak watcher")
 
     Log("[probe-pak] open - click a card, run !palvolve pak again to close")
 end

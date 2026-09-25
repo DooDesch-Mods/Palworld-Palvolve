@@ -17,6 +17,7 @@ local Config = require("config")
 local Conditions = require("conditions")
 local Costs = require("costs")
 local I18n = require("i18n")
+local GameLoop = require("gameloop")
 
 local GuidePages = {}
 
@@ -358,41 +359,36 @@ function GuidePages.onEnterWorld(worldCtx)
     -- One short delay, not a poll: the character is up, but the text tables
     -- answer a moment later, and a name lookup that misses gets cached as the
     -- raw id for the session.
-    local ran = false
-    LoopAsync(3000, function()
-        if ran then return true end
-        ran = true
-        ExecuteInGameThread(function()
-            -- A server's tree is on loan for as long as this client is on that
-            -- server; the guide is a FILE in the player's own PalSchema folder.
-            -- Written from a borrowed tree it would still describe that server's
-            -- pairs the next time the player starts their own game. Re-armed
-            -- rather than skipped, so the next world of their own writes it.
-            local okSync, sync = pcall(require, "treesync")
-            if okSync and sync and sync.isActive and sync.isActive() then
-                generated = false
-                Log("guide pages: a server's tree is active, leaving the local guide alone")
-                return
-            end
-            local ctx = worldCtx
-            if not (ctx and ctx:IsValid()) then
-                pcall(function() ctx = FindFirstOf("PalPlayerCharacter") end)
-            end
-            local okBuild, text, reason = pcall(GuidePages.build, nameResolver, ctx)
-            if not okBuild then
-                Log("guide pages: " .. tostring(text))
-                return
-            end
-            if not text then
-                Log("guide pages: " .. tostring(reason))
-                return
-            end
-            if GuidePages.write(text) then
-                Log("[INFO] guide pages: survival guide updated, visible after the next start")
-            end
-        end)
-        return true
-    end)
+    GameLoop.after(3000, function()
+        -- A server's tree is on loan for as long as this client is on that
+        -- server; the guide is a FILE in the player's own PalSchema folder.
+        -- Written from a borrowed tree it would still describe that server's
+        -- pairs the next time the player starts their own game. Re-armed
+        -- rather than skipped, so the next world of their own writes it.
+        local okSync, sync = pcall(require, "treesync")
+        if not okSync then Log("[WARN] guide pages: treesync not loaded: " .. tostring(sync)) end
+        if okSync and sync and sync.isActive and sync.isActive() then
+            generated = false
+            Log("guide pages: a server's tree is active, leaving the local guide alone")
+            return
+        end
+        local ctx = worldCtx
+        if not (ctx and ctx:IsValid()) then
+            pcall(function() ctx = FindFirstOf("PalPlayerCharacter") end)
+        end
+        local okBuild, text, reason = pcall(GuidePages.build, nameResolver, ctx)
+        if not okBuild then
+            Log("guide pages: " .. tostring(text))
+            return
+        end
+        if not text then
+            Log("guide pages: " .. tostring(reason))
+            return
+        end
+        if GuidePages.write(text) then
+            Log("[INFO] guide pages: survival guide updated, visible after the next start")
+        end
+    end, "guide pages")
 end
 
 function GuidePages.init(displayName)

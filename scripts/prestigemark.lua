@@ -28,6 +28,7 @@
 local Role = require("role")
 local PalPassives = require("palpassives")
 local Config = require("config")
+local GameLoop = require("gameloop")
 -- CharacterID -> paldex number, for every species the game ships. Used here as
 -- the answer to "is this actually a Pal": the notification fires for every
 -- PalCharacter, and the humans walking around a base are PalCharacters too.
@@ -756,8 +757,9 @@ function PrestigeMark.init()
             local batch = drainBatch
             drainBatch = nil
             if not batch then return end
-            -- The slot is APPENDED to, never replaced, because a tick can fire
-            -- again before the game thread has run this one. Overwriting it
+            -- The slot is APPENDED to, never replaced. While the drain still went
+            -- through ExecuteInGameThread a tick could fire again before the game
+            -- thread had run the last one; overwriting the slot then
             -- dropped a whole batch, and during a world-load stall that is every
             -- Pal in the base: the queue filled, nothing was ever drawn, and the
             -- only symptom was a Pal with no shimmer.
@@ -853,8 +855,8 @@ function PrestigeMark.init()
             end
     end
 
-    -- One loop for every pending Pal. It goes idle when the queue is empty and
-    -- only enters the game thread when there is work.
+    -- One loop for every pending Pal, on the game thread (gameloop.lua). A tick
+    -- with an empty queue and nothing marked returns at once.
     local function drainTick()
         local hasNew = #pending > 0
         local hasMarked = next(marked) ~= nil
@@ -868,18 +870,18 @@ function PrestigeMark.init()
             drainBatch = batch
         end
 
-        local ok, err = pcall(ExecuteInGameThread, drainOnGameThread)
+        local ok, err = pcall(drainOnGameThread)
         if not ok then
-            -- The batch is detached from `pending` at this point, so handing it
-            -- back is the difference between a retry and a silent loss.
+            -- The drain takes the batch as its first step, so a batch still in
+            -- the slot here was never started and goes back to `pending`.
             for _, entry in ipairs(drainBatch or {}) do pending[#pending + 1] = entry end
             drainBatch = nil
-            Log("prestige marker: drain could not reach the game thread: " .. tostring(err))
+            Log("prestige marker: drain failed: " .. tostring(err))
         end
         return false
     end
 
-    LoopAsync(500, drainTick)
+    GameLoop.start(500, drainTick, "prestige marker")
 
     -- THE Palvolve debug key, and devMode only. One key, re-pointed at whatever
     -- is being tested; it currently cycles the prestige shimmer. Client side and

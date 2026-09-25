@@ -45,6 +45,7 @@ local Config = require("config")
 local Role = require("role")
 local PalPassives = require("palpassives")
 local WazaInherit = require("wazainherit")
+local GameLoop = require("gameloop")
 
 local MoveSlot4 = {}
 
@@ -458,7 +459,7 @@ function MoveSlot4.init()
         return
     end
 
-    LoopAsync(1000, function()
+    GameLoop.start(1000, function()
         if hooked then return true end
         if pending then
             pending = false
@@ -468,7 +469,7 @@ function MoveSlot4.init()
             end
         end
         return false
-    end)
+    end, "status screen hook")
 end
 
 return MoveSlot4

@@ -20,6 +20,7 @@
 -- It is loaded from main.lua next to the probes, under the same devMode branch.
 
 local Config = require("config")
+local GameLoop = require("gameloop")
 
 local DevBridge = {}
 
@@ -162,15 +163,17 @@ function DevBridge.init()
     end
     -- One line per fault, not one per poll: the loop runs five times a second,
     -- so a permanent fault would bury the log it is meant to appear in.
+    -- The poll runs on the game thread, so a request touches UObjects directly
+    -- and a slow one holds up that frame.
     local serveErrLogged = false
-    LoopAsync(POLL_MS, function()
+    GameLoop.start(POLL_MS, function()
         local ok, err = pcall(serve)
         if not ok and not serveErrLogged then
             serveErrLogged = true
             Log("the request loop failed: " .. tostring(err))
         end
         return false
-    end)
+    end, "dev bridge")
     Log("armed on the " .. tostring(why) .. ": running requests from " .. REQ_VAR .. " in Palvolve's own Lua state")
 end
 

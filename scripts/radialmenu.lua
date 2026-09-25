@@ -33,6 +33,7 @@
 
 local Config = require("config")
 local I18n = require("i18n")
+local GameLoop = require("gameloop")
 
 local RadialMenu = {}
 
@@ -1046,19 +1047,20 @@ function RadialMenu.init(evolutionApi)
     -- The radial WBP classes load LAZILY (the UI is built on demand, often only when
     -- the wheel is first opened), so register when a radial-menu WBP instance
     -- appears rather than polling for a class that is not loaded yet.
-    -- NotifyOnNewObject flags a registration pass; a single idle-guarded LoopAsync
-    -- performs it on the game thread (RegisterHook needs the game thread). This is
-    -- the canonical GC-safe pattern (UE4SS-LESSONS 1/4): it never polls forever
+    -- NotifyOnNewObject flags a registration pass; a single idle-guarded loop on
+    -- the game thread (gameloop.lua) performs it (RegisterHook needs the game
+    -- thread). This is the GC-safe pattern (UE4SS-LESSONS 1/4): it never polls forever
     -- (which strands the wheel without an Evolve tab until relaunch) and never
     -- gives up early, because it re-arms every time the UI reappears.
     --
     -- The notify keeps to that rule and only sets the flag, with one exception:
     -- when the drain loop has stopped ticking. UE4SS can tear down its Lua tick
     -- hook mid-session ("Ref was not function ... removing hook!"), and every
-    -- LoopAsync in the process dies with it, including this one, which left the
-    -- wheel without an Evolve entry until the next relaunch. Starting another
-    -- LoopAsync would not help there, because the machinery that runs them is
-    -- what died. The notify fires from the game thread while the widget is
+    -- LoopAsync in the process died with it, including this one when it still
+    -- was one, which left the wheel without an Evolve entry until the next
+    -- relaunch. The game-thread loop can share that fate, and starting another
+    -- loop would not help, because the machinery that runs them is what died.
+    -- The notify fires from the game thread while the widget is
     -- built, so on that path it can register itself. `lastTick` separates the
     -- two cases: a live loop refreshes it every second, so the inline branch
     -- stays dormant while the normal path works.
@@ -1079,22 +1081,21 @@ function RadialMenu.init(evolutionApi)
                 end)
             end)
         end)
-        LoopAsync(1000, function()
+        local function registerPass()
+            wantRegister = false
+            if tryHooks() then
+                doneRegistering = true
+                Log("Radial menu integration active: Evolve entry in the hold-4 wheel")
+            end
+        end
+        GameLoop.start(1000, function()
             lastTick = os.clock()
             if doneRegistering then return true end -- all hooks in -> stop looping
-            if not wantRegister then return false end -- idle: nothing pending, ref-free
-            ExecuteInGameThread(function()
-                pcall(function()
-                    if doneRegistering then return end
-                    wantRegister = false
-                    if tryHooks() then
-                        doneRegistering = true
-                        Log("Radial menu integration active: Evolve entry in the hold-4 wheel")
-                    end
-                end)
-            end)
+            if not wantRegister then return false end -- idle: nothing pending
+            local ok, err = pcall(registerPass)
+            if not ok then Log("[WARN] radial menu hook pass failed: " .. tostring(err)) end
             return false
-        end)
+        end, "radial menu hooks")
     end
 end
 

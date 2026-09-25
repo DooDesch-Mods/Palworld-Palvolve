@@ -6,6 +6,7 @@
 
 local Config = require("config")
 local ServerCheck = require("servercheck")
+local GameLoop = require("gameloop")
 
 local BenchVisual = {}
 
@@ -165,10 +166,10 @@ local function tintActor(actor)
 end
 
 -- The model (and with it the row id) arrives via replication after the actor
--- constructs, so candidates are queued and retried from a single LoopAsync.
--- ExecuteWithDelay is avoided on purpose - its transient callback refs get
--- garbage collected under load ("Ref was not function"), which can free
--- every deferred callback of the mod at once.
+-- constructs, so candidates are queued and retried from a single game-thread
+-- loop (gameloop.lua) instead of a delayed call per object: transient callback
+-- refs get garbage collected under load ("Ref was not function"), which can
+-- free every deferred callback of the mod at once.
 local MAX_TRIES = 8
 
 -- returns true when the entry is finished (tinted or not ours), false when
@@ -241,48 +242,48 @@ function BenchVisual.init()
         end
     end
 
-    LoopAsync(1000, function()
-        -- idle ticks must not enter the game thread: every ExecuteInGameThread
-        -- call registers a transient callback ref, and UE4SS's callback GC
-        -- occasionally frees such refs while still scheduled
-        if swept and #pending == 0 then return false end
-        ExecuteInGameThread(function()
-            pcall(function()
-                if not swept then
-                    -- benches already placed when the mod loads
-                    swept = true
-                    local objs = FindAllOf("PalBuildObject") or {}
-                    for _, bo in ipairs(objs) do
-                        pending[#pending + 1] = { actor = bo, tries = 0 }
-                    end
-                end
-                if #pending == 0 then return end
-                local batch = pending
-                pending = {}
-                for _, entry in ipairs(batch) do
-                    if entry.delay and entry.delay > 0 then
-                        -- completion re-tints wait out the mesh swap and the
-                        -- build-complete animation before touching materials
-                        entry.delay = entry.delay - 1
+    -- One pass of work, created once so the tick below allocates no closure.
+    local function work()
+        if not swept then
+            -- benches already placed when the mod loads
+            swept = true
+            local objs = FindAllOf("PalBuildObject") or {}
+            for _, bo in ipairs(objs) do
+                pending[#pending + 1] = { actor = bo, tries = 0 }
+            end
+        end
+        if #pending == 0 then return end
+        local batch = pending
+        pending = {}
+        for _, entry in ipairs(batch) do
+            if entry.delay and entry.delay > 0 then
+                -- completion re-tints wait out the mesh swap and the
+                -- build-complete animation before touching materials
+                entry.delay = entry.delay - 1
+                pending[#pending + 1] = entry
+            else
+                -- pcall(namedFn, arg): one per queued object per tick,
+                -- and the initial sweep queues every build object in the
+                -- base at once.
+                local ok, done = pcall(handleActor, entry.actor)
+                if ok and done == nil then done = true end
+                if not (ok and done) then
+                    entry.tries = entry.tries + 1
+                    if entry.tries < MAX_TRIES then
                         pending[#pending + 1] = entry
-                    else
-                        -- pcall(namedFn, arg): one per queued object per tick,
-                        -- and the initial sweep queues every build object in the
-                        -- base at once.
-                        local ok, done = pcall(handleActor, entry.actor)
-                        if ok and done == nil then done = true end
-                        if not (ok and done) then
-                            entry.tries = entry.tries + 1
-                            if entry.tries < MAX_TRIES then
-                                pending[#pending + 1] = entry
-                            end
-                        end
                     end
                 end
-            end)
-        end)
+            end
+        end
+    end
+
+    -- Runs on the game thread; idle ticks return before doing any work.
+    GameLoop.start(1000, function()
+        if swept and #pending == 0 then return false end
+        local ok, err = pcall(work)
+        if not ok then Log("[ERROR] bench tint pass failed: " .. tostring(err)) end
         return false
-    end)
+    end, "bench tint")
 end
 
 return BenchVisual

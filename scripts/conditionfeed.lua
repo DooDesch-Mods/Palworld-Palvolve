@@ -5,6 +5,7 @@
 -- move before the food becomes condition truth.
 
 local Role = require("role")
+local GameLoop = require("gameloop")
 local ConditionFeed = {}
 
 local PARTY_MEAL_FN =
@@ -477,19 +478,16 @@ local function armOnGameThread()
     end
 end
 
-local function queueArm()
-    local ok, err = pcall(ExecuteInGameThread, armOnGameThread)
-    if not ok then Log("feeding tracker: arm dispatch failed: " .. tostring(err)) end
-end
-
 --- Never returns true. The poll has to keep running after both hooks are up,
---- because it is also what disarms them when the world goes away.
+--- because it is also what disarms them when the world goes away. It runs on
+--- the game thread (gameloop.lua), so the arm pass is a direct call.
 local function armPoll()
     if registrationFailures >= MAX_REGISTRATION_FAILURES then
         Log("feeding tracker stopped after repeated registration failures")
         return true
     end
-    queueArm()
+    local ok, err = pcall(armOnGameThread)
+    if not ok then Log("feeding tracker: arm pass failed: " .. tostring(err)) end
     return false
 end
 
@@ -512,9 +510,8 @@ function ConditionFeed.init()
     -- Neither hook is registered here. Both wait for armPoll, which needs a
     -- local player first; see the comment there for the crash that bought this.
     if pollStarted then return end
-    local ok, err = pcall(LoopAsync, ARM_POLL_MS, armPoll)
-    pollStarted = ok
-    if not ok then Log("feeding tracker poll failed to start: " .. tostring(err)) end
+    pollStarted = GameLoop.start(ARM_POLL_MS, armPoll, "feeding tracker") ~= nil
+    if not pollStarted then Log("feeding tracker poll failed to start") end
 end
 
 function ConditionFeed.lastFood(param)

@@ -21,6 +21,7 @@ local Config = require("config")
 local Role = require("role")
 local NetChannel = require("netchannel")
 local I18n = require("i18n")
+local GameLoop = require("gameloop")
 
 local ServerCheck = {}
 
@@ -258,25 +259,18 @@ end
 
 -- -------------------------------------------------------------------- triggers
 
--- One-shot timeout for the resolving window. ExecuteWithDelay is forbidden
--- (UE4SS-LESSONS 1): a LoopAsync that returns true on its first fire is the safe
--- equivalent, and it costs a single transient callback ref instead of a poll.
+-- One-shot timeout for the resolving window, on the game thread (gameloop.lua;
+-- ExecuteWithDelay and LoopAsync are out, UE4SS-LESSONS 1).
 local function armResolveTimeout(gen)
     local timeoutMs = (Config.serverCheck.timeoutSeconds or 10) * 1000
-    LoopAsync(timeoutMs, function()
-        if gen ~= generation or state ~= ST.RESOLVING then return true end
-        ExecuteInGameThread(function()
-            pcall(function()
-                if gen ~= generation or state ~= ST.RESOLVING then return end
-                if authorityNow() then
-                    settleLocal() -- safety net: never disable a world we own
-                else
-                    settleAbsent()
-                end
-            end)
-        end)
-        return true
-    end)
+    GameLoop.after(timeoutMs, function()
+        if gen ~= generation or state ~= ST.RESOLVING then return end
+        if authorityNow() then
+            settleLocal() -- safety net: never disable a world we own
+        else
+            settleAbsent()
+        end
+    end, "server check timeout")
 end
 
 -- Called from the join hook when the LOCAL player's character finished

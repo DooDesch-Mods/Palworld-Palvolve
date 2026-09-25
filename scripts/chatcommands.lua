@@ -25,6 +25,7 @@
 -- convention the other Palworld command mods use.
 
 local Role = require("role")
+local GameLoop = require("gameloop")
 
 local ChatCommands = {}
 
@@ -105,20 +106,21 @@ function ChatCommands.init(handlers)
                 -- stack goes out (it shows in the log, and the hook sees it)
                 -- without ever being drawn. A quarter second is imperceptible
                 -- for a typed command and well clear of the frame.
-                local ran = false
-                LoopAsync(250, function()
-                    if ran then return true end
-                    ran = true
-                    ExecuteInGameThread(function()
-                        -- re-check at the point of use: the sender can be gone
-                        -- by the time the deferred stage runs, and a UFunction
-                        -- call on a freed controller is a native crash that
-                        -- pcall does not catch
-                        if not (ctx.pc and ctx.pc:IsValid()) then return end
-                        pcall(handler, ctx, args or {})
-                    end)
-                    return true
-                end)
+                GameLoop.after(250, function()
+                    -- re-check at the point of use: the sender can be gone
+                    -- by the time the deferred stage runs, and a UFunction
+                    -- call on a freed controller is a native crash that
+                    -- pcall does not catch
+                    if not (ctx.pc and ctx.pc:IsValid()) then
+                        print("[Palvolve] chat command " .. tostring(sub) .. " dropped: sender gone\n")
+                        return
+                    end
+                    local okHandler, errHandler = pcall(handler, ctx, args or {})
+                    if not okHandler then
+                        print(string.format("[Palvolve] [ERROR] chat command %s failed: %s\n",
+                            tostring(sub), tostring(errHandler)))
+                    end
+                end, "chat command")
             end)
         end)
     end)

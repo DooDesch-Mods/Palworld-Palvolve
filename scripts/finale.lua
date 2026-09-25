@@ -1,6 +1,6 @@
 -- Palvolve finale runtime: resolves the recipe data from finale_recipes.lua
 -- into a precomputed event schedule for the reveal window and pumps it from
--- the EXISTING reveal driver in fx.lua. No LoopAsync of its own in the
+-- the EXISTING reveal driver in fx.lua. No loop of its own in the
 -- shipping path and no per-event closures - events are plain tables executed
 -- by top-level functions (see Workspace/docs/UE4SS-LESSONS.md on the
 -- callback GC). All engine calls are pcall-wrapped; every failure degrades
@@ -11,6 +11,7 @@ local Config = require("config")
 local Recipes = require("finale_recipes")
 local PrestigeRecipes = require("prestige_recipes")
 local Timing = require("sequence_timing")
+local GameLoop = require("gameloop")
 
 local Finale = {}
 
@@ -576,9 +577,8 @@ end
 -- Plays one finale schedule standalone at a world location, without an
 -- evolution. devMode probe. halfHeight (the sample pal's capsule half)
 -- feeds the same anchoring/species scaling as a real sequence. Driven by a
--- hard-bounded one-shot LoopAsync with an idle guard: ticks without due
--- work never enter the game thread, and the loop always terminates by the
--- deadline.
+-- hard-bounded game-thread loop with an idle guard: ticks without due work
+-- return at once, and the loop always terminates by the deadline.
 -- The schedule window, for the offline check. Exposed rather than mirrored:
 -- a second copy of these numbers is a second thing that can be wrong.
 function Finale.debugTimings(ctx)
@@ -588,7 +588,7 @@ end
 
 --- A finale without a driver of its own: the caller pumps it from the tick it
 --- already runs (Finale.pump(run.ctx, run.f, seconds since run.startedAt)), so
---- no extra LoopAsync or per-spawn closure reaches UE4SS's callback collector.
+--- no extra loop or per-spawn closure reaches UE4SS's callback collector.
 --- Returns { ctx, f, startedAt, growS } or nil. Game thread.
 function Finale.begin(worldCtx, x, y, z, elems, halfHeight, meshHalf)
     local ctx = { worldCtx = worldCtx, oldX = x, oldY = y, oldZ = z, elemsTo = elems,
@@ -620,12 +620,12 @@ function Finale.playStandalone(worldCtx, x, y, z, elems, halfHeight, meshHalf, o
     -- is twenty seconds long and would be cut off by a constant.
     local deadline = f.totalS + 4.0 + (ctx.timing and ctx.timing.quietLeadMs or 0) / 1000
     local state = { stopped = false }
-    LoopAsync(33, function()
+    GameLoop.start(33, function()
         if state.stopped then return true end
         local t = os.clock() - startedAt
         if t > deadline or (f.idx > #f.events and #f.live == 0) then
             state.stopped = true
-            ExecuteInGameThread(function() Finale.stopAll(f) end)
+            Finale.stopAll(f)
             return true
         end
         local dueSpawn = f.idx <= #f.events and f.events[f.idx].t <= t
@@ -635,12 +635,17 @@ function Finale.playStandalone(worldCtx, x, y, z, elems, halfHeight, meshHalf, o
             if k < math.huge and t >= k then dueKill = true break end
         end
         if dueSpawn or dueKill then
-            ExecuteInGameThread(function()
-                if not state.stopped then Finale.pump(ctx, f, t) end
-            end)
+            local okPump, errPump = pcall(Finale.pump, ctx, f, t)
+            if not okPump then
+                -- one line, then the run ends and takes what burns with it
+                Log("[finale] standalone pump failed, stopping: " .. tostring(errPump))
+                state.stopped = true
+                Finale.stopAll(f)
+                return true
+            end
         end
         return false
-    end)
+    end, "finale standalone")
     -- The caller can end the schedule early: nothing new spawns after this,
     -- and what already burns fades out on its own time. growS is when the
     -- finale's peak (the "grown" beat) fires, for a caller that animates the Pal.
