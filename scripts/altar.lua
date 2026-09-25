@@ -112,18 +112,36 @@ local function containerOf(model)
     return ok and c or nil
 end
 
-local function filledSlots(container)
-    local out = {}
-    container.SlotArray:ForEach(function(_, s)
-        local slot = s:get()
-        local okEmpty, empty = pcall(function() return slot:IsEmpty() end)
-        if okEmpty and not empty then
-            local okP, param = pcall(function() return slot:GetHandle():TryGetIndividualParameter() end)
-            if okP and param and param:IsValid() then
-                out[#out + 1] = { slot = slot, index = slot.SlotIndex, param = param }
-            end
+-- Slot walks run in the stage tick and in every commit, so they use named
+-- functions and a shared buffer instead of a closure per call: closure churn
+-- is what UE4SS's callback collector trips over (UE4SS-LESSONS section 1).
+local slotWalk = nil
+local function slotIsEmpty(slot) return slot:IsEmpty() end
+local function slotParam(slot) return slot:GetHandle():TryGetIndividualParameter() end
+
+local function collectFilled(_, s)
+    local slot = s:get()
+    local okEmpty, empty = pcall(slotIsEmpty, slot)
+    if okEmpty and not empty then
+        local okP, param = pcall(slotParam, slot)
+        if okP and param and param:IsValid() then
+            slotWalk[#slotWalk + 1] = { slot = slot, index = slot.SlotIndex, param = param }
         end
-    end)
+    end
+end
+
+local function collectEmpty(_, s)
+    if slotWalk.found then return end
+    local slot = s:get()
+    local ok, empty = pcall(slotIsEmpty, slot)
+    if ok and empty then slotWalk.found = slot end
+end
+
+local function filledSlots(container)
+    slotWalk = {}
+    container.SlotArray:ForEach(collectFilled)
+    local out = slotWalk
+    slotWalk = nil
     return out
 end
 
@@ -139,13 +157,10 @@ local function boxOf(playerCtx)
 end
 
 local function emptyBoxSlot(box)
-    local found = nil
-    box.SlotArray:ForEach(function(_, s)
-        if found then return end
-        local slot = s:get()
-        local ok, empty = pcall(function() return slot:IsEmpty() end)
-        if ok and empty then found = slot end
-    end)
+    slotWalk = {}
+    box.SlotArray:ForEach(collectEmpty)
+    local found = slotWalk.found
+    slotWalk = nil
     return found
 end
 
@@ -208,19 +223,31 @@ local function netContainer(playerCtx)
 end
 
 --- The phantom actor the cage spawned for this parameter, near the altar.
+-- The body the altar shows for a Pal is its phantom; the parameter keeps it.
+local phantomWalk = nil
+local function collectPhantom(_, v)
+    if phantomWalk.actor then return end
+    local a = v:get()
+    -- a body hidden by a fusion scene is on its way out; the new one is visible
+    if isLive(a) and not a.bHidden then phantomWalk.actor = a end
+end
+local function phantomBody(param)
+    phantomWalk = {}
+    param.PhantomActorMap:ForEach(collectPhantom)
+    local a = phantomWalk.actor
+    phantomWalk = nil
+    return a
+end
+
+--- The phantom actor the cage shows for this parameter. near is kept for the
+--- callers' reading; one Pal sits in one container, so its phantom is the one.
 local function phantomOf(param, near)
-    local okKey, key = pcall(api.individualKey, param)
-    if not okKey then return nil end
-    for _, a in ipairs(FindAllOf("PalCharacter") or {}) do
-        if isInstance(a) then
-            local okL, l = pcall(function() return a:K2_GetActorLocation() end)
-            if okL and l and dist2({ x = l.X, y = l.Y }, near) <= REACH * REACH then
-                local okP, k = pcall(function() return api.individualKey(api.paramOf(a)) end)
-                if okP and k == key then return a end
-            end
-        end
+    local ok, a = pcall(phantomBody, param)
+    if not ok then
+        Log("[WARN] phantom lookup failed: " .. tostring(a))
+        return nil
     end
-    return nil
+    return a
 end
 
 local function readNumber(param, field)
@@ -752,7 +779,7 @@ end
 -- altar model's "Slot1"/"Slot2" components when the building has them, else
 -- points left and right of the altar's centre.
 
-local STAGE_TICK_MS = 1000
+local STAGE_TICK_MS = 2000
 local SLOT_SPREAD = 150   -- units from the centre to each slot without slot components
 local STAGE_LIFT = 0      -- height of the standing point above the altar origin
 local SLOT_MARGIN = 60     -- room between a Pal's body and the altar's centre
@@ -768,37 +795,57 @@ local function warnOnce(key, msg)
 end
 
 --- World positions of the two standing points of an altar model.
+local function transformOf(model) return model:GetTransform() end
+local function actorOf(model) return model:GetActor() end
+local function instanceKey(model)
+    local g = model:GetModelInstanceId()
+    return string.format("%s-%s-%s-%s", tostring(g.A), tostring(g.B), tostring(g.C), tostring(g.D))
+end
+
+local sceneClass = nil
+local function slotComponents(actor)
+    if not (sceneClass and sceneClass:IsValid()) then
+        sceneClass = StaticFindObject("/Script/Engine.SceneComponent")
+    end
+    local comps = actor:K2_GetComponentsByClass(sceneClass)
+    local found = {}
+    -- UE4SS hands the returned array over as a plain Lua table here
+    if type(comps) ~= "table" then return found end
+    for _, v in ipairs(comps) do
+        local comp = (type(v) == "userdata" and v.get) and v:get() or v
+        local name = comp:GetFName():ToString()
+        if name == "Slot1" or name == "Slot2" then
+            local l = comp:K2_GetComponentLocation()
+            found[name] = { x = l.X, y = l.Y, z = l.Z }
+        end
+    end
+    return found
+end
+
+-- The building never moves, so its standing points are read once per altar.
+local pointCache = {}
+
 slotPoints = function(model)
-    local okT, t = pcall(function() return model:GetTransform() end)
-    if not okT or not t then return nil end
+    local okKey, key = pcall(instanceKey, model)
+    if okKey and pointCache[key] then return pointCache[key] end
+    local okT, t = pcall(transformOf, model)
+    if not okT or not t then
+        warnOnce("transform", "altar transform unreadable: " .. tostring(t))
+        return nil
+    end
     local c = t.Translation
     local q = t.Rotation
     -- yaw from the rotation quaternion
     local yaw = math.atan(2 * (q.W * q.Z + q.X * q.Y), 1 - 2 * (q.Y * q.Y + q.Z * q.Z))
     local points = nil
-    local okActor, actor = pcall(function() return model:GetActor() end)
+    local okActor, actor = pcall(actorOf, model)
     if okActor and isLive(actor) then
-        local found = {}
-        local okComps, compErr = pcall(function()
-            local comps = actor:K2_GetComponentsByClass(StaticFindObject("/Script/Engine.SceneComponent"))
-            -- UE4SS hands the returned array over as a plain Lua table here
-            local list = {}
-            if type(comps) == "table" then
-                for _, v in ipairs(comps) do list[#list + 1] = v end
-            else
-                comps:ForEach(function(_, v) list[#list + 1] = v end)
-            end
-            for _, v in ipairs(list) do
-                local comp = (type(v) == "userdata" and v.get) and v:get() or v
-                local name = comp:GetFName():ToString()
-                if name == "Slot1" or name == "Slot2" then
-                    local l = comp:K2_GetComponentLocation()
-                    found[name] = { x = l.X, y = l.Y, z = l.Z }
-                end
-            end
-        end)
-        if not okComps then warnOnce("comps", "altar slot components unreadable: " .. tostring(compErr)) end
-        if found.Slot1 and found.Slot2 then points = { found.Slot1, found.Slot2, onPedestals = true } end
+        local okComps, found = pcall(slotComponents, actor)
+        if not okComps then
+            warnOnce("comps", "altar slot components unreadable: " .. tostring(found))
+        elseif found.Slot1 and found.Slot2 then
+            points = { found.Slot1, found.Slot2, onPedestals = true }
+        end
     elseif not okActor then
         warnOnce("actor", "altar actor unreadable, standing points from the model position: " .. tostring(actor))
     end
@@ -809,8 +856,21 @@ slotPoints = function(model)
             { x = c.X + dx, y = c.Y + dy, z = c.Z + STAGE_LIFT },
         }
     end
+    if okKey then pointCache[key] = points end
     return points
 end
+
+local function boundsRadius(body)
+    local origin, extent = {}, {}
+    body:GetActorBounds(true, origin, extent, false)
+    return math.max(extent.X or 0, extent.Y or 0) * BOUNDS_SHARE
+end
+local function capsuleHalf(body) return body.CapsuleComponent:GetScaledCapsuleHalfHeight() end
+local function standBody(body, p, yaw)
+    body:K2_SetActorLocation({ X = p.x, Y = p.y, Z = p.z }, false, {}, true)
+    body:K2_SetActorRotation({ Pitch = 0, Yaw = yaw, Roll = 0 }, false)
+end
+local function bySlotIndex(a, b) return a.index < b.index end
 
 local function stageGameThread()
     if not api then return end
@@ -819,25 +879,19 @@ local function stageGameThread()
     for _, m in ipairs(FindAllOf("PalMapObjectDisplayCharacterModel") or {}) do
         if isInstance(m) and modelId(m) == ALTAR_ID then altars[#altars + 1] = m end
     end
-    if #altars == 0 then return end
-    -- every Pal body in the world once, keyed by its individual
-    local bodies = {}
-    for _, a in ipairs(FindAllOf("PalCharacter") or {}) do
-        if isInstance(a) then
-            local okK, k = pcall(function() return api.individualKey(api.paramOf(a)) end)
-            if okK and k then bodies[k] = a end
-        end
-    end
     for _, m in ipairs(altars) do
         local cage = containerOf(m)
         local points = cage and slotPoints(m)
         if points then
             local inside = filledSlots(cage)
-            table.sort(inside, function(a, b) return a.index < b.index end)
+            table.sort(inside, bySlotIndex)
             for i, e in ipairs(inside) do
                 if i > 2 then break end
-                local okK, k = pcall(api.individualKey, e.param)
-                local body = okK and bodies[k] or nil
+                local okBody, body = pcall(phantomBody, e.param)
+                if not okBody then
+                    warnOnce("phantom", "altar Pal body unreadable: " .. tostring(body))
+                    body = nil
+                end
                 if body then
                     local p = points[#inside == 1 and 1 or i]
                     local other = points[i == 1 and 2 or 1]
@@ -845,11 +899,7 @@ local function stageGameThread()
                     -- Real pedestals fix the spot. Only the fallback points make room for a
                     -- big Pal: every Pal has the same small capsule, the mesh bounds show its size.
                     if not points.onPedestals and #inside > 1 then
-                        local okR, radius = pcall(function()
-                            local origin, extent = {}, {}
-                            body:GetActorBounds(true, origin, extent, false)
-                            return math.max(extent.X or 0, extent.Y or 0) * BOUNDS_SHARE
-                        end)
+                        local okR, radius = pcall(boundsRadius, body)
                         if okR and type(radius) == "number" then
                             local mx, my = (points[1].x + points[2].x) / 2, (points[1].y + points[2].y) / 2
                             local ox, oy = p.x - mx, p.y - my
@@ -867,7 +917,7 @@ local function stageGameThread()
                         yaw = yaw - 90
                     end
                     -- the body's origin is the middle of its capsule: stand it on the point
-                    local okH, half = pcall(function() return body.CapsuleComponent:GetScaledCapsuleHalfHeight() end)
+                    local okH, half = pcall(capsuleHalf, body)
                     if okH and type(half) == "number" then
                         p = { x = p.x, y = p.y, z = p.z + half }
                     else
@@ -875,10 +925,7 @@ local function stageGameThread()
                     end
                     local okFreeze, freezeErr = pcall(api.freeze, body, true)
                     if not okFreeze then warnOnce("freeze", "altar Pal not held still: " .. tostring(freezeErr)) end
-                    local okPlace, placeErr = pcall(function()
-                        body:K2_SetActorLocation({ X = p.x, Y = p.y, Z = p.z }, false, {}, true)
-                        body:K2_SetActorRotation({ Pitch = 0, Yaw = yaw, Roll = 0 }, false)
-                    end)
+                    local okPlace, placeErr = pcall(standBody, body, p, yaw)
                     if not okPlace then warnOnce("place", "altar Pal not placed on its slot: " .. tostring(placeErr)) end
                 end
             end

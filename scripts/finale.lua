@@ -586,6 +586,23 @@ function Finale.debugTimings(ctx)
     return cutoff
 end
 
+--- A finale without a driver of its own: the caller pumps it from the tick it
+--- already runs (Finale.pump(run.ctx, run.f, seconds since run.startedAt)), so
+--- no extra LoopAsync or per-spawn closure reaches UE4SS's callback collector.
+--- Returns { ctx, f, startedAt, growS } or nil. Game thread.
+function Finale.begin(worldCtx, x, y, z, elems, halfHeight, meshHalf)
+    local ctx = { worldCtx = worldCtx, oldX = x, oldY = y, oldZ = z, elemsTo = elems,
+        oldHalf = halfHeight, newHalf = halfHeight, meshHalfTo = meshHalf,
+        isPrestige = false }
+    local f = Finale.build(ctx)
+    if not f then
+        Log("[finale] begin: nothing to play (style/config)")
+        return nil
+    end
+    local growS = timings(ctx)
+    return { ctx = ctx, f = f, startedAt = os.clock(), growS = growS }
+end
+
 function Finale.playStandalone(worldCtx, x, y, z, elems, halfHeight, meshHalf, opts)
     opts = opts or {}
     local ctx = { worldCtx = worldCtx, oldX = x, oldY = y, oldZ = z, elemsTo = elems,
@@ -596,7 +613,7 @@ function Finale.playStandalone(worldCtx, x, y, z, elems, halfHeight, meshHalf, o
     local f = Finale.build(ctx)
     if not f then
         Log("[finale] standalone: nothing to play (style/config)")
-        return
+        return nil
     end
     local startedAt = os.clock()
     -- The tail has to fit the run, not a fixed four seconds: a stage 10 preview
@@ -624,6 +641,22 @@ function Finale.playStandalone(worldCtx, x, y, z, elems, halfHeight, meshHalf, o
         end
         return false
     end)
+    -- The caller can end the schedule early: nothing new spawns after this,
+    -- and what already burns fades out on its own time. growS is when the
+    -- finale's peak (the "grown" beat) fires, for a caller that animates the Pal.
+    local growS = timings(ctx)
+    return {
+        growS = growS,
+        stopSpawning = function()
+            f.idx = #f.events + 1
+        end,
+        -- ends what still burns too; runs on the game thread
+        stopAll = function()
+            f.idx = #f.events + 1
+            state.stopped = true
+            Finale.stopAll(f)
+        end,
+    }
 end
 
 return Finale

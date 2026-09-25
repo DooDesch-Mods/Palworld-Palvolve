@@ -1,10 +1,15 @@
--- fusionfx.lua: the altar fusion as a scene, about 22 seconds.
+-- fusionfx.lua: the altar fusion as a scene, about 27 seconds.
 --
+--   charge    light rises from both Pals in their element colours
 --   rise      both Pals lift off to opposite sides of the altar
 --   orbit     they circle each other, faster and closer, element bursts flaring
 --   collapse  they shrink into one point of light
 --   burst     both elements at once, then the caller commits the fusion
---   reveal    the fused Pal grows out of the light and lands
+--   reveal    the fused Pal grows out of the light and lands, with the
+--             evolution finale in its colours cut off at the landing, then a
+--             moment on its pedestal
+--
+-- fusioncam.lua films it for a player standing near the altar.
 --
 -- Server-driven actor movement, so other players see the orbit too; the
 -- effects use SpawnSystemAtLocation, which renders on client proxies.
@@ -17,6 +22,8 @@
 
 local Elements = require("elements")
 local Recipes = require("finale_recipes")
+local Finale = require("finale")
+local FusionCam = require("fusioncam")
 
 local FusionFx = {}
 
@@ -24,8 +31,36 @@ local function Log(msg)
     print(string.format("[Palvolve] [fusionfx] %s\n", tostring(msg)))
 end
 
+-- With devMode on, every step of a scene goes to a file of its own that is
+-- flushed per line: a native crash cuts off the end of UE4SS.log, and the end
+-- is where the answer is.
+local traceFile = nil
+local function trace(msg)
+    local okCfg, cfg = pcall(require, "config")
+    if not (okCfg and cfg.devMode) then return end
+    if not traceFile then
+        local dir = cfg.stateDir and cfg.stateDir()
+        if not dir then
+            Log("[WARN] scene trace off: no state folder")
+            return
+        end
+        traceFile = io.open(dir .. "\\fusion-scene-trace.log", "a")
+        if not traceFile then
+            Log("[WARN] scene trace off: file not writable")
+            return
+        end
+    end
+    traceFile:write(string.format("%.3f %s\n", os.clock(), tostring(msg)))
+    traceFile:flush()
+end
+FusionFx._trace = trace
+
 local TICK_MS = 33
-local RISE_S, ORBIT_S, COLLAPSE_S, BURST_S, REVEAL_S = 2.5, 12.5, 2.0, 1.0, 4.0
+local CHARGE_S, RISE_S, ORBIT_S, COLLAPSE_S, BURST_S, REVEAL_S, HOLD_S = 3.0, 2.0, 11.0, 2.0, 1.0, 4.0, 3.0
+local CHARGE_BEATS = { 0.2, 0.7, 1.2, 1.7, 2.2 } -- one rising burst per beat and Pal
+local STAND = 30 -- a body's origin above its feet (every Pal capsule is this small)
+local LAND_AFTER_PEAK_S = 0.4 -- the fused Pal touches down this long after the finale's peak
+local TAIL_OUT_S = 1.2 -- finale lights still burning this long after the landing are put out
 local RADIUS_START, RADIUS_END = 300, 50
 local LIFT_START, LIFT_END = 150, 260
 local SPEED_START, SPEED_END = 60, 900 -- degrees per second
@@ -51,6 +86,7 @@ local function loadSystem(path)
 end
 
 local function spawnAt(worldCtx, path, x, y, z, scale)
+    trace("spawn " .. tostring(path))
     local ns = loadSystem(path)
     local lib = StaticFindObject("/Script/Niagara.Default__NiagaraFunctionLibrary")
     if not (ns and lib and lib:IsValid() and worldCtx and worldCtx:IsValid()) then
@@ -83,6 +119,15 @@ local function ease(t) return t * t * (3 - 2 * t) end
 
 local run = nil -- the one scene that plays at a time
 
+--- Half the visible height of a Pal's body: effects belong at its middle, and
+--- the origin of every Pal sits at its feet.
+local function bodyHalf(actor)
+    local ok, h = pcall(function() return actor.StaticCharacterParameterComponent.MeshCapsuleHalfHeight end)
+    if ok and type(h) == "number" and h > 0 then return h end
+    Log("[WARN] body height unreadable, effects use 80: " .. tostring(h))
+    return 80
+end
+
 local function valid(a) return a ~= nil and a:IsValid() end
 
 local function place(actor, x, y, z, yaw)
@@ -110,10 +155,31 @@ local function finishRun(reason)
     releaseActor(r, r.a)
     releaseActor(r, r.b)
     releaseActor(r, r.c)
+    if r.finale and not r.finaleOut then
+        local okOut, outErr = pcall(Finale.stopAll, r.finale.f)
+        if not okOut then Log("[WARN] finale lights not put out at the end: " .. tostring(outErr)) end
+    end
+    local okCam, camErr = pcall(FusionCam.stop, reason)
+    if not okCam then Log("[ERROR] camera not handed back: " .. tostring(camErr)) end
     Log("scene ended: " .. reason)
     if r.onDone then
         local ok, err = pcall(r.onDone, reason)
         if not ok then Log("[ERROR] onDone failed: " .. tostring(err)) end
+    end
+end
+
+local function stepCharge(r, t)
+    while r.chargeBeat <= #CHARGE_BEATS and t >= CHARGE_BEATS[r.chargeBeat] do
+        local k = r.chargeBeat
+        for _, side in ipairs({ { r.a, r.elemA, r.bodyA }, { r.b, r.elemB, r.bodyB } }) do
+            local l = side[1]:K2_GetActorLocation()
+            spawnAt(r.worldCtx, burstFor(side[2]), l.X, l.Y, l.Z - STAND + side[3] * 0.4 + k * 90, 0.9)
+        end
+        r.chargeBeat = k + 1
+    end
+    if not r.charged and t >= CHARGE_S - 0.4 then
+        r.charged = true
+        spawnAt(r.worldCtx, ABSORB_NS, r.cx, r.cy, r.cz + LIFT_START, 1.3)
     end
 end
 
@@ -129,12 +195,17 @@ local function stepOrbit(r, t)
     local bx, by = cx - math.cos(rad) * radius, cy - math.sin(rad) * radius
     place(r.a, ax, ay, cz + lift, r.angle + 90)
     place(r.b, bx, by, cz + lift, r.angle - 90)
-    -- the flares come faster as the Pals speed up
+    -- the flares come faster as the Pals speed up, at the middle of each body,
+    -- and a pulse in the centre between them ties the two together
     if t >= RISE_S and t >= r.nextFlare then
-        spawnAt(r.worldCtx, burstFor(r.elemA), ax, ay, cz + lift, 0.8)
-        spawnAt(r.worldCtx, burstFor(r.elemB), bx, by, cz + lift, 0.8)
-        r.nextFlare = t + lerp(1.2, 0.3, orbitT)
+        spawnAt(r.worldCtx, burstFor(r.elemA), ax, ay, cz + lift - STAND + r.bodyA, 0.8)
+        spawnAt(r.worldCtx, burstFor(r.elemB), bx, by, cz + lift - STAND + r.bodyB, 0.8)
+        r.tetherA = not r.tetherA
+        spawnAt(r.worldCtx, burstFor(r.tetherA and r.elemA or r.elemB), cx, cy,
+            cz + lift - STAND + (r.bodyA + r.bodyB) / 2, lerp(0.5, 1.1, orbitT))
+        r.nextFlare = t + lerp(0.8, 0.2, orbitT)
     end
+    r.look = { x = cx, y = cy, z = cz + lift - STAND + (r.bodyA + r.bodyB) / 2 }
 end
 
 local function stepCollapse(r, t)
@@ -152,6 +223,7 @@ local function stepCollapse(r, t)
         r.absorbed = true
         spawnAt(r.worldCtx, ABSORB_NS, r.cx, r.cy, z, 1.5)
     end
+    r.look = { x = r.cx, y = r.cy, z = z }
 end
 
 local function stepBurst(r)
@@ -169,6 +241,8 @@ local function stepBurst(r)
     if r.elemB ~= r.elemA then
         spawnAt(r.worldCtx, centerpieceFor(r.elemB), r.cx, r.cy, z, 1.2)
     end
+    local okHit, hitErr = pcall(FusionCam.hit, 1.5, { R = 1, G = 1, B = 1, A = 1 })
+    if not okHit then Log("[WARN] burst camera hit failed: " .. tostring(hitErr)) end
     -- The commit runs here: the scene waits in the light for the fused Pal.
     local ok, err = pcall(r.onCommit)
     if not ok then
@@ -184,16 +258,45 @@ local function stepReveal(r, t)
         local okFreeze, freezeErr = pcall(r.freeze, r.c, true)
         if not okFreeze then Log("[WARN] fused Pal not frozen for the reveal: " .. tostring(freezeErr)) end
         spawnAt(r.worldCtx, centerpieceFor(r.elemC or r.elemA), r.cx, r.cy, r.cz + LIFT_END, 1.5)
+        -- the evolution finale in the new Pal's colours, where it comes to rest
+        local land = r.land or { x = r.cx, y = r.cy, z = r.cz }
+        local okFinale, fin = pcall(Finale.begin, r.worldCtx, land.x, land.y, land.z - STAND,
+            r.elemsC or { r.elemC or r.elemA }, STAND, bodyHalf(r.c))
+        if okFinale then
+            r.finale = fin
+            -- the Pal reaches full size on the finale's peak and lands right after
+            if fin and fin.growS and fin.growS > 0 then r.growS = fin.growS end
+        else
+            Log("[WARN] reveal finale did not start: " .. tostring(fin))
+        end
     end
-    local rt = math.max(0, math.min(1, (t - r.revealStart) / REVEAL_S))
-    local s = lerp(0.03, 1, ease(math.min(1, rt * 1.6)))
+    if r.landedAt then
+        -- lights that outlive the landing (the recall light keeps pulsing) are
+        -- put out a moment after it, so the scene ends on the standing Pal
+        if r.finale and not r.finaleOut and t >= r.landedAt + TAIL_OUT_S then
+            r.finaleOut = true
+            local okOut, outErr = pcall(Finale.stopAll, r.finale.f)
+            if not okOut then Log("[WARN] finale lights not put out: " .. tostring(outErr)) end
+        end
+        if t >= r.landedAt + HOLD_S then finishRun("revealed") end
+        return
+    end
+    local growS = r.growS or REVEAL_S
+    local revealS = growS + LAND_AFTER_PEAK_S
+    local rt = math.max(0, math.min(1, (t - r.revealStart) / revealS))
+    local s = lerp(0.03, 1, ease(math.min(1, (t - r.revealStart) / growS)))
     -- out of the light at the centre, down onto the landing point when there is one
     local land = r.land or { x = r.cx, y = r.cy, z = r.cz }
     local e = ease(rt)
     place(r.c, lerp(r.cx, land.x, e), lerp(r.cy, land.y, e), lerp(r.cz + LIFT_END, land.z, e),
         r.landYaw or r.angle)
     scaleTo(r.c, s)
-    if rt >= 1 then finishRun("revealed") end
+    r.look = { x = lerp(r.cx, land.x, e), y = lerp(r.cy, land.y, e), z = lerp(r.cz + LIFT_END, land.z, e) }
+    if rt >= 1 then
+        -- the Pal stands: the finale starts nothing new, so the scene ends on it
+        r.landedAt = t
+        if r.finale then r.finale.f.idx = #r.finale.f.events + 1 end
+    end
 end
 
 local function tickGameThread()
@@ -209,14 +312,18 @@ local function tickGameThread()
         return
     end
     local ok, err = true, nil
-    if t < RISE_S + ORBIT_S then
-        ok, err = pcall(stepOrbit, r, t)
-    elseif t < RISE_S + ORBIT_S + COLLAPSE_S then
-        ok, err = pcall(stepCollapse, r, t)
+    local st = t - CHARGE_S -- time since the Pals lifted off
+    trace(string.format("tick t=%.2f burst=%s c=%s", t, tostring(r.burst), tostring(r.c ~= nil)))
+    if t < CHARGE_S then
+        ok, err = pcall(stepCharge, r, t)
+    elseif st < RISE_S + ORBIT_S then
+        ok, err = pcall(stepOrbit, r, st)
+    elseif st < RISE_S + ORBIT_S + COLLAPSE_S then
+        ok, err = pcall(stepCollapse, r, st)
     elseif not r.burst then
         ok, err = pcall(stepBurst, r)
     elseif r.c then
-        ok, err = pcall(stepReveal, r, t)
+        ok, err = pcall(stepReveal, r, st)
     elseif r.findC then
         -- the fused Pal's actor is spawned by someone else (the altar respawns
         -- its phantom a moment after the commit): look for it a few times a second
@@ -232,6 +339,15 @@ local function tickGameThread()
         if not r.c and t > (r.burstAt or t) + r.findTimeout then
             finishRun("the fused Pal did not appear")
         end
+    end
+    if run == r and r.finale and not r.finaleOut then
+        local okPump, pumpErr = pcall(Finale.pump, r.finale.ctx, r.finale.f, os.clock() - r.finale.startedAt)
+        if not okPump then Log("[WARN] finale step failed: " .. tostring(pumpErr)) end
+    end
+    if run == r then
+        trace("camera follow")
+        FusionCam.follow(t, r.look)
+        trace("camera follow done")
     end
     if not ok then
         Log("[ERROR] scene step failed: " .. tostring(err))
@@ -266,9 +382,10 @@ function FusionFx.play(opts)
         elemA = (Elements.of(opts.idA, opts.worldCtx) or {})[1] or "Normal",
         elemB = (Elements.of(opts.idB, opts.worldCtx) or {})[1] or "Normal",
         freeze = opts.freeze, onCommit = opts.onCommit, onDone = opts.onDone,
-        startedAt = os.clock(), angle = 0, nextFlare = RISE_S,
+        startedAt = os.clock(), angle = 0, nextFlare = RISE_S, chargeBeat = 1,
         radiusStart = opts.startRadius or RADIUS_START, land = opts.land, landYaw = opts.landYaw,
-        deadline = RISE_S + ORBIT_S + COLLAPSE_S + BURST_S + REVEAL_S + 20,
+        bodyA = bodyHalf(opts.a), bodyB = bodyHalf(opts.b),
+        deadline = CHARGE_S + RISE_S + ORBIT_S + COLLAPSE_S + BURST_S + REVEAL_S + HOLD_S + 20,
     }
     -- the orbit starts where A stands, so neither Pal jumps at the first tick
     local okAngle, angleErr = pcall(function()
@@ -280,11 +397,15 @@ function FusionFx.play(opts)
         local okFreeze, freezeErr = pcall(opts.freeze, a, true)
         if not okFreeze then Log("[WARN] Pal not frozen for the scene: " .. tostring(freezeErr)) end
     end
+    run.look = { x = run.cx, y = run.cy, z = run.cz + (run.bodyA + run.bodyB) / 2 }
+    local okCam, filming = pcall(FusionCam.start, { worldCtx = opts.worldCtx,
+        center = { x = run.cx, y = run.cy, z = run.cz }, frontYaw = opts.landYaw or 0 })
+    if not okCam then Log("[WARN] camera did not start: " .. tostring(filming)) end
     if not driving then
         driving = true
         LoopAsync(TICK_MS, FusionFx._tick)
     end
-    Log(string.format("scene started (%s + %s)", run.elemA, run.elemB))
+    Log(string.format("scene started (%s + %s)%s", run.elemA, run.elemB, (okCam and filming) and ", filmed" or ""))
     return true
 end
 
@@ -292,7 +413,8 @@ end
 function FusionFx.reveal(actorC, idC)
     if not run then return end
     run.c = actorC
-    run.elemC = (Elements.of(idC, run.worldCtx) or {})[1]
+    run.elemsC = Elements.of(idC, run.worldCtx)
+    run.elemC = (run.elemsC or {})[1]
 end
 
 --- Like reveal, for an actor that does not exist yet: findC() is asked until it
@@ -301,7 +423,8 @@ function FusionFx.awaitReveal(findC, idC, timeoutS)
     if not run then return end
     run.findC = findC
     run.findTimeout = timeoutS or 6
-    run.elemC = (Elements.of(idC, run.worldCtx) or {})[1]
+    run.elemsC = Elements.of(idC, run.worldCtx)
+    run.elemC = (run.elemsC or {})[1]
 end
 
 --- One burst in an element's colour at a point, outside any scene.
