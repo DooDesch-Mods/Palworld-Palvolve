@@ -682,9 +682,8 @@ local function syncRoleChatMode()
     return true
 end
 
---- Applies a received tree. Returns false when nothing usable came out of it,
---- in which case the client keeps its previous tree rather than showing an empty
---- tree that claims to be the server's.
+--- Applies the host's fusion rules. A frame that fails its checks leaves the
+--- current rules in place.
 local function applyFusionFrame(frame)
     local hash, count, body = frame:match("^" .. TreeSync.PREFIX_FUSE:gsub("|", "%%|") .. "(%x+)|(%d+)|(.*)$")
     if not (hash and body) then
@@ -710,6 +709,9 @@ local function applyFusionFrame(frame)
     return true
 end
 
+--- Applies a received tree. Returns false when nothing usable came out of it,
+--- in which case the client keeps its previous tree rather than showing an empty
+--- tree that claims to be the server's.
 function TreeSync.applyFrame(frame)
     frame = tostring(frame or "")
     if frame:sub(1, #TreeSync.PREFIX_FUSE) == TreeSync.PREFIX_FUSE then

@@ -38,7 +38,8 @@ local niagaraClass = nil
 local function loadSystem(path)
     local obj = StaticFindObject(path)
     if not (obj and obj:IsValid()) then
-        pcall(LoadAsset, path)
+        local okLoad, loadErr = pcall(LoadAsset, path)
+        if not okLoad then Log("[WARN] effect asset did not load: " .. tostring(path) .. ": " .. tostring(loadErr)) end
         obj = StaticFindObject(path)
     end
     if not (obj and obj:IsValid()) then return nil end
@@ -93,20 +94,22 @@ local function scaleTo(actor, s)
     actor:SetActorScale3D({ X = s, Y = s, Z = s })
 end
 
+--- Puts an actor back to normal size and lets it move again.
+local function releaseActor(r, actor)
+    if not valid(actor) then return end
+    local okScale, scaleErr = pcall(scaleTo, actor, 1)
+    if not okScale then Log("[WARN] scale not reset: " .. tostring(scaleErr)) end
+    local okFreeze, freezeErr = pcall(r.freeze, actor, false)
+    if not okFreeze then Log("[WARN] actor not unfrozen: " .. tostring(freezeErr)) end
+end
+
 local function finishRun(reason)
     if not run then return end
     local r = run
     run = nil
-    for _, a in ipairs({ r.a, r.b }) do
-        if valid(a) then
-            pcall(scaleTo, a, 1)
-            pcall(r.freeze, a, false)
-        end
-    end
-    if valid(r.c) then
-        pcall(scaleTo, r.c, 1)
-        pcall(r.freeze, r.c, false)
-    end
+    releaseActor(r, r.a)
+    releaseActor(r, r.b)
+    releaseActor(r, r.c)
     Log("scene ended: " .. reason)
     if r.onDone then
         local ok, err = pcall(r.onDone, reason)
@@ -156,8 +159,10 @@ local function stepBurst(r)
     r.burst = true
     r.burstAt = os.clock() - r.startedAt
     local z = r.cz + LIFT_END
-    pcall(function() r.a:SetActorHiddenInGame(true) end)
-    pcall(function() r.b:SetActorHiddenInGame(true) end)
+    for _, a in ipairs({ r.a, r.b }) do
+        local okHide, hideErr = pcall(function() a:SetActorHiddenInGame(true) end)
+        if not okHide then Log("[WARN] Pal not hidden at the burst: " .. tostring(hideErr)) end
+    end
     spawnAt(r.worldCtx, CLOSE_NS, r.cx, r.cy, z, 1.5)
     spawnAt(r.worldCtx, IMPACT_NS, r.cx, r.cy, r.cz, 1.2)
     spawnAt(r.worldCtx, centerpieceFor(r.elemA), r.cx, r.cy, z, 1.2)
@@ -176,7 +181,8 @@ local function stepReveal(r, t)
     if not valid(r.c) then return end
     if not r.revealStart then
         r.revealStart = t
-        pcall(r.freeze, r.c, true)
+        local okFreeze, freezeErr = pcall(r.freeze, r.c, true)
+        if not okFreeze then Log("[WARN] fused Pal not frozen for the reveal: " .. tostring(freezeErr)) end
         spawnAt(r.worldCtx, centerpieceFor(r.elemC or r.elemA), r.cx, r.cy, r.cz + LIFT_END, 1.5)
     end
     local rt = math.max(0, math.min(1, (t - r.revealStart) / REVEAL_S))
@@ -230,10 +236,17 @@ local function tickGameThread()
     end
 end
 
+-- One driver at a time: a scene started right after another one ended would
+-- otherwise get the old driver's ticks on top of its own.
+local driving = false
+
 local function tick()
-    if not run then return true end
+    if not run then
+        driving = false
+        return true
+    end
     ExecuteInGameThread(tickGameThread)
-    return run == nil
+    return false
 end
 FusionFx._tick = tick -- held by the module so the scheduled callback is never collected
 
@@ -251,9 +264,14 @@ function FusionFx.play(opts)
         startedAt = os.clock(), angle = 0, nextFlare = RISE_S,
         deadline = RISE_S + ORBIT_S + COLLAPSE_S + BURST_S + REVEAL_S + 20,
     }
-    pcall(opts.freeze, opts.a, true)
-    pcall(opts.freeze, opts.b, true)
-    LoopAsync(TICK_MS, FusionFx._tick)
+    for _, a in ipairs({ opts.a, opts.b }) do
+        local okFreeze, freezeErr = pcall(opts.freeze, a, true)
+        if not okFreeze then Log("[WARN] Pal not frozen for the scene: " .. tostring(freezeErr)) end
+    end
+    if not driving then
+        driving = true
+        LoopAsync(TICK_MS, FusionFx._tick)
+    end
     Log(string.format("scene started (%s + %s)", run.elemA, run.elemB))
     return true
 end

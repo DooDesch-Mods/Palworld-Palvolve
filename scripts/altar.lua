@@ -10,11 +10,13 @@
 --   2. the scene plays (fusionfx.lua) until the burst
 --   3. A is rewritten into C and read back          -> restore A + refund on failure
 --   4. B's full record goes to fusion-ledger.lua, then B leaves the altar for the
---      box and that box slot is emptied (the only step with no way back: the
---      cage leaves a ghost phantom behind when a slot is emptied in place,
---      measured 2026-09-24)
+--      box and that box slot is emptied (the only step with no way back; B
+--      goes through the box because the cage leaves a ghost phantom behind
+--      when a slot is emptied in place)
 --   5. A leaves the altar and comes back, so the cage spawns C's phantom
 --   6. the scene reveals C, the cost is committed
+-- A scene that ends before step 3 (a Pal taken out, the player gone, a step
+-- that fails) gives the cost back.
 
 local Config = require("config")
 local Role = require("role")
@@ -31,6 +33,8 @@ local Altar = {}
 
 local ALTAR_ID = "Palvolve_FusionAltar"
 local MARKER_FUSED = "Palvolve_Fused"
+-- carried by both halves of a running battle fusion (fusion.lua)
+local MARKER_ACTIVE = "Palvolve_FusionActive"
 local REACH = 2000 -- units from the altar a player may start a fusion
 local LEDGER_NAME = "fusion-ledger.lua"
 
@@ -45,6 +49,22 @@ local function reply(playerCtx, key, ...)
     Log(msg)
     Role.chat(playerCtx, msg, "reply")
     return false, msg
+end
+
+--- IsValid without raising. A plain pcall around a UFunction call does not
+--- guard a freed object; this check before the call does.
+local function isLive(obj)
+    if obj == nil then return false end
+    local ok, valid = pcall(function() return obj:IsValid() end)
+    return ok and valid == true
+end
+
+--- A live instance, not the class default object FindAllOf also returns: a
+--- method call on that one faults natively, past any pcall.
+local function isInstance(obj)
+    if not isLive(obj) then return false end
+    local ok, name = pcall(function() return obj:GetFullName() end)
+    return ok and type(name) == "string" and not name:find("Default__", 1, true)
 end
 
 local function modelId(model)
@@ -75,7 +95,7 @@ local function findAltar(playerCtx, allowCage)
     if not here then return nil end
     local best, bestD = nil, REACH * REACH
     for _, m in ipairs(FindAllOf("PalMapObjectDisplayCharacterModel") or {}) do
-        local id = modelId(m)
+        local id = isInstance(m) and modelId(m) or nil
         if id == ALTAR_ID or (allowCage and id == "DisplayCharacter") then
             local p = modelPos(m)
             if p and dist2(p, here) <= bestD then best, bestD = m, dist2(p, here) end
@@ -126,9 +146,61 @@ local function emptyBoxSlot(box)
     return found
 end
 
-local function netContainer()
-    local c = FindFirstOf("PalNetworkCharacterContainerComponent")
-    if c and c:IsValid() then return c end
+--- The requesting player's container component (on the controller's
+--- transmitter). On a server every connected player has one, so any other
+--- instance is only the fallback for a controller that does not expose it.
+-- Fusions whose second Pal must have left the altar once the slot moves
+-- settle. The moves are requests; a server that refuses one would otherwise
+-- leave B in the cage next to the finished result.
+local pendingConsumed = {}
+
+--- Runs on the game thread. Empties the cage slot directly when B is still
+--- in it, so the Pal does not exist twice.
+function Altar._verifyConsumed()
+    local due = pendingConsumed
+    pendingConsumed = {}
+    for _, p in ipairs(due) do
+        if not (isInstance(p.cage) and isLive(p.net)) then
+            Log("[WARN] consume check skipped: the altar or the network container is gone (B " .. tostring(p.key) .. ")")
+        else
+            local stuck = nil
+            for _, e in ipairs(filledSlots(p.cage)) do
+                local okKey, k = pcall(api.individualKey, e.param)
+                if okKey and k == p.key then stuck = e end
+            end
+            if not stuck then
+                Log("[INFO] consume check: B " .. tostring(p.key) .. " left the altar")
+            else
+                Log("[ERROR] B " .. tostring(p.key) .. " is still in the altar after the fusion; emptying its slot")
+                local ok, err = pcall(function() p.net:RequestEmptySlot_ToServer_Rep(slotId(p.cage, stuck.index)) end)
+                if ok then Log("[INFO] consume check: stuck slot " .. tostring(stuck.index) .. " emptied")
+                else Log("[ERROR] consume check: the stuck slot could not be emptied: " .. tostring(err)) end
+            end
+        end
+    end
+end
+
+local function scheduleConsumedCheck(cage, net, key)
+    if key == nil then
+        Log("[WARN] consume check skipped: B has no individual key")
+        return
+    end
+    pendingConsumed[#pendingConsumed + 1] = { cage = cage, net = net, key = key }
+    -- one-shot LoopAsync, see UE4SS-LESSONS rule 1
+    LoopAsync(1500, function()
+        ExecuteInGameThread(Altar._verifyConsumed)
+        return true
+    end)
+end
+
+local function netContainer(playerCtx)
+    local okOwn, own = pcall(function() return playerCtx.pc.Transmitter.CharacterContainer end)
+    if okOwn and isLive(own) then return own end
+    Log("[WARN] the player's own network container is unreadable (" .. tostring(okOwn and "none" or own)
+        .. "), using the first one found")
+    for _, c in ipairs(FindAllOf("PalNetworkCharacterContainerComponent") or {}) do
+        if isInstance(c) then return c end
+    end
     return nil
 end
 
@@ -137,7 +209,7 @@ local function phantomOf(param, near)
     local okKey, key = pcall(api.individualKey, param)
     if not okKey then return nil end
     for _, a in ipairs(FindAllOf("PalCharacter") or {}) do
-        if not a:GetFullName():find("Default__") and a:IsValid() then
+        if isInstance(a) then
             local okL, l = pcall(function() return a:K2_GetActorLocation() end)
             if okL and l and dist2({ x = l.X, y = l.Y }, near) <= REACH * REACH then
                 local okP, k = pcall(function() return api.individualKey(api.paramOf(a)) end)
@@ -149,8 +221,11 @@ local function phantomOf(param, near)
 end
 
 local function readNumber(param, field)
-    local v = nil
-    pcall(function() v = param.SaveParameter[field] end)
+    local ok, v = pcall(function() return param.SaveParameter[field] end)
+    if not ok then
+        Log("[WARN] " .. tostring(field) .. " unreadable: " .. tostring(v))
+        return nil
+    end
     return tonumber(v)
 end
 
@@ -182,7 +257,9 @@ local function record(param)
         if v == nil then return nil, f .. " unreadable" end
         r.fields[f] = v
     end
-    pcall(function() r.rare = param.SaveParameter.IsRarePal == true end)
+    local okRare, rare = pcall(function() return param.SaveParameter.IsRarePal end)
+    if not okRare then return nil, "IsRarePal unreadable: " .. tostring(rare) end
+    r.rare = rare == true
     local passives, err = PalPassives.capture(param)
     if not passives then return nil, "passives: " .. tostring(err) end
     r.passives = passives
@@ -199,7 +276,8 @@ local function restoreRecord(param, r)
         local ok, err = pcall(writeBoth, param, f, v)
         if not ok then errs[#errs + 1] = f .. ": " .. tostring(err) end
     end
-    pcall(writeBoth, param, "IsRarePal", r.rare == true)
+    local okRare, rareErr = pcall(writeBoth, param, "IsRarePal", r.rare == true)
+    if not okRare then errs[#errs + 1] = "IsRarePal: " .. tostring(rareErr) end
     local okP, errP = PalPassives.restore(param, r.passives)
     if not okP then errs[#errs + 1] = "passives: " .. tostring(errP) end
     if #errs > 0 then return table.concat(errs, "; ") end
@@ -227,15 +305,22 @@ end
 --- so support can rebuild it by hand if something after this goes wrong.
 local function ledgerAppend(entry)
     local dir = Config.stateDir()
-    if not dir then return false end
+    if not dir then
+        Log("[ERROR] ledger not written: no folder for it")
+        return false
+    end
     local path = dir .. "\\" .. LEDGER_NAME
     local f = io.open(path, "ab")
     if not f then
         Log("[ERROR] ledger not writable: " .. path)
         return false
     end
-    f:write("-- " .. os.date("%Y-%m-%d %H:%M:%S") .. "\n" .. serialize(entry) .. "\n")
+    local okWrite, writeErr = f:write("-- " .. os.date("%Y-%m-%d %H:%M:%S") .. "\n" .. serialize(entry) .. "\n")
     f:close()
+    if not okWrite then
+        Log("[ERROR] ledger write failed: " .. tostring(writeErr))
+        return false
+    end
     return true
 end
 
@@ -285,6 +370,11 @@ function Altar.start(playerCtx, choice, opts)
     if #inside ~= 2 then return reply(playerCtx, "fusionAltarNeedsTwo", #inside) end
     for _, e in ipairs(inside) do
         if not api.isOwnedBy(e.param, playerCtx.playerUId) then return reply(playerCtx, "fusionAltarNotYours") end
+        -- Half of a running battle fusion: its split would later write the
+        -- old Pal back over the result, or look for a partner that is gone.
+        for _, id in ipairs(PalPassives.capture(e.param) or {}) do
+            if id == MARKER_ACTIVE then return reply(playerCtx, "fusionAlreadyActive") end
+        end
     end
     local A, B = inside[1], inside[2]
     local okA, rawA = pcall(api.characterId, A.param)
@@ -297,6 +387,12 @@ function Altar.start(playerCtx, choice, opts)
     local condCtx = { param = A.param, playerCtx = playerCtx }
     local target, source = Altar.resolveTarget(idA, idB, levelA, levelB, condCtx)
     if not target then return reply(playerCtx, source, api.displayName(idA), api.displayName(idB)) end
+    -- Without the exp table every level would count as reachable and the
+    -- result would land at the level cap.
+    if totalExp(1) == nil then
+        Log("[ERROR] altar fusion refused: the exp table is unreadable")
+        return reply(playerCtx, "optionUnavailable")
+    end
 
     local costList = Costs.resolve({ from = idA, to = target, stone = "fusionCore" }, levelA, playerCtx.pc)
     local txn = nil
@@ -397,18 +493,39 @@ function Altar.start(playerCtx, choice, opts)
         -- both repertoires stay pickable: everything either Pal could equip
         local okT, errT = WazaInherit.teach(A.param, movesA, movesB)
         if not okT then Log("[WARN] repertoire not merged: " .. tostring(errT)) end
-        pcall(function() A.param:FullRecoveryHP() end)
+        local okHeal, healErr = pcall(function() A.param:FullRecoveryHP() end)
+        if not okHeal then Log("[WARN] the fused Pal was not healed: " .. tostring(healErr)) end
         return nil
     end
 
-    local net = netContainer()
+    local net = netContainer(playerCtx)
     local box = boxOf(playerCtx)
 
+    -- The altar menu stays usable while the scene plays: at the burst, the two
+    -- slots must still hold the two Pals the scene started with.
+    local function stillInside()
+        if not (isLive(altar) and isLive(cage)) then return "the altar is gone" end
+        if not (isLive(A.param) and isLive(B.param)) then return "a Pal is gone" end
+        local keyAt = {}
+        for _, e in ipairs(filledSlots(cage)) do
+            local okKey, k = pcall(api.individualKey, e.param)
+            if okKey then keyAt[e.index] = k end
+        end
+        if keyAt[A.index] ~= recA.key or keyAt[B.index] ~= recB.key then
+            return "the Pals in the altar changed during the scene"
+        end
+        return nil
+    end
+
     local function consumeB()
-        if not (net and box) then return "no box or network container" end
+        if not (isLive(net) and isLive(box)) then return "no box or network container" end
         local free = emptyBoxSlot(box)
         if not free then return "the box is full" end
-        ledgerAppend({ consumed = recB, fusedInto = target, fusedWith = recA.key, player = tostring(playerCtx.playerUId and playerCtx.playerUId.A) })
+        if not ledgerAppend({ consumed = recB, fusedInto = target, fusedWith = recA.key,
+            player = tostring(playerCtx.playerUId and playerCtx.playerUId.A) }) then
+            Log("[ERROR] the consumed Pal has no ledger entry; its record: species "
+                .. tostring(recB.rawId) .. ", key " .. tostring(recB.key))
+        end
         local toBox = slotId(box, free.SlotIndex)
         local okMove, errMove = pcall(function() net:RequestSwap_ToServer_Rep(slotId(cage, B.index), toBox) end)
         if not okMove then return "B to box: " .. tostring(errMove) end
@@ -418,6 +535,7 @@ function Altar.start(playerCtx, choice, opts)
     end
 
     local function respawnA()
+        if not (isLive(net) and isLive(box) and isLive(altar)) then return "no box, network container or altar" end
         local free = emptyBoxSlot(box)
         if not free then return "the box is full" end
         local toBox = slotId(box, free.SlotIndex)
@@ -428,18 +546,39 @@ function Altar.start(playerCtx, choice, opts)
         return nil
     end
 
+    local rewriteStarted = false
+
+    -- the burst hid both phantoms; a fusion that stops there shows them again
+    local function showPhantomsAgain()
+        for _, p in ipairs({ phantomA, phantomB }) do
+            if isLive(p) then
+                local ok, err = pcall(function() p:SetActorHiddenInGame(false) end)
+                if not ok then Log("[WARN] phantom not shown again: " .. tostring(err)) end
+            end
+        end
+    end
+
     local started, why = FusionFx.play({
         worldCtx = playerCtx.pc, a = phantomA, b = phantomB, center = center,
         idA = idA, idB = idB, freeze = api.freeze,
         onCommit = function()
+            local errInside = stillInside()
+            if errInside then
+                Log("[ERROR] altar fusion stopped before the rewrite: " .. errInside)
+                refund("altar changed")
+                showPhantomsAgain()
+                FusionFx.abort("altar changed")
+                Role.chat(playerCtx, I18n.msg("fusionAltarFailed"), "reply")
+                return
+            end
+            rewriteStarted = true
             local err = mutateA()
             if err then
                 local restoreErr = restoreRecord(A.param, recA)
                 Log("[ERROR] altar fusion failed at the rewrite: " .. err
                     .. (restoreErr and ("; restore: " .. restoreErr) or "; A restored"))
                 refund("rewrite failed")
-                pcall(function() phantomA:SetActorHiddenInGame(false) end)
-                pcall(function() phantomB:SetActorHiddenInGame(false) end)
+                showPhantomsAgain()
                 FusionFx.abort("rewrite failed")
                 Role.chat(playerCtx, I18n.msg("swapStateMutationFailed"), "reply")
                 return
@@ -451,13 +590,13 @@ function Altar.start(playerCtx, choice, opts)
                 Log("[ERROR] altar fusion stopped before B left: " .. errB
                     .. (restoreErr and ("; restore: " .. restoreErr) or "; A restored"))
                 refund("consume failed")
-                pcall(function() phantomA:SetActorHiddenInGame(false) end)
-                pcall(function() phantomB:SetActorHiddenInGame(false) end)
+                showPhantomsAgain()
                 FusionFx.abort("consume failed")
                 Role.chat(playerCtx, I18n.msg("fusionAltarFailed"), "reply")
                 return
             end
             if txn then txn.commit() end
+            scheduleConsumedCheck(cage, net, recB.key)
             local errR = respawnA()
             if errR then
                 Log("[WARN] the fused Pal is done but its phantom did not respawn: " .. errR)
@@ -467,7 +606,20 @@ function Altar.start(playerCtx, choice, opts)
             Role.chat(playerCtx, I18n.msg("fusionAltarDone", api.displayName(idA),
                 api.displayName(idB), api.displayName(target)), "info")
         end,
-        onDone = function(reason) Log("altar scene: " .. tostring(reason)) end,
+        onDone = function(reason)
+            Log("altar scene: " .. tostring(reason))
+            if not (txn and not txn.done) then return end
+            if rewriteStarted then
+                -- the commit raised halfway: A may be rewritten already, so the
+                -- cost stays taken and the state goes to the log for support
+                Log("[ERROR] altar fusion stopped halfway through the commit (" .. tostring(reason)
+                    .. "); cost kept, A " .. tostring(recA.key) .. ", B " .. tostring(recB.key))
+                return
+            end
+            -- ended before the rewrite: a Pal left the altar, a step failed, or
+            -- the scene ran out of time
+            refund("scene ended: " .. tostring(reason))
+        end,
     })
     if not started then
         refund("scene did not start")
@@ -510,8 +662,20 @@ function Altar.pickInfo(playerCtx)
     end
     for _, id in ipairs(auto) do preset[#preset + 1] = at[id] end
     local costList = Costs.resolve({ from = idA, to = target, stone = "fusionCore" }, levelA, playerCtx.pc)
+    -- where each passive comes from, so the window can show the Pal that owns it
+    local fromA, fromB, sources = {}, {}, {}
+    for _, id in ipairs(passA) do fromA[id] = true end
+    for _, id in ipairs(passB) do fromB[id] = true end
+    for i, id in ipairs(pool) do
+        sources[i] = (fromA[id] and fromB[id]) and "ab" or (fromA[id] and "a" or "b")
+    end
+    local expA = math.max(readNumber(A.param, "Exp") or 0, totalExp(levelA) or 0)
+    local expB = math.max(readNumber(B.param, "Exp") or 0, totalExp(levelB) or 0)
+    local levelC = FusionRules.levelFor(levelA, expA, levelB, expB, function(l) return totalExp(l) or 0 end, 80)
     return {
         nameA = api.displayName(idA), nameB = api.displayName(idB), nameC = api.displayName(target),
+        idA = idA, idB = idB, idC = target, levelA = levelA, levelB = levelB, levelC = levelC,
+        sources = sources,
         pool = pool, ranks = ranks, preset = preset,
         gender = readNumber(A.param, "Gender") or 1,
         cost = #costList > 0 and Costs.describe(costList) or "",

@@ -150,19 +150,31 @@ function NetChannel.sendFuseAltar(playerCtx)
 end
 
 -- The second half of a picked altar fusion, sent once the host's rate limit
--- lets the next request through.
+-- lets the next request through. The wait runs on the LoopAsync thread; the
+-- send itself is a UFunction call and goes to the game thread.
 local pendingAltar = nil
+local altarDue = nil
+local function sendAltarGameThread()
+    local p = altarDue
+    altarDue = nil
+    if not p then return end
+    if sendRequest(p.ctx, OP_FUSE_ALTAR, p.gender == 2 and 3 or 2) then
+        Log("[net] altar request sent after the pick")
+    else
+        Log("[net] altar request after the pick could not be sent")
+    end
+end
 local function altarTick()
     local p = pendingAltar
     if not p then return true end
     if os.clock() < p.at then return false end
     pendingAltar = nil
-    if not sendRequest(p.ctx, OP_FUSE_ALTAR, p.gender == 2 and 3 or 2) then
-        Log("[net] altar request after the pick could not be sent")
-    end
+    altarDue = p
+    ExecuteInGameThread(sendAltarGameThread)
     return true
 end
 NetChannel._altarTick = altarTick -- held by the module so the callback is never collected
+NetChannel._sendAltarGameThread = sendAltarGameThread
 
 --- Sends the pick (pool positions and gender) and then the altar request.
 function NetChannel.sendFuseAltarChoice(playerCtx, passiveIndexes, gender)

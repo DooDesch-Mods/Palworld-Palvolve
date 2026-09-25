@@ -37,12 +37,24 @@ local api = nil          -- Evolution.fusionApi, handed over by Fusion.init
 local active = {}        -- A's individual key -> fusion entry
 local cooldowns = {}     -- pair key .. "|" .. owner uid -> os.clock() when it runs out
 local recoveryPending = true
+local recoverySkipLogged = {} -- A's key -> true once the skip was logged
 
 -- ---------------------------------------------------------------- small reads
 
+--- IsValid without raising. A plain pcall around a UFunction call does not
+--- guard a freed object; this check before the call does.
+local function isLive(obj)
+    if obj == nil then return false end
+    local ok, valid = pcall(function() return obj:IsValid() end)
+    return ok and valid == true
+end
+
 local function readNumber(param, field)
-    local v = nil
-    pcall(function() v = param.SaveParameter[field] end)
+    local ok, v = pcall(function() return param.SaveParameter[field] end)
+    if not ok then
+        Log("[WARN] " .. tostring(field) .. " unreadable: " .. tostring(v))
+        return nil
+    end
     return tonumber(v)
 end
 
@@ -51,10 +63,24 @@ local function writeBoth(param, field, value)
     param.SaveParameterMirror[field] = value
 end
 
+--- HP (fixed point, x1000) and whether it could be read at all. An unreadable
+--- HP counts as 0 for the checks that refuse a fusion, but never as a faint.
 local function hpOf(param)
-    local v = nil
-    pcall(function() v = param.SaveParameter.Hp.Value end)
-    return tonumber(v) or 0
+    local ok, v = pcall(function() return param.SaveParameter.Hp.Value end)
+    if not ok then
+        Log("[WARN] HP unreadable: " .. tostring(v))
+        return 0, false
+    end
+    return tonumber(v) or 0, true
+end
+
+local function levelOf(param)
+    local ok, v = pcall(function() return param:GetLevel() end)
+    if not ok or tonumber(v) == nil then
+        Log("[WARN] level unreadable, counting it as 1: " .. tostring(v))
+        return 1
+    end
+    return tonumber(v)
 end
 
 local function setHp(param, value)
@@ -91,8 +117,8 @@ local function captureA(param)
         if v == nil then return nil, field .. " unreadable" end
         snap.stats[field] = v
     end
-    local rare = nil
-    pcall(function() rare = param.SaveParameter.IsRarePal end)
+    local okRare, rare = pcall(function() return param.SaveParameter.IsRarePal end)
+    if not okRare then return nil, "IsRarePal unreadable: " .. tostring(rare) end
     snap.rare = rare == true
     local passives, passiveErr = PalPassives.capture(param)
     if not passives then return nil, "passives unreadable: " .. tostring(passiveErr) end
@@ -216,6 +242,15 @@ local function loadState()
     return records
 end
 
+local function recoveryFileExists()
+    local path = statePath()
+    if not path then return false end
+    local f = io.open(path, "r")
+    if not f then return false end
+    f:close()
+    return true
+end
+
 local function paramByKey(key)
     for _, p in ipairs(FindAllOf("PalIndividualCharacterParameter") or {}) do
         local ok, k = pcall(api.individualKey, p)
@@ -235,8 +270,8 @@ end
 local function splitData(e, fraction)
     local errs = {}
     local paramA, paramB = e.paramA, e.paramB
-    if not (paramA and paramA:IsValid()) then paramA = paramByKey(e.aKey) end
-    if not (paramB and paramB:IsValid()) then paramB = paramByKey(e.bKey) end
+    if not isLive(paramA) then paramA = paramByKey(e.aKey) end
+    if not isLive(paramB) then paramB = paramByKey(e.bKey) end
     if paramA then
         local err = restoreA(paramA, e.snapA)
         if err then errs[#errs + 1] = "A: " .. err end
@@ -251,10 +286,12 @@ local function splitData(e, fraction)
         errs[#errs + 1] = "A not found"
     end
     if paramB then
-        local passives = PalPassives.capture(paramB)
+        local passives, captureErr = PalPassives.capture(paramB)
         if passives then
             local okB, errB = PalPassives.restore(paramB, withoutMarker(passives))
             if not okB then errs[#errs + 1] = "B marker: " .. tostring(errB) end
+        else
+            errs[#errs + 1] = "B passives unreadable, marker left: " .. tostring(captureErr)
         end
         local maxB = tonumber(e.maxB) or e.hpB
         local share = fraction <= 0 and 0 or math.min(e.hpB, maxB * fraction)
@@ -276,7 +313,7 @@ local MUTEKI_FLAG = "PalvolveFusion"
 local guards = {} -- holder address -> { holder, untilT }
 
 local function setMuteki(actor, on)
-    if not (actor and actor:IsValid()) then return end
+    if not isLive(actor) then return end
     local ok, err = pcall(function() actor.CharacterParameterComponent:SetMuteki(FName(MUTEKI_FLAG), on) end)
     if not ok then Log("[WARN] invulnerability " .. (on and "on" or "off") .. " failed: " .. tostring(err)) end
 end
@@ -286,21 +323,29 @@ local function holderKey(holder)
     return ok and addr or tostring(holder)
 end
 
+--- The Pal the holder has out, or nil. The holder dies with the world or with
+--- a player who leaves, so it is checked before the call.
+local function spawnedOf(holder)
+    if not isLive(holder) then return nil end
+    local ok, actor = pcall(function() return holder:TryGetSpawnedOtomo() end)
+    if not ok then
+        Log("[WARN] summoned Pal unreadable: " .. tostring(actor))
+        return nil
+    end
+    return actor
+end
+
 --- Makes the Pal the holder has out invulnerable for `seconds` (the timer
 --- restarts, so calling it again after the swap covers the new body).
 local function protect(holder, seconds)
-    if not holder then return end
-    local actor = nil
-    pcall(function() actor = holder:TryGetSpawnedOtomo() end)
-    setMuteki(actor, true)
+    if not isLive(holder) then return end
+    setMuteki(spawnedOf(holder), true)
     guards[holderKey(holder)] = { holder = holder, untilT = os.clock() + seconds }
 end
 
 local function release(holder)
     if not holder then return end
-    local actor = nil
-    pcall(function() actor = holder:TryGetSpawnedOtomo() end)
-    setMuteki(actor, false)
+    setMuteki(spawnedOf(holder), false)
     guards[holderKey(holder)] = nil
 end
 
@@ -308,9 +353,7 @@ local function expireGuards(now)
     for key, g in pairs(guards) do
         if now >= g.untilT then
             guards[key] = nil
-            local actor = nil
-            pcall(function() actor = g.holder:TryGetSpawnedOtomo() end)
-            setMuteki(actor, false)
+            setMuteki(spawnedOf(g.holder), false)
         end
     end
 end
@@ -329,15 +372,16 @@ local function separate(key, e, reason)
     if e.splitting then return end
     e.splitting = true
     local paramA = e.paramA
-    local hp, maxHp = paramA and hpOf(paramA) or 0, paramA and maxHpOf(paramA) or nil
+    local live = isLive(paramA)
+    local hp, maxHp = live and hpOf(paramA) or 0, live and maxHpOf(paramA) or nil
     local fraction = (maxHp and maxHp > 0) and math.max(0, math.min(1, hp / maxHp)) or 1
     if reason == "fainted" then fraction = 0 end
+    e.splitFraction, e.splitReason = fraction, reason
 
-    local actor = nil
-    pcall(function() actor = e.holder:TryGetSpawnedOtomo() end)
+    local actor = spawnedOf(e.holder)
     -- by key: UE4SS hands out a fresh userdata per lookup, so == never matches
     local summoned = false
-    if actor and actor:IsValid() then
+    if isLive(actor) then
         local okKey, key = pcall(function() return api.individualKey(api.paramOf(actor)) end)
         summoned = okKey and key == e.aKey
     end
@@ -378,6 +422,51 @@ local function separate(key, e, reason)
         local err = splitData(e, fraction)
         if err then Log("[ERROR] split left errors: " .. err) end
         finish(key, e, reason)
+        return
+    end
+    -- the tick finishes the split from the data if the run ends before its swap
+    e.splitRunning = true
+end
+
+--- Takes back a fusion whose start never reached the swap: the run ended
+--- early, so B gets its HP and its markers back and A is only restored if
+--- the rewrite had begun.
+local function undoStart(key, e, why)
+    local errs = {}
+    if isLive(e.paramA) then
+        local passivesA = PalPassives.capture(e.paramA)
+        local marked = false
+        for _, id in ipairs(passivesA or {}) do
+            if id == MARKER_ACTIVE then marked = true end
+        end
+        if marked or not passivesA then
+            local err = restoreA(e.paramA, e.snapA)
+            if err then errs[#errs + 1] = "A: " .. err end
+        end
+    else
+        errs[#errs + 1] = "A not found"
+    end
+    if isLive(e.paramB) then
+        local passivesB, captureErr = PalPassives.capture(e.paramB)
+        if passivesB then
+            local okB, errB = PalPassives.restore(e.paramB, withoutMarker(passivesB))
+            if not okB then errs[#errs + 1] = "B marker: " .. tostring(errB) end
+        else
+            errs[#errs + 1] = "B passives unreadable, marker left: " .. tostring(captureErr)
+        end
+        local okHp, hpErr = pcall(setHp, e.paramB, e.hpB)
+        if not okHp then errs[#errs + 1] = "B hp: " .. tostring(hpErr) end
+    else
+        errs[#errs + 1] = "B not found"
+    end
+    release(e.holder)
+    active[key] = nil
+    saveState()
+    if #errs > 0 then
+        Log("[ERROR] fusion of " .. tostring(e.target) .. " taken back (" .. why .. ") with errors: "
+            .. table.concat(errs, "; "))
+    else
+        Log("fusion of " .. tostring(e.target) .. " taken back (" .. why .. ")")
     end
 end
 
@@ -388,9 +477,17 @@ local function recoverFromFile()
     if #records == 0 then return true end
     local pending = 0
     for _, r in ipairs(records) do
-        local paramA = paramByKey(r.aKey)
-        local paramB = paramByKey(r.bKey)
-        if not (paramA and paramB) then
+        -- A record of a fusion running in this session (written while an older
+        -- record still waited for its world) is live, not left over.
+        local running = active[r.aKey] ~= nil
+        local paramA = not running and paramByKey(r.aKey) or nil
+        local paramB = not running and paramByKey(r.bKey) or nil
+        if running then
+            if not recoverySkipLogged[r.aKey] then
+                recoverySkipLogged[r.aKey] = true
+                Log("[INFO] recovery skips the record of a fusion that is running now")
+            end
+        elseif not (paramA and paramB) then
             pending = pending + 1
         else
             local e = { aKey = r.aKey, bKey = r.bKey, snapA = r.snapA, hpB = r.hpB, maxB = r.maxB,
@@ -408,6 +505,32 @@ local function recoverFromFile()
     return true
 end
 
+-- A fused Pal whose parameter is gone from memory: the world closed, or its
+-- owner left. Its record, and with it the recovery file, stays until both Pals
+-- are loaded again; only then is anything written.
+local LOST_RETRY_S = 5
+local function tickLost(key, e, now)
+    if now < (e.nextLookup or 0) then return end
+    e.nextLookup = now + LOST_RETRY_S
+    local paramA, paramB = paramByKey(e.aKey), paramByKey(e.bKey)
+    if not (paramA and paramB) then
+        if not e.lostLogged then
+            e.lostLogged = true
+            Log("[WARN] a fused Pal is gone from memory; its record waits until both Pals are loaded again")
+        end
+        return
+    end
+    Log("[WARN] the fused Pal is back in memory, splitting it from the saved record")
+    -- the holder and the running presentation belonged to the old world
+    e.paramA, e.paramB, e.holder = paramA, paramB, nil
+    e.splitting, e.splitRunning = false, false
+    if e.endsAt == math.huge then
+        undoStart(key, e, "lost before it started")
+    else
+        separate(key, e, "lost")
+    end
+end
+
 local function tickGameThread()
     if not Role.hasWorldAuthority() then return end
     if recoveryPending then
@@ -422,21 +545,42 @@ local function tickGameThread()
     local now = os.clock()
     expireGuards(now)
     for key, e in pairs(active) do
-        if not e.splitting then
-            local paramA = e.paramA
-            if not (paramA and paramA:IsValid()) then
-                Log("[WARN] the fused Pal is gone from memory, splitting from the saved record")
-                separate(key, e, "lost")
-            elseif hpOf(paramA) <= 0 then
-                separate(key, e, "fainted")
-            elseif now >= e.endsAt then
-                separate(key, e, "time")
+        -- a presentation that ended without reaching its swap (aborted, or the
+        -- sequence watchdog) never calls back, so the tick notices it here
+        local runEnded = not api.busy()
+        if not isLive(e.paramA) then
+            if not e.splitRunning or runEnded then tickLost(key, e, now) end
+        elseif e.splitRunning then
+            if runEnded then
+                e.splitRunning = false
+                Log("[WARN] the split presentation ended before the swap, splitting the data only")
+                local err = splitData(e, e.splitFraction or 1)
+                if err then Log("[ERROR] split left errors: " .. err) end
+                finish(key, e, e.splitReason or "time")
+            end
+        elseif not e.splitting then
+            if e.endsAt == math.huge then
+                if runEnded then undoStart(key, e, "the presentation ended before the swap") end
+            else
+                local hp, hpKnown = hpOf(e.paramA)
+                if hpKnown and hp <= 0 then
+                    separate(key, e, "fainted")
+                elseif now >= e.endsAt then
+                    separate(key, e, "time")
+                end
             end
         end
     end
 end
 
+-- Idle ticks skip ExecuteInGameThread: every call registers a callback ref
+-- with UE4SS, and a mod that does so twice a second for nothing feeds the
+-- collector that kills timers (UE4SS-LESSONS.md section 1).
 local function tick()
+    if recoveryPending and not recoveryFileExists() then
+        recoveryPending = false
+    end
+    if not recoveryPending and next(active) == nil and next(guards) == nil then return false end
     ExecuteInGameThread(tickGameThread)
     return false
 end
@@ -493,9 +637,8 @@ function Fusion.startBattle(playerCtx, partnerSlot)
     end
 
     local holder = api.findHolder(playerCtx)
-    local actor = nil
-    if holder then pcall(function() actor = holder:TryGetSpawnedOtomo() end) end
-    if not (actor and actor:IsValid()) then return reply(playerCtx, "noPalSummoned") end
+    local actor = spawnedOf(holder)
+    if not isLive(actor) then return reply(playerCtx, "noPalSummoned") end
     local paramA = api.paramOf(actor)
     if not (paramA and api.isOwnedBy(paramA, playerCtx.playerUId)) then
         return reply(playerCtx, "noPalSummoned")
@@ -503,13 +646,17 @@ function Fusion.startBattle(playerCtx, partnerSlot)
     local keyA = api.individualKey(paramA)
     if active[keyA] then return reply(playerCtx, "fusionAlreadyActive") end
 
-    local handleB = nil
-    pcall(function() handleB = holder:GetOtomoIndividualHandle(partnerSlot) end)
     local paramB = nil
-    if handleB and handleB:IsValid() then pcall(function() paramB = handleB:TryGetIndividualParameter() end) end
-    if not (paramB and paramB:IsValid()) then return reply(playerCtx, "fusionNoPartner") end
+    local okSlot, slotErr = pcall(function()
+        local handleB = holder:GetOtomoIndividualHandle(partnerSlot)
+        if handleB and handleB:IsValid() then paramB = handleB:TryGetIndividualParameter() end
+    end)
+    if not okSlot then Log("[WARN] party slot " .. tostring(partnerSlot) .. " unreadable: " .. tostring(slotErr)) end
+    if not isLive(paramB) then return reply(playerCtx, "fusionNoPartner") end
     local keyB = api.individualKey(paramB)
     if keyB == keyA then return reply(playerCtx, "fusionNoPartner") end
+    -- B can be the fused half of another fusion, recalled into its ball
+    if active[keyB] then return reply(playerCtx, "fusionAlreadyActive") end
     for _, e in pairs(active) do
         if e.bKey == keyB or e.bKey == keyA then return reply(playerCtx, "fusionAlreadyActive") end
     end
@@ -523,9 +670,7 @@ function Fusion.startBattle(playerCtx, partnerSlot)
     end
     local idA, alphaA = api.baseCharacterId(rawA)
     local idB, alphaB = api.baseCharacterId(rawB)
-    local levelA, levelB = 1, 1
-    pcall(function() levelA = paramA:GetLevel() end)
-    pcall(function() levelB = paramB:GetLevel() end)
+    local levelA, levelB = levelOf(paramA), levelOf(paramB)
 
     local condCtx = { actor = actor, param = paramA, playerCtx = playerCtx, holder = holder }
     local target, source = Fusion.resolveTarget(idA, idB, levelA, levelB, condCtx)
@@ -568,8 +713,9 @@ function Fusion.startBattle(playerCtx, partnerSlot)
     for _, field in ipairs(STAT_FIELDS) do
         merged[field] = FusionRules.best(snapA.stats[field], readNumber(paramB, field))
     end
-    local rareB = false
-    pcall(function() rareB = paramB.SaveParameter.IsRarePal == true end)
+    local okRareB, rawRareB = pcall(function() return paramB.SaveParameter.IsRarePal end)
+    if not okRareB then Log("[WARN] partner's Lucky flag unreadable, counting it as not Lucky: " .. tostring(rawRareB)) end
+    local rareB = okRareB and rawRareB == true
     local targetId = target
     if alphaA or alphaB then targetId = "BOSS_" .. target end
 
@@ -636,11 +782,14 @@ function Fusion.startBattle(playerCtx, partnerSlot)
     })
     if not started then
         release(holder)
+        Log("[WARN] fusion presentation did not start: " .. tostring(why))
         -- nothing of A was written; give B back its HP and drop the record
-        pcall(setHp, paramB, entry.hpB)
-        PalPassives.restore(paramB, passivesB)
+        local okHp, hpErr = pcall(setHp, paramB, entry.hpB)
+        if not okHp then Log("[ERROR] partner HP not given back: " .. tostring(hpErr)) end
+        local okBack, backErr = PalPassives.restore(paramB, passivesB)
+        if not okBack then Log("[ERROR] partner marker not removed: " .. tostring(backErr)) end
         active[keyA] = nil
-        saveState()
+        if not saveState() then Log("[ERROR] recovery file not cleared after the refused start") end
         return reply(playerCtx, "optionUnavailable")
     end
     return true
@@ -664,17 +813,17 @@ function Fusion.wheelOptions(playerCtx, holder, paramA)
     local idA = api.baseCharacterId(rawA)
     local nameA = api.displayName(idA)
     local keyA = api.individualKey(paramA)
-    local levelA = 1
-    pcall(function() levelA = paramA:GetLevel() end)
+    local levelA = levelOf(paramA)
     local uid = playerCtx and playerCtx.playerUId and string.format("%s-%s-%s-%s",
         tostring(playerCtx.playerUId.A), tostring(playerCtx.playerUId.B),
         tostring(playerCtx.playerUId.C), tostring(playerCtx.playerUId.D)) or "local"
     for slot = 0, 4 do
         local paramB = nil
-        pcall(function()
+        local okSlot, slotErr = pcall(function()
             local h = holder:GetOtomoIndividualHandle(slot)
             if h and h:IsValid() then paramB = h:TryGetIndividualParameter() end
         end)
+        if not okSlot then Log("[WARN] fusion wheel: party slot " .. slot .. " unreadable: " .. tostring(slotErr)) end
         if paramB and paramB:IsValid() and api.individualKey(paramB) ~= keyA then
             local okB, rawB = pcall(api.characterId, paramB)
             if okB then
@@ -682,8 +831,7 @@ function Fusion.wheelOptions(playerCtx, holder, paramA)
                 local nameB = api.displayName(idB)
                 local opt = { fusion = "battle", partnerSlot = slot, index = slot + 1,
                     label = I18n.msg("fusionWithShort", nameB) }
-                local levelB = 1
-                pcall(function() levelB = paramB:GetLevel() end)
+                local levelB = levelOf(paramB)
                 if active[keyA] or Fusion.isFused(paramB) then
                     opt.blocked = I18n.msg("fusionAlreadyActive")
                 elseif hpOf(paramB) <= 0 then
@@ -717,8 +865,8 @@ function Fusion.wheelOptions(playerCtx, holder, paramA)
     return out
 end
 
---- Whether this parameter is half of a running fusion (evolution, prestige and
---- rollback refuse it while it is).
+--- Whether this parameter is half of a running fusion (evolution and prestige
+--- refuse it while it is, auto-evolve skips it).
 function Fusion.isFused(param)
     if not (api and param) then return false end
     local ok, key = pcall(api.individualKey, param)

@@ -119,7 +119,8 @@ function FusionRules.levelFor(levelA, expA, levelB, expB, totalExp, maxLevel)
     local cap = tonumber(maxLevel) or 80
     while level < cap do
         local need = tonumber(totalExp(level + 1))
-        if not need or need > sum then break end
+        -- every level above 1 needs some exp; a 0 means the table did not answer
+        if not need or need <= 0 or need > sum then break end
         level = level + 1
     end
     return level, sum
@@ -157,9 +158,12 @@ function FusionRules.mergeMarkers(listA, listB, skip)
     local others = {}
     local function scan(list, fromA)
         for _, id in ipairs(list or {}) do
-            local e, lock = id:match("^Palvolve_Evolved_(%d+)(_Locked)$")
-            if not e then e = id:match("^Palvolve_Evolved_(%d+)$") end
-            local pr = id:match("^Palvolve_Prestige_(%d+)$")
+            local e, lock, pr = nil, nil, nil
+            if type(id) == "string" then
+                e, lock = id:match("^Palvolve_Evolved_(%d+)(_Locked)$")
+                if not e then e = id:match("^Palvolve_Evolved_(%d+)$") end
+                pr = id:match("^Palvolve_Prestige_(%d+)$")
+            end
             if e then
                 evolved = math.max(evolved, tonumber(e))
                 if fromA and lock then locked = true end

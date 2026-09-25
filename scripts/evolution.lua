@@ -1794,7 +1794,7 @@ local function performEvolution(p)
                     Log("Fusion mutation failed and was rolled back: " .. tostring(reason))
                 else
                     Log("FUSION ROLLBACK FAILED after mutation error: " .. tostring(reason)
-                        .. "; restore=" .. tostring(okRestore and restoreErr or restoreErr))
+                        .. "; restore=" .. tostring(restoreErr))
                 end
                 Role.chat(playerCtx, I18n.msg("swapStateMutationFailed"), "reply")
                 refundCost("fusion mutation failed")
