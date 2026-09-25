@@ -12,6 +12,7 @@
 
 local I18n = require("i18n")
 local Role = require("role")
+local GameLoop = require("gameloop")
 
 local M = {}
 
@@ -27,7 +28,7 @@ local state = nil       -- the open pick: info, picked, gender, onConfirm
 local lastUrl = ""
 local ticks = 0
 local delivered = false
-local driving = false    -- one LoopAsync drives the window at a time
+local driving = false    -- one loop drives the window at a time
 local urlUnreadable = false
 local page = ""
 
@@ -278,7 +279,25 @@ local function hide(reason)
     return s
 end
 
-local function overlayOpen(w) return w:IsInViewport() and w:IsVisible() end
+-- Game menus live in the layer stacks of the overall UI layout, not in the
+-- viewport itself, so IsInViewport is false for every one of them.
+local function overlayOpen(w) return w:IsActivated() and w:IsVisible() end
+
+-- A menu is built from further overlay widgets (the altar menu holds the party
+-- and box lists). Only the outermost one is closed; it takes its parts along.
+local overlayClass = nil
+local function nestedInOverlay(w)
+    if not (overlayClass and overlayClass:IsValid()) then
+        overlayClass = StaticFindObject("/Script/Pal.PalUserWidgetOverlayUI")
+    end
+    local o = w:GetOuter()
+    for _ = 1, 12 do
+        if not (o and o:IsValid()) then return false end
+        if o:IsA(overlayClass) then return true end
+        o = o:GetOuter()
+    end
+    return false
+end
 local function overlayName(w) return w:GetClass():GetFullName() end
 local function overlayClose(w) w:Close() end
 
@@ -288,7 +307,13 @@ local function closeMenusBelow()
     local closed = 0
     for _, w in ipairs(FindAllOf("PalUserWidgetOverlayUI") or {}) do
         local okOpen, open = pcall(overlayOpen, w)
+        if not okOpen then Log("[WARN] menu state unreadable: " .. tostring(open)) end
+        local okNested, nested = false, false
         if okOpen and open then
+            okNested, nested = pcall(nestedInOverlay, w)
+            if not okNested then Log("[WARN] menu nesting unreadable, closing it anyway: " .. tostring(nested)) end
+        end
+        if okOpen and open and not (okNested and nested) then
             local okName, name = pcall(overlayName, w)
             local okClose, closeErr = pcall(overlayClose, w)
             if okClose then
@@ -383,7 +408,7 @@ local function tick()
         driving = false
         return true
     end
-    ExecuteInGameThread(tickGameThread)
+    tickGameThread()
     return false
 end
 M._tick = tick -- held by the module so the scheduled callback is never collected
@@ -473,7 +498,7 @@ function M.open(info, onConfirm)
     show()
     if not driving then
         driving = true
-        LoopAsync(TICK_MS, M._tick)
+        GameLoop.start(TICK_MS, M._tick, "fusion window")
     end
     Log(string.format("pick window open: %s + %s = %s, %d passives", info.nameA, info.nameB, info.nameC, #info.pool))
     return true

@@ -14,6 +14,7 @@
 -- or desynced client can never name something the host did not authorize.
 local Config = require("config")
 local Role = require("role")
+local GameLoop = require("gameloop")
 
 local NetChannel = {}
 
@@ -39,6 +40,7 @@ local OP_FUSE_ALTAR = 12
 -- OP_FUSE_PICK is a bit mask over the passive pool (at most eight entries),
 -- and OP_FUSE_ALTAR then says 1 = no pick, 2 = pick + male, 3 = pick + female.
 local OP_FUSE_PICK = 13
+local PICK_TO_ALTAR_S = 0.3
 NetChannel.OP_FUSE_BATTLE = OP_FUSE_BATTLE
 NetChannel.OP_FUSE_ALTAR = OP_FUSE_ALTAR
 NetChannel.OP_FUSE_PICK = OP_FUSE_PICK
@@ -151,9 +153,8 @@ function NetChannel.sendFuseAltar(playerCtx)
     return sendRequest(playerCtx, OP_FUSE_ALTAR, 1)
 end
 
--- The second half of a picked altar fusion, sent once the host's rate limit
--- lets the next request through. The wait runs on the LoopAsync thread; the
--- send itself is a UFunction call and goes to the game thread.
+-- The second half of a picked altar fusion, sent PICK_TO_ALTAR_S after the
+-- pick, on the game thread (gameloop.lua).
 local pendingAltar = nil
 local altarDue = nil
 local function sendAltarGameThread()
@@ -172,7 +173,7 @@ local function altarTick()
     if os.clock() < p.at then return false end
     pendingAltar = nil
     altarDue = p
-    ExecuteInGameThread(sendAltarGameThread)
+    sendAltarGameThread()
     return true
 end
 NetChannel._altarTick = altarTick -- held by the module so the callback is never collected
@@ -190,9 +191,10 @@ function NetChannel.sendFuseAltarChoice(playerCtx, passiveIndexes, gender)
         return sendRequest(playerCtx, OP_FUSE_ALTAR, gender == 2 and 3 or 2)
     end
     if not sendRequest(playerCtx, OP_FUSE_PICK, mask) then return false end
-    local gap = (Config.net and Config.net.rateLimitSeconds) or 2
-    pendingAltar = { ctx = playerCtx, gender = gender, at = os.clock() + gap + 0.3 }
-    LoopAsync(100, NetChannel._altarTick)
+    -- The host does not count the pick against its rate limit; the short wait
+    -- keeps the two requests from sharing one otomo selection on the carrier.
+    pendingAltar = { ctx = playerCtx, gender = gender, at = os.clock() + PICK_TO_ALTAR_S }
+    GameLoop.start(100, NetChannel._altarTick, "altar request after the pick")
     return true
 end
 
@@ -238,7 +240,12 @@ end
 local zeroUidLogged = false
 
 -- returns dropReason or nil (nil = accept)
-local function gate(uidStr, reqId)
+--
+-- A fusion pick only stores which passives the altar request right behind it
+-- keeps. It is checked for replays but neither limited nor counted, so that
+-- request goes through at once instead of waiting out the window the pick
+-- opened, and the scene starts on the click.
+local function gate(uidStr, reqId, opcode)
     local now = os.clock()
     local s = senders[uidStr]
     if not s then
@@ -248,8 +255,9 @@ local function gate(uidStr, reqId)
     local seenAt = s.seen[reqId]
     if seenAt and (now - seenAt) < REPLAY_WINDOW_S then return "duplicate" end
     local minGap = (Config.net and Config.net.rateLimitSeconds) or 2
-    if (now - s.last) < minGap then return "rate-limited" end
-    s.last = now
+    local counted = opcode ~= OP_FUSE_PICK
+    if counted and (now - s.last) < minGap then return "rate-limited" end
+    if counted then s.last = now end
     s.seen[reqId] = now
     -- evict stale entries so the table stays bounded
     for k, t in pairs(s.seen) do
@@ -403,7 +411,7 @@ function NetChannel.initHost(handler)
                         Log("Sender player id is a zero guid - per-player lookups will not match")
                     end
 
-                    local drop = gate(guidStr(senderCtx.playerUId), reqId)
+                    local drop = gate(guidStr(senderCtx.playerUId), reqId, opcode)
                     if drop then
                         Log("Request dropped: " .. drop)
                         return

@@ -24,9 +24,9 @@
 -- both in one scene; a dedicated server runs the logic alone and tells the
 -- players near the altar to play the picture (FusionFx.playRemote).
 --
--- One LoopAsync driver hands every tick to the game thread through named
--- functions: a closure per tick feeds UE4SS's callback collector, and a
--- collected callback that is still scheduled stops every timer of the mod
+-- One game-thread loop (gameloop.lua) drives every tick through named
+-- functions: LoopAsync plus ExecuteInGameThread 30 times a second corrupted
+-- UE4SS's callback registry and crashed client and server alike
 -- (UE4SS-LESSONS.md section 1). Every step checks the actors it touches, so a
 -- player leaving mid-scene ends it instead of faulting natively.
 
@@ -37,6 +37,7 @@ local FusionCam = require("fusioncam")
 local Rig = require("fusionrig")
 local Sound = require("sound")
 local Role = require("role")
+local GameLoop = require("gameloop")
 
 local FusionFx = {}
 
@@ -623,7 +624,7 @@ local function tick()
         driving = false
         return true
     end
-    ExecuteInGameThread(tickGameThread)
+    tickGameThread()
     return false
 end
 FusionFx._tick = tick -- held by the module so the scheduled callback is never collected
@@ -685,7 +686,7 @@ function FusionFx.play(opts)
         r.startedAt = os.clock()
         if not driving then
             driving = true
-            LoopAsync(TICK_MS, FusionFx._tick)
+            GameLoop.start(TICK_MS, FusionFx._tick, "fusion scene")
         end
         Log(string.format("scene started without a picture (%s + %s)", r.elemA, r.elemB))
         return true
@@ -716,7 +717,7 @@ function FusionFx.play(opts)
     FusionCam.shot({ yaw = 28, dist = 1350 * r.camK, up = 150, fov = 80 }, T_GATHER)
     if not driving then
         driving = true
-        LoopAsync(TICK_MS, FusionFx._tick)
+        GameLoop.start(TICK_MS, FusionFx._tick, "fusion scene")
     end
     Log(string.format("scene started (%s + %s), circle %.0f out, radius %.0f, scale %.2f%s%s", r.elemA, r.elemB,
         r.out, r.r0, r.sc, (okCam and filming) and ", filmed" or "", r.logic and "" or ", picture only"))

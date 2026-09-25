@@ -20,6 +20,7 @@
 
 local Config = require("config")
 local Role = require("role")
+local GameLoop = require("gameloop")
 local I18n = require("i18n")
 local Costs = require("costs")
 local Conditions = require("conditions")
@@ -226,11 +227,7 @@ local function scheduleConsumedCheck(cage, net, key)
         return
     end
     pendingConsumed[#pendingConsumed + 1] = { cage = cage, net = net, key = key }
-    -- one-shot LoopAsync, see UE4SS-LESSONS rule 1
-    LoopAsync(1500, function()
-        ExecuteInGameThread(Altar._verifyConsumed)
-        return true
-    end)
+    GameLoop.after(1500, Altar._verifyConsumed, "consume check")
 end
 
 local function netContainer(playerCtx)
@@ -766,7 +763,13 @@ end
 -- altar model's "Slot1"/"Slot2" components when the building has them, else
 -- points left and right of the altar's centre.
 
-local STAGE_TICK_MS = 2000
+-- A dedicated server places a new Pal at once through the change hooks at the
+-- end of this file; the tick only catches up. Those hooks are server events, so
+-- on a player's machine the tick is the only thing that stands a Pal set in
+-- there on its pedestal before it drifts off.
+local STAGE_TICK_SERVER_MS = 2000
+local STAGE_TICK_PLAYER_MS = 250
+local STAGE_SLOW_S = 0.02 -- a stage round longer than this is a visible hitch
 local SLOT_SPREAD = 150   -- units from the centre to each slot without slot components
 local STAGE_LIFT = 0      -- height of the standing point above the altar origin
 local SLOT_MARGIN = 60     -- room between a Pal's body and the altar's centre
@@ -860,6 +863,36 @@ local function standBody(body, p, yaw)
 end
 local function bySlotIndex(a, b) return a.index < b.index end
 
+-- What each slot showed at the last stage round, so a change is reported once.
+-- A Pal that is in the altar but has no visible body is invisible to the
+-- player, and nothing else would say so.
+local slotSeen = {}
+local phantomTally = 0
+local function tallyPhantom() phantomTally = phantomTally + 1 end
+local function phantomCount(param)
+    phantomTally = 0
+    param.PhantomActorMap:ForEach(tallyPhantom)
+    return phantomTally
+end
+local function describeBody(body)
+    local s = body:GetActorScale3D()
+    local l = body:K2_GetActorLocation()
+    return string.format("%s scale %.2f z %.0f", body:GetClass():GetFName():ToString(), s.X, l.Z)
+end
+local function reportSlot(key, body, param)
+    local what
+    if body then
+        local ok, d = pcall(describeBody, body)
+        what = ok and d or ("unreadable: " .. tostring(d))
+    else
+        local ok, n = pcall(phantomCount, param)
+        what = "no visible body (" .. (ok and tostring(n) or "?") .. " in the phantom map)"
+    end
+    if slotSeen[key] == what then return end
+    slotSeen[key] = what
+    Log("[INFO] altar slot " .. key .. ": " .. what)
+end
+
 -- The fusion altars in the world, shared by the stage and the window watch.
 -- FindAllOf walks every object in the game (about 27 ms), so the list is searched
 -- again only every ALTAR_LIST_S; a model dismantled in between is skipped by the
@@ -903,6 +936,8 @@ local function stageGameThread()
                     warnOnce("phantom", "altar Pal body unreadable: " .. tostring(body))
                     body = nil
                 end
+                local okKey, key = pcall(instanceKey, m)
+                reportSlot((okKey and key or "?") .. "#" .. i, body, e.param)
                 if body then
                     local p = points[#inside == 1 and 1 or i]
                     local other = points[i == 1 and 2 or 1]
@@ -943,12 +978,21 @@ local function stageGameThread()
         end
     end
 end
-Altar._stageGameThread = stageGameThread
+local function stageTimed()
+    local t0 = os.clock()
+    stageGameThread()
+    local took = os.clock() - t0
+    if took > STAGE_SLOW_S then
+        warnOnce("slow", string.format("altar stage round took %.0f ms (%d altar(s))",
+            took * 1000, #knownAltars))
+    end
+end
+Altar._stageGameThread = stageTimed
 
 local function stageTick()
     if not (Config.fusion.enabled and Config.fusion.altarEnabled) then return false end
     if altarsIdle() then return false end
-    ExecuteInGameThread(Altar._stageGameThread)
+    Altar._stageGameThread()
     return false
 end
 Altar._stageTick = stageTick -- held by the module so the scheduled callback is never collected
@@ -960,7 +1004,7 @@ Altar._stageTick = stageTick -- held by the module so the scheduled callback is 
 -- container replicates). Cancelling the window leaves the Pals in the altar, so
 -- the player can take one out or swap it.
 
-local WATCH_TICK_MS = 500
+local WATCH_TICK_MS = 200
 local watchDriving = false
 local watchCounts = {}       -- instance key -> Pals the altar held at the last look
 local watchWarned = false
@@ -1017,7 +1061,7 @@ end
 function Altar._watchTick()
     if not (Config.fusion.enabled and Config.fusion.altarEnabled) then return false end
     if altarsIdle() then return false end
-    ExecuteInGameThread(Altar._watchGameThread)
+    Altar._watchGameThread()
     return false
 end
 
@@ -1073,13 +1117,13 @@ function Altar.init(evolution)
     if not api then Log("[ERROR] Evolution.fusionApi missing, the altar stays off") end
     if not stageDriving then
         stageDriving = true
-        LoopAsync(STAGE_TICK_MS, Altar._stageTick)
+        GameLoop.start(Role.isDedicated() and STAGE_TICK_SERVER_MS or STAGE_TICK_PLAYER_MS, Altar._stageTick, "altar stage")
         Log("altar stage started")
     end
     hookAltarChanges()
     if not watchDriving and not Role.isDedicated() then
         watchDriving = true
-        LoopAsync(WATCH_TICK_MS, Altar._watchTick)
+        GameLoop.start(WATCH_TICK_MS, Altar._watchTick, "altar window watch")
         Log("altar window watch started")
     end
 end

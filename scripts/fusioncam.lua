@@ -15,6 +15,7 @@
 -- Every call runs on the game thread (fusionfx.lua drives it from its tick).
 
 local Role = require("role")
+local GameLoop = require("gameloop")
 local Rig = require("fusionrig")
 
 local FusionCam = {}
@@ -205,13 +206,8 @@ function FusionCam.stop(reason)
     end
     FusionCam._pending = r
     -- removed once the blend back is over, so the view never cuts
-    LoopAsync(math.floor((BLEND_OUT_S + 0.3) * 1000), FusionCam._removeLater)
+    GameLoop.after(math.floor((BLEND_OUT_S + 0.3) * 1000), FusionCam._destroyPending, "camera removal")
     Log("camera handed back (" .. tostring(reason) .. ")")
-end
-
-function FusionCam._removeLater()
-    ExecuteInGameThread(FusionCam._destroyPending)
-    return true
 end
 
 function FusionCam._destroyPending()

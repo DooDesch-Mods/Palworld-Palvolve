@@ -16,6 +16,7 @@
 
 local Config = require("config")
 local Role = require("role")
+local GameLoop = require("gameloop")
 local I18n = require("i18n")
 local Costs = require("costs")
 local Conditions = require("conditions")
@@ -643,15 +644,13 @@ local function tickGameThread()
     end
 end
 
--- Idle ticks skip ExecuteInGameThread: every call registers a callback ref
--- with UE4SS, and a mod that does so twice a second for nothing feeds the
--- collector that kills timers (UE4SS-LESSONS.md section 1).
+-- Runs on the game thread (gameloop.lua); an idle tick returns at once.
 local function tick()
     if recoveryPending and not recoveryFileExists() then
         recoveryPending = false
     end
     if not recoveryPending and next(active) == nil and next(guards) == nil then return false end
-    ExecuteInGameThread(tickGameThread)
+    tickGameThread()
     return false
 end
 
@@ -990,7 +989,7 @@ function Fusion.init(evolution)
         return
     end
     Fusion._tick = tick   -- held by the module so the scheduled callback is never collected
-    LoopAsync(TICK_MS, Fusion._tick)
+    GameLoop.start(TICK_MS, Fusion._tick, "battle fusion")
     Log("fusion ready")
 end
 
