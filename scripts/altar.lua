@@ -847,14 +847,36 @@ local function standBody(body, p, yaw)
 end
 local function bySlotIndex(a, b) return a.index < b.index end
 
+-- The fusion altars in the world, shared by the stage and the window watch.
+-- FindAllOf walks every object in the game (about 27 ms), so the list is searched
+-- again only every ALTAR_LIST_S; a model dismantled in between is skipped by the
+-- disposed check. With no altar in the list, both ticks leave the game thread
+-- alone until the next search is due: an idle tick schedules nothing.
+local ALTAR_LIST_S = 10
+local knownAltars = {}
+local altarsListedAt = -math.huge
+
+local function refreshAltars()
+    altarsListedAt = os.clock()
+    local list = {}
+    for _, m in ipairs(FindAllOf("PalMapObjectDisplayCharacterModel") or {}) do
+        if isInstance(m) and modelId(m) == ALTAR_ID then list[#list + 1] = m end
+    end
+    knownAltars = list
+end
+
+--- True when a tick has nothing to do: no altar known and no search due.
+local function altarsIdle()
+    return #knownAltars == 0 and os.clock() - altarsListedAt < ALTAR_LIST_S
+end
+
 local function stageGameThread()
     if not api then return end
     if FusionFx.playing() or api.busy() then return end
-    local altars = {}
-    for _, m in ipairs(FindAllOf("PalMapObjectDisplayCharacterModel") or {}) do
-        if isInstance(m) and modelId(m) == ALTAR_ID then altars[#altars + 1] = m end
-    end
-    for _, m in ipairs(altars) do
+    -- asked here, on the game thread: the tick itself runs on a worker thread
+    if not Role.hasWorldAuthority() then return end
+    if os.clock() - altarsListedAt >= ALTAR_LIST_S then refreshAltars() end
+    for _, m in ipairs(knownAltars) do
         local cage = containerOf(m)
         local points = cage and slotPoints(m)
         if points then
@@ -911,7 +933,7 @@ Altar._stageGameThread = stageGameThread
 
 local function stageTick()
     if not (Config.fusion.enabled and Config.fusion.altarEnabled) then return false end
-    if not Role.hasWorldAuthority() then return false end
+    if altarsIdle() then return false end
     ExecuteInGameThread(Altar._stageGameThread)
     return false
 end
@@ -925,25 +947,13 @@ Altar._stageTick = stageTick -- held by the module so the scheduled callback is 
 -- the player can take one out or swap it.
 
 local WATCH_TICK_MS = 500
-local WATCH_LIST_S = 10      -- how often the list of altars is searched again
 local watchDriving = false
-local watchAltars = {}       -- fusion altars in the world, refreshed every WATCH_LIST_S
-local watchListedAt = -math.huge
 local watchCounts = {}       -- instance key -> Pals the altar held at the last look
 local watchWarned = false
 
-local function refreshWatchList()
-    watchListedAt = os.clock()
-    local list = {}
-    for _, m in ipairs(FindAllOf("PalMapObjectDisplayCharacterModel") or {}) do
-        if isInstance(m) and modelId(m) == ALTAR_ID then list[#list + 1] = m end
-    end
-    watchAltars = list
-end
-
 local function nearestWatched(here)
     local best, bestD = nil, REACH * REACH
-    for _, m in ipairs(watchAltars) do
+    for _, m in ipairs(knownAltars) do
         local p = isInstance(m) and modelPos(m) or nil
         if p and dist2(p, here) <= bestD then best, bestD = m, dist2(p, here) end
     end
@@ -952,7 +962,7 @@ end
 
 local function watchStep()
     if FusionFx.playing() or (api and api.busy()) then return end
-    if os.clock() - watchListedAt >= WATCH_LIST_S then refreshWatchList() end
+    if os.clock() - altarsListedAt >= ALTAR_LIST_S then refreshAltars() end
     local playerCtx = Role.localPlayerCtx()
     local here = playerCtx and pawnPos(playerCtx)
     if not here then return end
@@ -991,6 +1001,8 @@ function Altar._watchGameThread()
 end
 
 function Altar._watchTick()
+    if not (Config.fusion.enabled and Config.fusion.altarEnabled) then return false end
+    if altarsIdle() then return false end
     ExecuteInGameThread(Altar._watchGameThread)
     return false
 end

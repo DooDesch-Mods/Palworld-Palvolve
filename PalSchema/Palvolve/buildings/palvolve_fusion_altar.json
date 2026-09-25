@@ -29,7 +29,7 @@
             ],
             "IconName": "Palvolve_FusionAltar",
             "IsBossTechnology": false,
-            "LevelCap": 45,
+            "LevelCap": 43,
             "Tier": 1,
             "Cost": 3
         }

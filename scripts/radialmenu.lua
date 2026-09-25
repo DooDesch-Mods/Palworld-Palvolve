@@ -124,17 +124,20 @@ end
 -- Identify the action wheel by its outer chain: the inner
 -- WBP_CommonRadialMenuBase lives in WBP_PlayerRadialMenu's widget tree.
 -- Other wheels (build menu, worker menu) share the class but not the outer.
+-- Asked every frame the wheel is on screen, so a named body: no closure per frame.
+local function outerIsActionMenu(wheel)
+    local o = wheel:GetOuter()
+    for _ = 1, 3 do
+        if not (o and o:IsValid()) then return false end
+        local cls = o:GetClass():GetFullName()
+        if string.find(cls, "WBP_PlayerRadialMenu_C", 1, true) then return true end
+        o = o:GetOuter()
+    end
+    return false
+end
+
 local function isActionWheel(wheel)
-    local ok, res = pcall(function()
-        local o = wheel:GetOuter()
-        for _ = 1, 3 do
-            if not (o and o:IsValid()) then return false end
-            local cls = o:GetClass():GetFullName()
-            if string.find(cls, "WBP_PlayerRadialMenu_C", 1, true) then return true end
-            o = o:GetOuter()
-        end
-        return false
-    end)
+    local ok, res = pcall(outerIsActionMenu, wheel)
     return ok and res == true
 end
 
@@ -667,20 +670,32 @@ local function subCommit()
     end
     if not opt or opt.cancel then
         if opt and opt.cancel and menuRef and menuRef:IsValid() then
-            ExecuteInGameThread(function()
-                pcall(function() menuRef:CloseMenu() end)
-            end)
+            RadialMenu._pendingOpt = false
+            ExecuteInGameThread(RadialMenu._subCommitGameThread)
         end
         return
     end
-    ExecuteInGameThread(function()
-        pcall(function()
-            if menuRef and menuRef:IsValid() then
-                pcall(function() menuRef:CloseMenu() end)
-            end
-            api.executeOption(opt)
-        end)
-    end)
+    RadialMenu._pendingOpt = opt
+    ExecuteInGameThread(RadialMenu._subCommitGameThread)
+end
+
+-- Every ExecuteInGameThread keeps a reference to the function it is handed. A
+-- new closure per wheel action feeds UE4SS's callback collector, which is what
+-- ends in "Ref was not function" or a native crash later (UE4SS-LESSONS.md
+-- section 1), so the wheel hands over these named functions and passes its
+-- data through module fields.
+local function closeMenu(menu) menu:CloseMenu() end
+
+function RadialMenu._subCommitGameThread()
+    local opt = RadialMenu._pendingOpt
+    RadialMenu._pendingOpt = nil
+    if menuRef and menuRef:IsValid() then
+        local okClose, closeErr = pcall(closeMenu, menuRef)
+        if not okClose then Log("[radial] wheel not closed: " .. tostring(closeErr)) end
+    end
+    if not opt then return end
+    local ok, err = pcall(api.executeOption, opt)
+    if not ok then Log("[radial] option failed: " .. tostring(err)) end
 end
 
 -- ---------------------------------------------------------------- injection
@@ -705,6 +720,49 @@ local function injectEntry(menu)
     end
 end
 
+function RadialMenu._injectGameThread()
+    local menu = RadialMenu._pendingMenu
+    RadialMenu._pendingMenu = nil
+    if menu then injectEntry(menu) end
+end
+
+local function openSubmenu(menu) menu:OpenPlayerActionMenu() end
+
+--- The commit on one of our segments, on the game thread: fetches the options
+--- of the kind chosen and reopens the wheel as their submenu.
+function RadialMenu._commitGameThread()
+    local kind = RadialMenu._pendingKind
+    RadialMenu._pendingKind = nil
+    local okList, opts, reason = pcall(api.listOptions, kind)
+    if not okList then
+        Log("[radial] options unreadable: " .. tostring(opts))
+        return
+    end
+    if not (opts and #opts > 0) then
+        Log(reason or "No evolution available")
+        return
+    end
+    -- the cancel entry is appended by buildSubmenu, after the cap,
+    -- so a full wheel cannot truncate the way out
+    subOptions = opts
+    subHoverIdx = nil
+    subKind = kind
+    subMode = true
+    subModeSince = os.clock()
+    local okOpen = false
+    if menuRef and menuRef:IsValid() then
+        okOpen = pcall(openSubmenu, menuRef)
+    end
+    if Config.devMode then
+        Log(string.format("[radial] submenu open: options=%d reopen=%s", #opts, tostring(okOpen)))
+    end
+    if not okOpen then
+        subMode = false
+        subOptions = nil
+        clearCenter()
+    end
+end
+
 function RadialMenu.init(evolutionApi)
     if not (Config.radialMenu == nil or Config.radialMenu) then return end
     api = evolutionApi
@@ -717,47 +775,17 @@ function RadialMenu.init(evolutionApi)
         local kind = fuseHover and "fusion" or (fuseIndex and "evolve" or nil)
         ourHover = false
         fuseHover = false
-        ExecuteInGameThread(function()
-            pcall(function()
-                local opts, reason = api.listOptions(kind)
-                if not (opts and #opts > 0) then
-                    Log(reason or "No evolution available")
-                    return
-                end
-                -- the cancel entry is appended by buildSubmenu, after the cap,
-                -- so a full wheel cannot truncate the way out
-                subOptions = opts
-                subHoverIdx = nil
-                subKind = kind
-                subMode = true
-                subModeSince = os.clock()
-                local okOpen = false
-                if menuRef and menuRef:IsValid() then
-                    okOpen = pcall(function() menuRef:OpenPlayerActionMenu() end)
-                end
-                if Config.devMode then
-                    Log(string.format("[radial] submenu open: options=%d reopen=%s",
-                        #opts, tostring(okOpen)))
-                end
-                if not okOpen then
-                    subMode = false
-                    subOptions = nil
-                    clearCenter()
-                end
-            end)
-        end)
+        RadialMenu._pendingKind = kind
+        ExecuteInGameThread(RadialMenu._commitGameThread)
     end
 
     -- runs synchronously right after the native recomputed nowSelectedIndex.
     -- Main mode: claim our segment and hide it from the vanilla decide
     -- switch (unknown indices would run the photo mode branch there).
     -- Submenu mode: observe only - vanilla is unbound, everything is ours.
-    local function suppressHandler(self)
-        -- Runs on every frame the selection changes, so a persistent fault would
-        -- write a line per frame. It writes one per wheel instead, which is
-        -- enough to tell "the hover stopped working" from "the hook never ran" -
-        -- and this pcall discarded its result entirely, so neither was visible.
-        local ok, err = pcall(function()
+    -- The body of the per-frame hover handler, a named function so a frame
+    -- makes no closure.
+    local function suppressBody(self)
             local wheel = self:get()
             if not (wheel and wheel:IsValid() and isActionWheel(wheel)) then return end
             local idx = wheel.nowSelectedIndex
@@ -836,7 +864,13 @@ function RadialMenu.init(evolutionApi)
             end
             -- idx == -1 keeps the last state: the wheel itself is sticky
             -- about the previous selection when the cursor rests mid-wheel
-        end)
+    end
+
+    local function suppressHandler(self)
+        -- Runs on every frame the selection changes, so a persistent fault would
+        -- write a line per frame. It writes one per wheel instead, which is
+        -- enough to tell "the hover stopped working" from "the hook never ran".
+        local ok, err = pcall(suppressBody, self)
         if not ok and not suppressErrLogged then
             suppressErrLogged = true
             Log("hover tracking failed on this wheel: " .. tostring(err))
@@ -859,9 +893,8 @@ function RadialMenu.init(evolutionApi)
                 wheelOpen = true
                 cancelRequested = false
                 suppressErrLogged = false
-                ExecuteInGameThread(function()
-                    pcall(function() injectEntry(menu) end)
-                end)
+                RadialMenu._pendingMenu = menu
+                ExecuteInGameThread(RadialMenu._injectGameThread)
             end,
         },
         {
