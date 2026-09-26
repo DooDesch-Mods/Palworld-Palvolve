@@ -20,6 +20,7 @@
 
 - **Palvolve no longer crashes the game or a dedicated server.** A crash could hit a few minutes after an evolution or a fusion, or while standing idle.
 - **The party panel shows the new Pal right after an evolution.** It kept the old name and element until you switched slots.
+- **The Save Cleaner also cleans lost Pals that can be bought back.** One of them with an Evolved, Prestige or Fused passive stopped the cleanup.
 
 ### Changed
 
