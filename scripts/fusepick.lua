@@ -301,27 +301,34 @@ end
 local function overlayName(w) return w:GetClass():GetFullName() end
 local function overlayClose(w) w:Close() end
 
---- A confirmed fusion plays as a scene, so the game menu the window was opened
---- over (the altar's, where the Pals go in) closes first.
-local function closeMenusBelow()
-    local closed = 0
+--- The game menus open right now, outermost only.
+local function openMenus()
+    local found = {}
     for _, w in ipairs(FindAllOf("PalUserWidgetOverlayUI") or {}) do
         local okOpen, open = pcall(overlayOpen, w)
         if not okOpen then Log("[WARN] menu state unreadable: " .. tostring(open)) end
         local okNested, nested = false, false
         if okOpen and open then
             okNested, nested = pcall(nestedInOverlay, w)
-            if not okNested then Log("[WARN] menu nesting unreadable, closing it anyway: " .. tostring(nested)) end
+            if not okNested then Log("[WARN] menu nesting unreadable, counting it as open: " .. tostring(nested)) end
         end
-        if okOpen and open and not (okNested and nested) then
-            local okName, name = pcall(overlayName, w)
-            local okClose, closeErr = pcall(overlayClose, w)
-            if okClose then
-                closed = closed + 1
-                Log("menu below closed: " .. tostring(okName and name or "?"))
-            else
-                Log("[WARN] menu below not closed: " .. tostring(closeErr))
-            end
+        if okOpen and open and not (okNested and nested) then found[#found + 1] = w end
+    end
+    return found
+end
+
+--- A confirmed fusion plays as a scene, so the game menu the window was opened
+--- over (the altar's, where the Pals go in) closes first.
+local function closeMenusBelow()
+    local closed = 0
+    for _, w in ipairs(openMenus()) do
+        local okName, name = pcall(overlayName, w)
+        local okClose, closeErr = pcall(overlayClose, w)
+        if okClose then
+            closed = closed + 1
+            Log("menu below closed: " .. tostring(okName and name or "?"))
+        else
+            Log("[WARN] menu below not closed: " .. tostring(closeErr))
         end
     end
     if closed == 0 then Log("no open menu below the pick window") end
@@ -374,7 +381,7 @@ local function tickGameThread()
     end
     if url:find("#ok", 1, true) then
         local s = hide("confirmed")
-        if s.cursorBefore then closeMenusBelow() end
+        closeMenusBelow()
         local choice = { passives = {}, passiveIndexes = {}, gender = s.gender }
         for i, id in ipairs(s.info.pool) do
             if s.picked[i] then
@@ -479,12 +486,14 @@ function M.open(info, onConfirm)
         return false
     end
     if state then hide("stale, nothing drove it") end
+    -- read before the window takes the mouse: a menu below (the altar's) gets
+    -- the mouse back on cancel and is closed on confirm
+    local okMenus, menus = pcall(openMenus)
+    if not okMenus then Log("[WARN] open menus unreadable at open: " .. tostring(menus)) end
+    local menuBelow = okMenus and #menus > 0
     if not ensureWindow() then return false end
     state = { info = info, picked = {}, gender = (info.gender == 2) and 2 or 1, onConfirm = onConfirm }
-    local pcNow = Role.getLocalPlayerController()
-    local okCursor, cursor = pcall(function() return pcNow.bShowMouseCursor end)
-    if not okCursor then Log("[WARN] mouse state unreadable at open: " .. tostring(cursor)) end
-    state.cursorBefore = okCursor and cursor == true
+    state.cursorBefore = menuBelow
     for _, i in ipairs(info.preset or {}) do
         if info.pool[i] and pickedCount() < MAX_PICKS then state.picked[i] = true end
     end
