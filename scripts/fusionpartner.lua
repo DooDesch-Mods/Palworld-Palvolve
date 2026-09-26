@@ -22,6 +22,7 @@
 local Elements = require("elements")
 local FusionFx = require("fusionfx")
 local FusionCam = require("fusioncam")
+local Rig = require("fusionrig")
 local GameLoop = require("gameloop")
 local Role = require("role")
 local Sound = require("sound")
@@ -75,6 +76,31 @@ local preludeDriving = false
 
 local function mid(p) return (p.ax + p.bx) / 2, (p.ay + p.by) / 2, (p.az + p.bz) / 2 + 60 end
 
+-- The drone and the charge loop until they are stopped, so they play on a
+-- holder actor that is removed at the merge, the way the altar scene plays
+-- them on its pivot. A sound posted at a bare location would never end.
+local function holderOf(p)
+    if p.holder and p.holder:IsValid() then return p.holder end
+    local x, y, z = mid(p)
+    local holder, err = Rig.spawn(p.worldCtx, x, y, z, 0)
+    if not holder then Log("[WARN] partner sound holder not spawned, the loops stay silent: " .. tostring(err)) end
+    p.holder = holder
+    return holder
+end
+
+local function loopOn(p, path)
+    local holder = holderOf(p)
+    if holder then Sound.onActor(path, holder, true) end
+end
+
+local function endLoops(p)
+    local holder = p.holder
+    p.holder = nil
+    if not (holder and holder:IsValid()) then return end
+    Sound.stopOn(holder)
+    Rig.destroy(holder)
+end
+
 local PRELUDE_CUES = {
     { t = 0.00, fn = function(p)
         Sound.at(Sound.PAL_RELEASE, p.worldCtx, p.bx, p.by, p.bz)
@@ -82,12 +108,12 @@ local PRELUDE_CUES = {
         FusionFx.spark(p.worldCtx, p.elemB, p.bx, p.by, p.bz + 60, 1.3)
     end },
     { t = 0.25, fn = function(p)
-        Sound.at(Sound.SUMMON_HAZE, p.worldCtx, p.ax, p.ay, p.az)
+        loopOn(p, Sound.SUMMON_HAZE)
         FusionFx.spark(p.worldCtx, p.elemA, p.ax, p.ay, p.az + 60, 1.1)
     end },
     { t = 0.45, fn = function(p)
         local x, y, z = mid(p)
-        Sound.at(Sound.ENERGY_CHARGE, p.worldCtx, x, y, z)
+        loopOn(p, Sound.ENERGY_CHARGE)
         FusionFx.absorbAt(p.worldCtx, x, y, z, 1.3)
     end },
     { t = HOLD_S, fn = function(p)
@@ -95,6 +121,7 @@ local PRELUDE_CUES = {
         FusionFx.speedlinesAt(p.worldCtx, x, y, z)
     end },
     { t = HOLD_S + MERGE_S, fn = function(p)
+        endLoops(p)
         FusionFx.absorbAt(p.worldCtx, p.ax, p.ay, p.az + 80, 1.4)
         FusionFx.spark(p.worldCtx, p.elemB, p.ax, p.ay, p.az + 60, 1.2)
         FusionCam.shake(p.worldCtx, 0.6)
@@ -115,6 +142,7 @@ function FusionPartner._preludeTick()
         if not ok then Log("[WARN] partner prelude beat " .. p.cue - 1 .. " failed: " .. tostring(err)) end
     end
     if p.cue > #PRELUDE_CUES then
+        endLoops(p)
         prelude = nil
         preludeDriving = false
         return true
@@ -124,6 +152,7 @@ end
 
 --- Starts the prelude on this machine. info: bx, by, bz, ax, ay, az, idA, idB.
 local function playPrelude(worldCtx, info)
+    if prelude then endLoops(prelude) end
     prelude = {
         worldCtx = worldCtx, startedAt = os.clock(), cue = 1,
         bx = info.bx, by = info.by, bz = info.bz, ax = info.ax, ay = info.ay, az = info.az,
