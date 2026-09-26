@@ -4,7 +4,7 @@
 
 ### Added
 
-- **Two Pals can fuse in a fight for 60 seconds.** Pick "Fusion" in the wheel, then the partner from your party: it steps out of its ball and merges into your summoned Pal. It costs a Fusion Shard, and the same two Pals wait five minutes before the next fusion.
+- **Two Pals can fuse in a fight for 60 seconds.** Pick "Fusion" in the wheel, then the partner from your party: it steps out of its ball with a lightning strike, charges up and shoots into your summoned Pal. The fused Pal lands with an impact and a roar. It costs a Fusion Shard, and the same two Pals wait five minutes before the next fusion.
 - **The fused Pal takes the best of both.** It gets the higher IVs and souls, the four best passives and the combined experience. Nothing can hit it while it fuses or splits.
 - **When the time runs out, the two split again and share the damage.** If the fused Pal faints, both do.
 - **The Fusion Altar turns two Pals into one for good.** It is a stone gate over two pedestals, and the two Pals wait there facing each other. The fusion plays as a filmed scene with its own sound: both Pals roar, rise off their pedestals and circle each other in front of the gate until they burst into the new Pal, which lands on the first pedestal and roars. It unlocks at technology level 43 and is built from the Pal section of the build menu. Set two of your Pals into it and the fusion window opens: choose up to four passives and the gender, or cancel to swap a Pal. The second Pal is used up, and each fusion costs a Fusion Core.
