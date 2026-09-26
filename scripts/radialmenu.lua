@@ -514,6 +514,20 @@ local function clearOurs()
     fuseIndex = nil
 end
 
+-- Width in slate units the center text wraps at: inside the inner circle.
+local CENTER_WRAP_WIDTH = 340
+
+-- The menu entry widget's text sits in Overlay_0 of its tree (canvas, highlight
+-- image, retainer box, overlay).
+local function wrapCenterText(widget)
+    local text = widget.BP_PalTextBlock_C_46
+    if not (text and text:IsValid()) then
+        text = widget.WidgetTree.RootWidget:GetChildAt(2):GetChildAt(0)
+    end
+    text:SetAutoWrapText(true)
+    text:SetWrapTextWidth(CENTER_WRAP_WIDTH)
+end
+
 local function setCenterText(menu, text)
     local wheel = wheelOf(menu)
     if not wheel then return end
@@ -539,6 +553,14 @@ local function setCenterText(menu, text)
         if not placed then
             clearCenter()
             return
+        end
+        -- A reason ("nothing is stronger than X and Y ...") is wider than the
+        -- wheel's inner circle, so the center text wraps inside it.
+        local okWrap, wrapErr = pcall(wrapCenterText, centerWidget)
+        if okWrap then
+            Log("[radial] center text wraps at " .. CENTER_WRAP_WIDTH)
+        else
+            Log("[radial] center text does not wrap: " .. tostring(wrapErr))
         end
         return
     end

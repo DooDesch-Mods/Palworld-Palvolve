@@ -7,6 +7,12 @@
 
 local Sound = {}
 
+-- Events that more than one sequence plays.
+local SE = "/Game/Pal/Sound/Events/SE/"
+Sound.FUSION_BURST = SE .. "Pal/RaidBoss/KingBahamut_Dragon/AKE_Pal_KingBahamut_Dragon_FormChange_EnergyBurst_01.AKE_Pal_KingBahamut_Dragon_FormChange_EnergyBurst_01"
+Sound.EXPLOSION = SE .. "Common/Explosion/AKE_General_Explosion.AKE_General_Explosion"
+Sound.SUMMON_FLASH = SE .. "MapObject/PalSummoningStand/AKE_Summon_Flash_01.AKE_Summon_Flash_01"
+
 local function Log(msg)
     print(string.format("[Palvolve] [sound] %s\n", tostring(msg)))
 end

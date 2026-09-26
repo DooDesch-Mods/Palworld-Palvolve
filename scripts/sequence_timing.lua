@@ -23,9 +23,10 @@ local PRESTIGE_FIRST = { spinUpMs = 3200, shrinkMs = 2600, growMs = 3700, finale
 local PRESTIGE_LAST  = { spinUpMs = 4800, shrinkMs = 3700, growMs = 5200, finaleHoldMs = 6300 }
 local PRESTIGE_MAX_STAGE = 10
 
--- A fusion in a fight has to be over before the fight moves on: about three
--- seconds from the flash to the fused Pal standing there.
-local FUSION_BATTLE = { spinUpMs = 600, shrinkMs = 500, growMs = 900, finaleHoldMs = 600 }
+-- A fusion in a fight has to be over before the fight moves on. There is no
+-- spin and no growth (fx.lua): the wind-up is only the moment the impact needs
+-- to read, and the hold keeps the fused Pal standing through its roar.
+local FUSION_BATTLE = { spinUpMs = 150, shrinkMs = 450, growMs = 200, finaleHoldMs = 1600 }
 
 local function round100(v)
     return math.floor(v / 100 + 0.5) * 100

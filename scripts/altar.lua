@@ -857,9 +857,19 @@ local function boundsRadius(body)
     return math.max(extent.X or 0, extent.Y or 0) * BOUNDS_SHARE
 end
 local function capsuleHalf(body) return body.CapsuleComponent:GetScaledCapsuleHalfHeight() end
+--- On a player's machine the altar's Pals are replicated proxies whose
+--- movement component does not tick: network smoothing parks the model where
+--- the body stood before it was moved, and nothing ever pulls it back. The
+--- scene and the altar move these bodies, so they put the model back on the
+--- body themselves.
+local function pinMesh(actor)
+    local o = actor.BaseTranslationOffset
+    actor.Mesh:K2_SetRelativeLocation({ X = o.X, Y = o.Y, Z = o.Z }, false, {}, false)
+end
 local function standBody(body, p, yaw)
     body:K2_SetActorLocation({ X = p.x, Y = p.y, Z = p.z }, false, {}, true)
     body:K2_SetActorRotation({ Pitch = 0, Yaw = yaw, Roll = 0 }, false)
+    pinMesh(body)
 end
 local function bySlotIndex(a, b) return a.index < b.index end
 

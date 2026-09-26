@@ -143,24 +143,6 @@ local function captureA(param)
 end
 
 --- Puts A back exactly as captured. Returns nil, or what did not land.
-local function restoreA(param, snap)
-    local errs = {}
-    local speciesErr = api.writeSpecies(param, snap.rawId)
-    if speciesErr then errs[#errs + 1] = speciesErr end
-    for field, v in pairs(snap.stats) do
-        local ok, err = pcall(writeBoth, param, field, v)
-        if not ok then errs[#errs + 1] = field .. ": " .. tostring(err) end
-    end
-    local okRare, rareErr = pcall(writeBoth, param, "IsRarePal", snap.rare)
-    if not okRare then errs[#errs + 1] = "IsRarePal: " .. tostring(rareErr) end
-    local okPassives, passiveErr = PalPassives.restore(param, snap.passives)
-    if not okPassives then errs[#errs + 1] = "passives: " .. tostring(passiveErr) end
-    local okOverride, overrideErr = pcall(function() param:SetOverrideLevel(0) end)
-    if not okOverride then errs[#errs + 1] = "override level: " .. tostring(overrideErr) end
-    if #errs > 0 then return table.concat(errs, "; ") end
-    return nil
-end
-
 local function withoutMarker(list)
     local out = {}
     for _, id in ipairs(list or {}) do
@@ -174,6 +156,27 @@ local function withMarker(list)
     out[#out + 1] = MARKER_ACTIVE
     return out
 end
+
+local function restoreA(param, snap)
+    local errs = {}
+    local speciesErr = api.writeSpecies(param, snap.rawId)
+    if speciesErr then errs[#errs + 1] = speciesErr end
+    for field, v in pairs(snap.stats) do
+        local ok, err = pcall(writeBoth, param, field, v)
+        if not ok then errs[#errs + 1] = field .. ": " .. tostring(err) end
+    end
+    local okRare, rareErr = pcall(writeBoth, param, "IsRarePal", snap.rare)
+    if not okRare then errs[#errs + 1] = "IsRarePal: " .. tostring(rareErr) end
+    -- Never the marker: a snapshot taken from a Pal that still carried one from
+    -- an interrupted fusion would otherwise hand it back on every split.
+    local okPassives, passiveErr = PalPassives.restore(param, withoutMarker(snap.passives))
+    if not okPassives then errs[#errs + 1] = "passives: " .. tostring(passiveErr) end
+    local okOverride, overrideErr = pcall(function() param:SetOverrideLevel(0) end)
+    if not okOverride then errs[#errs + 1] = "override level: " .. tostring(overrideErr) end
+    if #errs > 0 then return table.concat(errs, "; ") end
+    return nil
+end
+
 
 -- ---------------------------------------------------------------- recovery file
 

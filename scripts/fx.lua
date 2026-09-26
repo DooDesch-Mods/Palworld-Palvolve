@@ -37,6 +37,7 @@ local Recipes = require("finale_recipes")
 local Finale = require("finale")
 local Timing = require("sequence_timing")
 local GameLoop = require("gameloop")
+local Sound = require("sound")
 
 -- ---------------------------------------------------------------- shared helpers
 
@@ -308,6 +309,20 @@ local function setYaw(actor, yaw)
     end)
 end
 
+-- The ending of a fight fusion: the altar scene's impact at the Pal's feet,
+-- a ring of bursts in its elements, and its own roar.
+local function fusionEnding(ctx, newActor)
+    local FusionFx = require("fusionfx")
+    local x, y, z = ctx.oldX, ctx.oldY, ctx.oldZ
+    local groundZ = ctx.groundZ or z
+    spawnSystemAt(ctx.worldCtx, FusionFx.IMPACT_NS, x, y, groundZ, 1.0, true)
+    for i = 1, 4 do
+        local a = (i - 1) * math.pi / 2
+        spawnBurst(ctx.worldCtx, x + math.cos(a) * 120, y + math.sin(a) * 120, z, elemAt(ctx.elemsTo, i))
+    end
+    FusionFx.roar(newActor, "the fused Pal")
+end
+
 local M = {
     keepsFrozenUntilDone = true,
     dissolveDurationMs = function(ctx)
@@ -336,6 +351,16 @@ local M = {
         local faceYaw = yawTowardsPlayer(ctx, ctx.oldX, ctx.oldY) or ctx.oldYaw or 0
         ctx.fx.faceYaw = faceYaw
         setYaw(ctx.actor, faceYaw)
+        -- A fusion in a fight is an impact, not a transformation: the altar
+        -- scene's burst sound and a flash in the target's colours, then the
+        -- Pal shrinks away without turning.
+        if ctx.fusionKind then
+            Sound.at(Sound.FUSION_BURST, ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ)
+            Sound.at(Sound.EXPLOSION, ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ)
+            for i = 1, 3 do
+                spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ + (i - 1) * 50, elemAt(ctx.elemsTo, i))
+            end
+        end
 
         local state = {
             stopped = false,
@@ -367,11 +392,15 @@ local M = {
             local t = now - startedAt
             local progress = math.min(t / totalS, 1.0)
             -- quadratic ramp from a slow start to the peak speed
-            local speed = 45 + (c.peakDegPerSec - 45) * (progress * progress)
-            state.yaw = (state.yaw + speed * dt) % 360
-            setYaw(a, state.yaw)
-            -- phase B: shrink while still spinning (ease-in)
-            if t > spinUpS then
+            if not ctx.fusionKind then
+                local speed = 45 + (c.peakDegPerSec - 45) * (progress * progress)
+                state.yaw = (state.yaw + speed * dt) % 360
+                setYaw(a, state.yaw)
+            end
+            -- phase B: shrink while still spinning (ease-in). Not for a fight
+            -- fusion: on a player's machine the Pal is a replicated body the
+            -- host moves at the same time, and a local shrink visibly jumps.
+            if t > spinUpS and not ctx.fusionKind then
                 local st = math.min((t - spinUpS) / shrinkS, 1.0)
                 local s = 1.0 - 0.98 * (st * st)
                 pcall(function() a:SetActorScale3D({ X = s, Y = s, Z = s }) end)
@@ -379,7 +408,7 @@ local M = {
             -- White overlay only once the shrink starts: earlier the spin
             -- is still so slow that the white-out reads as a texture
             -- glitch instead of part of the effect.
-            if not state.glowApplied and t > spinUpS then
+            if not state.glowApplied and t > spinUpS and not ctx.fusionKind then
                 state.glowApplied = true
                 local glow = glowMaterial()
                 if glow then
@@ -394,7 +423,8 @@ local M = {
             if (now - state.lastBurst) >= interval then
                 state.lastBurst = now
                 state.burstNo = (state.burstNo or 0) + 1
-                spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ)
+                -- the light column stands for seconds; a fight fusion is over sooner
+                if not ctx.fusionKind then spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ) end
                 if ctx.isPrestige then
                     -- heavier and colourless: the old form's elements have
                     -- no say in a return to the base form
@@ -435,7 +465,13 @@ local M = {
             end
             i = i + 1
             local zOff = (i % 3) * 60
-            spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ + zOff)
+            if ctx.fusionKind then
+                -- one burst every other beat, no light column: the wait for the
+                -- swap is not the moment, the impact before and the roar after are
+                if i % 2 == 0 then return end
+            else
+                spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ + zOff)
+            end
             spawnBurst(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ + zOff,
                 elemAt(ctx.elemsFrom, i))
         end
@@ -461,20 +497,33 @@ local M = {
         -- freeze the fresh actor so its own summon/landing logic cannot fight
         -- the grow animation
         if ctx.freeze then pcall(ctx.freeze, newActor) end
-        pcall(function() newActor:SetActorScale3D({ X = 0.02, Y = 0.02, Z = 0.02 }) end)
+        if not ctx.fusionKind then
+            pcall(function() newActor:SetActorScale3D({ X = 0.02, Y = 0.02, Z = 0.02 }) end)
+        end
         setYaw(newActor, ctx.fx.faceYaw or 0)
     end,
 
     onReveal = function(ctx, newActor)
         if ctx.fx.stopPeak then ctx.fx.stopPeak() end
         ctx.fx.revealActor = newActor
+        if ctx.fusionKind then Sound.at(Sound.SUMMON_FLASH, ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ) end
         -- grand finale: reveal anchor flash, then the layered element
         -- schedule (base layer + target-element centerpiece/accents/ring,
         -- pumped by the driver below). Falls back to the legacy burst
         -- rosette when no schedule could be built.
-        spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ)
-        ctx.fx.finale = Finale.build(ctx)
-        if not ctx.fx.finale then legacyClimax(ctx) end
+        if not ctx.fusionKind then spawnLight(ctx.worldCtx, ctx.oldX, ctx.oldY, ctx.oldZ) end
+        if ctx.fusionKind then
+            -- A fight fusion ends on an impact and the new Pal's roar, not on
+            -- the evolution's light column, which would hide it for seconds.
+            ctx.fx.finale = nil
+            local okEnd, endErr = pcall(fusionEnding, ctx, newActor)
+            if not okEnd then
+                print(string.format("[Palvolve] [WARN] fusion ending failed: %s\n", tostring(endErr)))
+            end
+        else
+            ctx.fx.finale = Finale.build(ctx)
+            if not ctx.fx.finale then legacyClimax(ctx) end
+        end
         playEffect(newActor, 2)
 
         -- One continuous driver from reveal to the end of the finale hold:
@@ -550,7 +599,7 @@ local M = {
                 local p = t / growS
                 speed = c.peakDegPerSec * (1 - p) + 360 * p
                 local invp = 1 - p
-                local s = 0.02 + 0.98 * (1.0 - invp * invp)
+                local s = ctx.fusionKind and 1 or (0.02 + 0.98 * (1.0 - invp * invp))
                 state.scale = s
                 pcall(function() newActor:SetActorScale3D({ X = s, Y = s, Z = s }) end)
             elseif t < totalS - alignS then
@@ -570,6 +619,8 @@ local M = {
                 local remaining = math.max(totalS - t, 0.05)
                 speed = math.min(math.max(deltaCW / remaining, 240), c.peakDegPerSec)
             end
+            -- a fight fusion stands still facing the player
+            if ctx.fusionKind then speed = 0 end
             state.offset = state.offset + speed * dt
             -- Keep the height in sync with the growth: the engine
             -- floor-snaps the frozen actor while it is TINY and never

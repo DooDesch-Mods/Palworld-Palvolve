@@ -103,9 +103,9 @@ local SE = "/Game/Pal/Sound/Events/SE/"
 local SND_HAZE = SE .. "MapObject/PalSummoningStand/AKE_Summon_Haze_01.AKE_Summon_Haze_01"
 local SND_CHARGE = SE .. "Pal/RaidBoss/NightLady/AKE_Pal_Nightlady_FormChange_EnergyCharge_01.AKE_Pal_Nightlady_FormChange_EnergyCharge_01"
 local SND_SWIRL = SE .. "Skill/UniqueSkills/LegendDeer_ModeChange/AKE_LegendDeer_Modechange_Charge.AKE_LegendDeer_Modechange_Charge"
-local SND_BURST = SE .. "Pal/RaidBoss/KingBahamut_Dragon/AKE_Pal_KingBahamut_Dragon_FormChange_EnergyBurst_01.AKE_Pal_KingBahamut_Dragon_FormChange_EnergyBurst_01"
-local SND_BOOM = SE .. "Common/Explosion/AKE_General_Explosion.AKE_General_Explosion"
-local SND_FLASH = SE .. "MapObject/PalSummoningStand/AKE_Summon_Flash_01.AKE_Summon_Flash_01"
+local SND_BURST = Sound.FUSION_BURST
+local SND_BOOM = Sound.EXPLOSION
+local SND_FLASH = Sound.SUMMON_FLASH
 local SND_FANFARE = SE .. "UI/CampLevelUp/AKE_CampLevelUp.AKE_CampLevelUp"
 
 local WHITE = { R = 1, G = 1, B = 1, A = 1 }
@@ -520,6 +520,31 @@ end
 
 -- ------------------------------------------------------------------ driver
 
+--- On a player's machine the altar's Pals are replicated proxies whose
+--- movement component does not tick: network smoothing parks the model where
+--- the body stood before it was moved, and nothing ever pulls it back. The
+--- scene and the altar move these bodies, so they put the model back on the
+--- body themselves.
+local function pinMesh(actor)
+    local o = actor.BaseTranslationOffset
+    actor.Mesh:K2_SetRelativeLocation({ X = o.X, Y = o.Y, Z = o.Z }, false, {}, false)
+end
+
+local pinWarned = false
+local function pinBody(actor)
+    if not valid(actor) then return end
+    local ok, err = pcall(pinMesh, actor)
+    if not ok and not pinWarned then
+        pinWarned = true
+        Log("[WARN] Pal model not held on its body: " .. tostring(err))
+    end
+end
+local function pinBodies(r)
+    pinBody(r.a)
+    pinBody(r.b)
+    pinBody(r.c)
+end
+
 --- Puts an actor back to normal size and lets it move again.
 local function releaseActor(r, actor, unhide)
     if not valid(actor) then return end
@@ -604,6 +629,7 @@ local function tickGameThread()
         end
     end
     if run ~= r then return end
+    if not r.logic then pinBodies(r) end
     if r.finale and not r.finaleOut then
         local okPump, pumpErr = pcall(Finale.pump, r.finale.ctx, r.finale.f, os.clock() - r.finale.startedAt)
         if not okPump then Log("[WARN] finale step failed: " .. tostring(pumpErr)) end
@@ -852,6 +878,10 @@ function FusionFx.playing()
 end
 
 --- Length up to the burst plus a typical reveal, for callers that budget a watchdog.
+-- the fight fusion's ending in fx.lua uses the same roar and impact
+FusionFx.roar = roarLogged
+FusionFx.IMPACT_NS = IMPACT_NS
+
 FusionFx.LENGTH_S = T_BURST + REVEAL_S + LAND_AFTER_PEAK_S + HOLD_S
 
 return FusionFx

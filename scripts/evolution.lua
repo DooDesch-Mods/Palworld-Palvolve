@@ -1643,7 +1643,7 @@ local function performEvolution(p)
         pcall(function() actor:SetActorEnableCollision(false) end)
         pcall(function() fx.onDissolve(ctx) end)
     end
-    playFanfare(actor)
+    if not ctx.fusionKind then playFanfare(actor) end
 
     -- Teardown with per-strategy despawn verification. The direct manager
     -- teardown destroys the actor without the holder recall action (whose
@@ -1966,7 +1966,8 @@ local function performEvolution(p)
                 -- look. Anything not named here falls back to the evolution
                 -- presentation rather than reaching the wire as an unknown word.
                 local presentationMode = pair.category
-                if presentationMode ~= "adaptation" and presentationMode ~= "prestige" then
+                if presentationMode ~= "adaptation" and presentationMode ~= "prestige"
+                    and presentationMode ~= "fusion" then
                     presentationMode = "evolution"
                 end
                 -- the stage rides along, because the client cannot read it off
@@ -3809,6 +3810,9 @@ local function buildRemoteCtx(actor, holder, playerCtx, pair)
     -- passed in, so the client side gets the same answer from the synced tree
     -- without another field on the wire.
     ctx.isPrestige = (pair and pair.category == "prestige") or false
+    -- Only a fight fusion reaches this path (the altar plays its own scene), and
+    -- its short timing also decides when the host may reload the Pal.
+    ctx.fusionKind = (pair and pair.category == "fusion") and "temporary" or nil
     -- Which prestige programme plays: the Pal's own stage, so the Nth prestige
     -- outdoes the N-1th. Unknown reads as 1 rather than as nothing.
     -- The host's number wins where it is available: the local passive list can
@@ -3889,10 +3893,13 @@ function Evolution.onNetSignal(kind, phaseInfo)
         -- The same step by its own name. This line is the only one a client
         -- gets for a host-run step, and it said "evolving" for a prestige too -
         -- the one word the player uses to tell the two apart.
-        local startKey = (lastRemotePair and lastRemotePair.category == "prestige")
-            and "prestigingInto" or "evolvingInto"
-        Role.chat(playerCtx, I18n.msg(startKey, toName))
-        pcall(function() playFanfare(actor) end)
+        -- A fusion has its own line from the host and its own impact sound.
+        if not remoteCtx.fusionKind then
+            local startKey = (lastRemotePair and lastRemotePair.category == "prestige")
+                and "prestigingInto" or "evolvingInto"
+            Role.chat(playerCtx, I18n.msg(startKey, toName))
+            pcall(function() playFanfare(actor) end)
+        end
         pcall(function() FX.onDissolve(remoteCtx) end)
         -- after the dissolve, start the hold loop and recall the pal
         local dur = 1200
