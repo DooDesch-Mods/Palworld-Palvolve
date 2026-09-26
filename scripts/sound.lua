@@ -12,6 +12,10 @@ local SE = "/Game/Pal/Sound/Events/SE/"
 Sound.FUSION_BURST = SE .. "Pal/RaidBoss/KingBahamut_Dragon/AKE_Pal_KingBahamut_Dragon_FormChange_EnergyBurst_01.AKE_Pal_KingBahamut_Dragon_FormChange_EnergyBurst_01"
 Sound.EXPLOSION = SE .. "Common/Explosion/AKE_General_Explosion.AKE_General_Explosion"
 Sound.SUMMON_FLASH = SE .. "MapObject/PalSummoningStand/AKE_Summon_Flash_01.AKE_Summon_Flash_01"
+Sound.SUMMON_HAZE = SE .. "MapObject/PalSummoningStand/AKE_Summon_Haze_01.AKE_Summon_Haze_01"
+Sound.ENERGY_CHARGE = SE .. "Pal/RaidBoss/NightLady/AKE_Pal_Nightlady_FormChange_EnergyCharge_01.AKE_Pal_Nightlady_FormChange_EnergyCharge_01"
+-- the sound of a Pal leaving its sphere when it is called
+Sound.PAL_RELEASE = SE .. "Weapon/Sphere/AKE_Player_Sphere_ReleasePal.AKE_Player_Sphere_ReleasePal"
 
 local function Log(msg)
     print(string.format("[Palvolve] [sound] %s\n", tostring(msg)))

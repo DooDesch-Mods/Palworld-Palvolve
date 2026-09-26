@@ -173,6 +173,20 @@ local function loadShake(path)
     return nil
 end
 
+--- A small shake of a player's view, outside the filmed scene.
+function FusionCam.shake(pc, scale)
+    if not live(pc) then return end
+    local okPcm, pcm = pcall(function() return pc.PlayerCameraManager end)
+    if not (okPcm and live(pcm)) then
+        Log("[WARN] no camera manager for the shake")
+        return
+    end
+    local shake = loadShake(SHAKE_SMALL)
+    if not shake then return end
+    local ok, err = pcall(function() pcm:StartCameraShake(shake, scale or 1.0, 0, { Pitch = 0, Yaw = 0, Roll = 0 }) end)
+    if not ok then Log("[WARN] shake failed: " .. tostring(err)) end
+end
+
 --- A hit to the view: a shake (big or small) and, with a colour, a flash that
 --- fades out.
 function FusionCam.hit(scale, flash, big)

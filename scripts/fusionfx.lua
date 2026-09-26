@@ -100,8 +100,8 @@ local ROAR_NS = "/Game/Pal/Effect/CutScene/Electric_Boss/NS_ElectricBoss_Roar.NS
 local LIGHTNING_NS = "/Game/Pal/Effect/Skill/ThunderRain/NS_LightningStrike.NS_LightningStrike"
 
 local SE = "/Game/Pal/Sound/Events/SE/"
-local SND_HAZE = SE .. "MapObject/PalSummoningStand/AKE_Summon_Haze_01.AKE_Summon_Haze_01"
-local SND_CHARGE = SE .. "Pal/RaidBoss/NightLady/AKE_Pal_Nightlady_FormChange_EnergyCharge_01.AKE_Pal_Nightlady_FormChange_EnergyCharge_01"
+local SND_HAZE = Sound.SUMMON_HAZE
+local SND_CHARGE = Sound.ENERGY_CHARGE
 local SND_SWIRL = SE .. "Skill/UniqueSkills/LegendDeer_ModeChange/AKE_LegendDeer_Modechange_Charge.AKE_LegendDeer_Modechange_Charge"
 local SND_BURST = Sound.FUSION_BURST
 local SND_BOOM = Sound.EXPLOSION
@@ -865,8 +865,18 @@ function FusionFx.spark(worldCtx, element, x, y, z, scale)
 end
 
 --- The pull-into-the-ball effect at a point, outside any scene.
-function FusionFx.absorbAt(worldCtx, x, y, z)
-    return spawnAt(worldCtx, ABSORB_NS, x, y, z, 1.2)
+function FusionFx.absorbAt(worldCtx, x, y, z, scale)
+    return spawnAt(worldCtx, ABSORB_NS, x, y, z, scale or 1.2)
+end
+
+--- A lightning strike at a point, outside any scene.
+function FusionFx.lightningAt(worldCtx, x, y, z)
+    return spawnAt(worldCtx, LIGHTNING_NS, x, y, z, 1.0)
+end
+
+--- Speed lines at a point, outside any scene.
+function FusionFx.speedlinesAt(worldCtx, x, y, z)
+    return spawnAt(worldCtx, SPEEDLINE_NS, x, y, z, 1.0)
 end
 
 function FusionFx.abort(reason)

@@ -58,6 +58,7 @@ local SIGNAL_PREFIX = "PVLV1|sig|"
 local PHASE_PREFIX = "PVLV3|phase|"
 -- host -> client: an altar fusion starts, play its picture (fusionfx.lua)
 local SCENE_PREFIX = "PVLV3|scene|"
+local PARTNER_PREFIX = "PVLV3|partner|"
 
 local function palUtility()
     local u = StaticFindObject("/Script/Pal.Default__PalUtility")
@@ -596,6 +597,22 @@ end
 local function readIsLocal(pc) return pc:IsLocalPlayerController() end
 local function readName(o) return o:GetFullName() end
 
+--- Sends one frame to every connected player but the local one. Returns how
+--- many it reached.
+local function sendToPlayers(frame, channel, label)
+    local sent, failed = 0, 0
+    for _, pc in ipairs(FindAllOf("PalPlayerController") or {}) do
+        local okName, name = pcall(readName, pc)
+        local okLocal, isLocal = pcall(readIsLocal, pc)
+        if okName and not name:find("Default__", 1, true) and okLocal and not isLocal then
+            if sendClientText(pc, frame, channel) then sent = sent + 1 else failed = failed + 1 end
+        end
+    end
+    Log(string.format("[net] %s sent to %d player(s)%s", label, sent,
+        failed > 0 and string.format(", %d failed", failed) or ""))
+    return sent
+end
+
 --- Tells every connected player that an altar fusion starts, so each can play
 --- its picture: the server's effects, sounds and camera reach nobody. info:
 --- center {x,y,z}, land {x,y,z}, landYaw, idA, idB, idC. Returns how many
@@ -613,17 +630,23 @@ function NetChannel.broadcastAltarScene(info)
         string.format("%.1f", l.x), string.format("%.1f", l.y), string.format("%.1f", l.z),
         string.format("%.2f", info.landYaw or 0), info.idA, info.idB, info.idC,
     }, "|")
-    local sent, failed = 0, 0
-    for _, pc in ipairs(FindAllOf("PalPlayerController") or {}) do
-        local okName, name = pcall(readName, pc)
-        local okLocal, isLocal = pcall(readIsLocal, pc)
-        if okName and not name:find("Default__", 1, true) and okLocal and not isLocal then
-            if sendClientText(pc, frame, "PalvolveScene") then sent = sent + 1 else failed = failed + 1 end
-        end
+    return sendToPlayers(frame, "PalvolveScene", "altar scene")
+end
+
+--- Tells every connected player that a fight fusion's partner stepped out, so
+--- each plays the prelude: the host's effects and sounds reach nobody.
+--- info: bx, by, bz (the partner), ax, ay, az (the summoned Pal), idA, idB.
+function NetChannel.broadcastPartner(info)
+    if not (phaseFieldSafe(info.idA) and phaseFieldSafe(info.idB)) then
+        Log("[net] partner prelude not sent: invalid species id")
+        return 0
     end
-    Log(string.format("[net] altar scene sent to %d player(s)%s", sent,
-        failed > 0 and string.format(", %d failed", failed) or ""))
-    return sent
+    local frame = PARTNER_PREFIX .. table.concat({
+        string.format("%.1f", info.bx), string.format("%.1f", info.by), string.format("%.1f", info.bz),
+        string.format("%.1f", info.ax), string.format("%.1f", info.ay), string.format("%.1f", info.az),
+        info.idA, info.idB,
+    }, "|")
+    return sendToPlayers(frame, "PalvolvePartner", "partner prelude")
 end
 
 function NetChannel.sendPhaseReveal(pc, seq)
@@ -850,6 +873,38 @@ local function queueTreeFrame(frame)
 end
 
 local sceneFrames = {}
+local partnerFrames = {}
+
+local function parsePartner(text)
+    local f = {}
+    for part in (text:sub(#PARTNER_PREFIX + 1) .. "|"):gmatch("([^|]*)|") do f[#f + 1] = part end
+    if #f ~= 8 then return nil end
+    local n = {}
+    for i = 1, 6 do
+        n[i] = tonumber(f[i])
+        if not n[i] then return nil end
+    end
+    if f[7] == "" or f[8] == "" then return nil end
+    return { bx = n[1], by = n[2], bz = n[3], ax = n[4], ay = n[5], az = n[6], idA = f[7], idB = f[8] }
+end
+
+function NetChannel._partnerGameThread()
+    while #partnerFrames > 0 do
+        local text = table.remove(partnerFrames, 1)
+        local info = parsePartner(text)
+        if not info then
+            Log("[WARN] [net] partner call frame unreadable: " .. text)
+        else
+            local FusionPartner = package.loaded["fusionpartner"]
+            if not FusionPartner then
+                Log("[WARN] [net] partner call arrived, but the partner module is not loaded")
+            else
+                local ok, err = pcall(FusionPartner.callRemote, info)
+                if not ok then Log("[ERROR] [net] partner call failed: " .. tostring(err)) end
+            end
+        end
+    end
+end
 
 local function parseScene(text)
     local f = {}
@@ -901,6 +956,11 @@ local function handleClientMessage(_, Message)
     if text:sub(1, #SCENE_PREFIX) == SCENE_PREFIX then
         sceneFrames[#sceneFrames + 1] = text
         ExecuteInGameThread(NetChannel._sceneGameThread)
+        return
+    end
+    if text:sub(1, #PARTNER_PREFIX) == PARTNER_PREFIX then
+        partnerFrames[#partnerFrames + 1] = text
+        ExecuteInGameThread(NetChannel._partnerGameThread)
         return
     end
 

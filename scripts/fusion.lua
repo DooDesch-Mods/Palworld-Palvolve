@@ -882,7 +882,7 @@ function Fusion.startBattle(playerCtx, partnerSlot)
     starting[keyA], starting[keyB] = true, true
     protect(holder, 10)
     local shown, showWhy = FusionPartner.play({
-        worldCtx = playerCtx.pc, actorA = actor, handleB = handleB, paramB = paramB, idB = idB,
+        worldCtx = playerCtx.pc, actorA = actor, handleB = handleB, paramB = paramB, idA = idA, idB = idB,
         freeze = api.freeze,
         onDone = function(wasShown)
             if not wasShown then Log("[INFO] the partner was not shown, the fusion goes on without it") end

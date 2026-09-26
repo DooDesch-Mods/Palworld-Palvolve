@@ -1,8 +1,14 @@
 -- fusionpartner.lua: the partner steps out before a battle fusion, about 2 seconds.
 --
---   appear   B's body forms next to the summoned Pal A in a burst of B's element
---   hold     B stands still, facing A
---   merge    B glides into A and shrinks away; the fusion scene takes over
+--   appear   B's body forms next to the summoned Pal A: the sphere's release
+--            sound, a lightning strike and a burst in B's element
+--   charge   B rises facing A while energy gathers between them (the altar
+--            scene's drone and charge sounds)
+--   merge    B shoots into A and shrinks away; the fusion's impact takes over
+--
+-- The movement is the host's (the phantom replicates); the effects and sounds
+-- are each machine's own (prelude below), because a dedicated server's reach
+-- nobody.
 --
 -- B lives in the party ball during a battle fusion, and a player has only one
 -- summoned Pal. Its body here is a phantom (the same kind the Display Cage
@@ -15,7 +21,10 @@
 
 local Elements = require("elements")
 local FusionFx = require("fusionfx")
+local FusionCam = require("fusioncam")
 local GameLoop = require("gameloop")
+local Role = require("role")
+local Sound = require("sound")
 
 local FusionPartner = {}
 
@@ -25,7 +34,8 @@ end
 
 local TICK_MS = 33
 local FIND_S = 1.5              -- how long to wait for the phantom to exist
-local HOLD_S, MERGE_S = 1.2, 0.9
+local HOLD_S, MERGE_S = 1.5, 0.6
+local LIFT, LIFT_S = 80, 1.0     -- B rises this far during the charge
 local SIDE = 240                -- units beside A where B appears
 local FRONT = 200               -- and towards the player, so A does not hide it
 
@@ -45,15 +55,96 @@ local function characterManager()
 end
 
 --- Phantom ids of B that exist right now, as a set.
+local phantomWalk = nil
+local function collectPhantom(k, v) phantomWalk[k:get()] = v:get() end
+local function walkPhantoms(paramB) paramB.PhantomActorMap:ForEach(collectPhantom) end
 local function phantomIds(paramB)
-    local ids = {}
-    local ok, err = pcall(function()
-        paramB.PhantomActorMap:ForEach(function(k, v)
-            ids[k:get()] = v:get()
-        end)
-    end)
+    phantomWalk = {}
+    local ok, err = pcall(walkPhantoms, paramB)
     if not ok then Log("[WARN] phantom map unreadable: " .. tostring(err)) end
+    local ids = phantomWalk
+    phantomWalk = nil
     return ids
+end
+
+-- The prelude: what each machine sees and hears while the host moves B.
+-- Timed from B's appearance, on the same clock as HOLD_S and MERGE_S. No
+-- encounter animation: for many Pals that is an attack with its hit sounds.
+local prelude = nil
+local preludeDriving = false
+
+local function mid(p) return (p.ax + p.bx) / 2, (p.ay + p.by) / 2, (p.az + p.bz) / 2 + 60 end
+
+local PRELUDE_CUES = {
+    { t = 0.00, fn = function(p)
+        Sound.at(Sound.PAL_RELEASE, p.worldCtx, p.bx, p.by, p.bz)
+        FusionFx.lightningAt(p.worldCtx, p.bx, p.by, p.bz)
+        FusionFx.spark(p.worldCtx, p.elemB, p.bx, p.by, p.bz + 60, 1.3)
+    end },
+    { t = 0.25, fn = function(p)
+        Sound.at(Sound.SUMMON_HAZE, p.worldCtx, p.ax, p.ay, p.az)
+        FusionFx.spark(p.worldCtx, p.elemA, p.ax, p.ay, p.az + 60, 1.1)
+    end },
+    { t = 0.45, fn = function(p)
+        local x, y, z = mid(p)
+        Sound.at(Sound.ENERGY_CHARGE, p.worldCtx, x, y, z)
+        FusionFx.absorbAt(p.worldCtx, x, y, z, 1.3)
+    end },
+    { t = HOLD_S, fn = function(p)
+        local x, y, z = mid(p)
+        FusionFx.speedlinesAt(p.worldCtx, x, y, z)
+    end },
+    { t = HOLD_S + MERGE_S, fn = function(p)
+        FusionFx.absorbAt(p.worldCtx, p.ax, p.ay, p.az + 80, 1.4)
+        FusionFx.spark(p.worldCtx, p.elemB, p.ax, p.ay, p.az + 60, 1.2)
+        FusionCam.shake(p.worldCtx, 0.6)
+    end },
+}
+
+function FusionPartner._preludeTick()
+    local p = prelude
+    if not p then
+        preludeDriving = false
+        return true
+    end
+    local t = os.clock() - p.startedAt
+    while p.cue <= #PRELUDE_CUES and t >= PRELUDE_CUES[p.cue].t do
+        local cue = PRELUDE_CUES[p.cue]
+        p.cue = p.cue + 1
+        local ok, err = pcall(cue.fn, p)
+        if not ok then Log("[WARN] partner prelude beat " .. p.cue - 1 .. " failed: " .. tostring(err)) end
+    end
+    if p.cue > #PRELUDE_CUES then
+        prelude = nil
+        preludeDriving = false
+        return true
+    end
+    return false
+end
+
+--- Starts the prelude on this machine. info: bx, by, bz, ax, ay, az, idA, idB.
+local function playPrelude(worldCtx, info)
+    prelude = {
+        worldCtx = worldCtx, startedAt = os.clock(), cue = 1,
+        bx = info.bx, by = info.by, bz = info.bz, ax = info.ax, ay = info.ay, az = info.az,
+        elemA = (Elements.of(info.idA, worldCtx) or {})[1] or "Normal",
+        elemB = (Elements.of(info.idB, worldCtx) or {})[1] or "Normal",
+    }
+    if not preludeDriving then
+        preludeDriving = true
+        GameLoop.start(TICK_MS, FusionPartner._preludeTick, "partner prelude")
+    end
+end
+
+--- The players' side of a server's partner scene (NetChannel.broadcastPartner).
+function FusionPartner.callRemote(info)
+    local pc = Role.getLocalPlayerController()
+    if not (pc and pc:IsValid()) then
+        Log("[WARN] partner prelude skipped: no local player")
+        return
+    end
+    playPrelude(pc, info)
+    Log("partner prelude started (" .. tostring(info.idB) .. ")")
 end
 
 local function finish(reason, shown)
@@ -105,8 +196,21 @@ local function stepFind(r, t)
             local l = actor:K2_GetActorLocation()
             r.bx, r.by, r.bz = l.X, l.Y, l.Z
             r.foundAt = t
-            FusionFx.spark(r.worldCtx, r.elemB, r.bx, r.by, r.bz + 60, 1.0)
             Log("partner phantom " .. tostring(id) .. " appeared")
+            local ax, ay, az = aLocation(r)
+            local info = { bx = r.bx, by = r.by, bz = r.bz, ax = ax, ay = ay, az = az, idA = r.idA, idB = r.idB }
+            -- a dedicated server has nobody to show it to; the players play it themselves
+            if not Role.isDedicated() then
+                local okPrelude, preludeErr = pcall(playPrelude, r.worldCtx, info)
+                if not okPrelude then Log("[WARN] partner prelude failed: " .. tostring(preludeErr)) end
+            end
+            local okNet, NetChannel = pcall(require, "netchannel")
+            if okNet then
+                local okSend, sendErr = pcall(NetChannel.broadcastPartner, info)
+                if not okSend then Log("[WARN] partner call not sent to the players: " .. tostring(sendErr)) end
+            else
+                Log("[WARN] partner call not sent to the players: " .. tostring(NetChannel))
+            end
             return
         end
     end
@@ -116,20 +220,23 @@ end
 local function stepMerge(r, t)
     local ax, ay, az = aLocation(r)
     local yaw = math.deg(math.atan(ay - r.by, ax - r.bx))
-    local mt = (t - r.foundAt - HOLD_S) / MERGE_S
+    local held = t - r.foundAt
+    local mt = (held - HOLD_S) / MERGE_S
     if mt < 0 then
         r.b:K2_SetActorRotation({ Pitch = 0, Yaw = yaw, Roll = 0 }, false)
+        local lift = LIFT * ease(math.min(1, held / LIFT_S))
+        r.b:K2_SetActorLocation({ X = r.bx, Y = r.by, Z = r.bz + lift }, false, {}, true)
         return
     end
     mt = math.min(1, mt)
-    local e = ease(mt)
+    -- accelerating, so it reads as a shot rather than a glide
+    local e = mt * mt
     local x, y = lerp(r.bx, ax, e), lerp(r.by, ay, e)
-    local z = lerp(r.bz, az, e) + math.sin(mt * math.pi) * 120
+    local z = lerp(r.bz + LIFT, az, e) + math.sin(mt * math.pi) * 40
     r.b:K2_SetActorLocation({ X = x, Y = y, Z = z }, false, {}, true)
     local s = lerp(1, 0.15, e)
     r.b:SetActorScale3D({ X = s, Y = s, Z = s })
     if mt >= 1 then
-        FusionFx.absorbAt(r.worldCtx, ax, ay, az + 80)
         finish("merged", true)
     end
 end
@@ -216,6 +323,7 @@ function FusionPartner.play(opts)
         worldCtx = opts.worldCtx, actorA = opts.actorA, handleB = opts.handleB, paramB = opts.paramB,
         elemB = (Elements.of(opts.idB, opts.worldCtx) or {})[1] or "Normal",
         freeze = opts.freeze, onDone = opts.onDone, before = before, startedAt = os.clock(),
+        idA = opts.idA, idB = opts.idB,
     }
     if not driving then
         driving = true
