@@ -26,6 +26,7 @@ local I18n = require("i18n")
 local ConditionFeed = require("conditionfeed")
 local FaintWatch = require("faintwatch")
 local WAZA_IDS = require("waza_static")
+local BOSS_SPAWNERS = require("bossspawner_static")
 
 local Conditions = {}
 
@@ -60,6 +61,19 @@ local WORK_SUITABILITIES = {
     MonsterFarm = 13,
 }
 local WORK_RANK_MAX = 10
+
+-- EPalBossType (Pal_enums.hpp:956-972). The player record keys a beaten tower
+-- by "BOSS_BATTLE_NAME_<name>".
+local TOWER_BOSSES = {
+    GrassBoss = true, ElectricBoss = true, ForestBoss = true, SnowBoss = true,
+    DesertBoss = true, SakurajimaBoss = true, VikingBoss = true, SorajimaBoss = true,
+    KingWhaleBoss = true, WorldTreeMiddleBoss1 = true, WorldTreeMiddleBoss2 = true,
+    WorldTreeMiddleBoss3 = true, WorldTreeBoss = true,
+}
+
+-- species that have an Alpha spawner, for the sanitizer
+local ALPHA_SPECIES = {}
+for _, species in pairs(BOSS_SPAWNERS) do ALPHA_SPECIES[species] = true end
 
 -- EPalGenderType (objectdump 99662-99666)
 local GENDER_MALE, GENDER_FEMALE = 1, 2
@@ -688,6 +702,7 @@ local NUMERIC_PARAM_BOUNDS = {
     palLevel = { min = 1, max = 80 },
     playerHp = { min = 1, max = 100 },
     faintedAgo = { min = 1, max = 120 },
+    alphasDefeated = { min = 1, max = 200 },
     condenserRank = { min = 1, max = 4 },
     soulHP = { min = 1, max = 20 },
     soulAttack = { min = 1, max = 20 },
@@ -809,6 +824,78 @@ PARAM_EVAL.workRank = function(ctx, value)
     local ok, rank = pcall(workRankUnsafe, ctx.param, work)
     if not ok or rank == nil then return nil end
     return (tonumber(rank) or 0) >= need
+end
+
+-- Boss defeats live in the player record as replicated fast arrays that Lua
+-- cannot map; PalvolveNative walks them. That lookup searches the object list,
+-- so each player's answer is kept for a few seconds - the auto-evolve watcher
+-- asks several times a second.
+local BOSS_CACHE_S = 5
+local bossCache = {}
+
+local function guidString(g)
+    return string.format("%08X-%08X-%08X-%08X", g.A, g.B, g.C, g.D)
+end
+
+local function playerStateNameUnsafe(playerCtx)
+    local ps = playerCtx.playerState
+    if ps and ps:IsValid() then return ps:GetFName():ToString() end
+    return ""
+end
+
+-- set of the true keys of one record container, nil when unreadable
+local function bossFlags(ctx, container)
+    local playerCtx = ctx.playerCtx
+    if not playerCtx then return nil end
+    if type(PalvolveNative_GetRecordFlags) ~= "function" then
+        error("PalvolveNative is not loaded")
+    end
+    local uid = playerCtx.playerUId and guidString(playerCtx.playerUId) or ""
+    local okState, stateName = pcall(playerStateNameUnsafe, playerCtx)
+    if not okState then
+        Log("[WARN] boss record: player state unreadable: " .. tostring(stateName))
+        stateName = ""
+    end
+    local cacheKey = uid .. "|" .. stateName .. "|" .. container
+    local cached = bossCache[cacheKey]
+    if cached and os.clock() - cached.at < BOSS_CACHE_S then return cached.keys end
+    local joined, message = PalvolveNative_GetRecordFlags(container, uid, stateName)
+    if joined == nil then error("boss record unreadable: " .. tostring(message)) end
+    local keys = {}
+    for key in tostring(joined):gmatch("[^,]+") do keys[key] = true end
+    bossCache[cacheKey] = { at = os.clock(), keys = keys }
+    return keys
+end
+
+-- "defeatedTower:<EPalBossType>": the player has beaten that tower boss
+PARAM_EVAL.defeatedTower = function(ctx, value)
+    if not TOWER_BOSSES[value] then return false end
+    return bossFlags(ctx, "TowerBossDefeatFlag")["BOSS_BATTLE_NAME_" .. value] == true
+end
+
+-- "defeatedAlpha:<species>": the player has beaten an Alpha of that species at
+-- any of its spawners
+PARAM_EVAL.defeatedAlpha = function(ctx, value)
+    local want = value:lower()
+    for spawner in pairs(bossFlags(ctx, "NormalBossDefeatFlag")) do
+        if BOSS_SPAWNERS[spawner] == want then return true end
+    end
+    return false
+end
+
+local function alphaCountUnsafe(ctx)
+    local pc = ctx.playerCtx and ctx.playerCtx.pc
+    if not (pc and pc:IsValid()) then error("player controller unavailable") end
+    return pc:GetPalPlayerState():GetRecordData():GetNormalBossDefeatCount()
+end
+
+-- "alphasDefeated:<n>": the player has beaten at least n Alphas
+PARAM_EVAL.alphasDefeated = function(ctx, value)
+    local need = tonumber(value)
+    if not need then return false end
+    local ok, count = pcall(alphaCountUnsafe, ctx)
+    if not ok or count == nil then return nil end
+    return (tonumber(count) or 0) >= need
 end
 
 -- "palLevel:<n>": the Pal itself is at least level n
@@ -1137,6 +1224,34 @@ local function workLabel(work)
     return WORK_NAME_FALLBACKS[work] or work
 end
 
+local function localizedTowerNameUnsafe(boss)
+    local mdt = StaticFindObject("/Script/Pal.Default__PalMasterDataTablesUtility")
+    local ctx = FindFirstOf("PalPlayerCharacter")
+    if not (mdt and mdt:IsValid() and ctx and ctx:IsValid()) then return nil end
+    -- the game hides the whale's name, its arena name stands in
+    local key = boss == "KingWhaleBoss" and "KingWhaleRoom" or boss
+    -- EPalLocalizeTextCategory::UICommon = 1
+    local txt = mdt:GetLocalizedText(ctx, 1, FName("BOSS_BATTLE_NAME_" .. key))
+    local value = txt and txt:ToString()
+    if value and value ~= "" and not value:find("?", 1, true) and not value:find("\239\188\159") then
+        return value
+    end
+    return nil
+end
+
+local function towerLabel(boss)
+    local ok, name = pcall(localizedTowerNameUnsafe, boss)
+    if ok and name then return name end
+    if not ok then Log("[WARN] tower name unreadable: " .. tostring(name)) end
+    -- the game gives the last boss no name at all
+    if boss == "WorldTreeBoss" then
+        local core = I18n.msg("towerWorldTreeCore")
+        if core ~= "towerWorldTreeCore" then return core end
+        return "Core of the World Tree"
+    end
+    return boss
+end
+
 local function localizedMessage(key, fallback, ...)
     local value = I18n.msg(key, ...)
     if value ~= key then return value end
@@ -1153,6 +1268,7 @@ local NUMERIC_LABEL_FALLBACKS = {
     palLevel = "Pal level %d+",
     playerHp = "Your HP %d%%+",
     faintedAgo = "Fainted %d+ min ago",
+    alphasDefeated = "Alphas beaten %d+",
 }
 
 local NUMERIC_UNDER_FALLBACKS = {
@@ -1164,6 +1280,7 @@ local NUMERIC_UNDER_FALLBACKS = {
     palLevel = "Pal level below %d",
     playerHp = "Your HP below %d%%",
     faintedAgo = "Fainted less than %d min ago",
+    alphasDefeated = "Alphas beaten below %d",
 }
 
 -- human label for a positive (base) id
@@ -1194,6 +1311,12 @@ local function positiveLabel(id)
     if prefix == "workRank" then
         local work, rank = splitWorkRank(value)
         if work then return localizedMessage("workRankLabel", "%s %d+", workLabel(work), rank) end
+    end
+    if prefix == "defeatedTower" then
+        return localizedMessage("defeatedTowerLabel", "Beat %s", towerLabel(value))
+    end
+    if prefix == "defeatedAlpha" then
+        return localizedMessage("defeatedAlphaLabel", "Beat an Alpha %s", palLabel(value))
     end
     if prefix and NUMERIC_PARAM_BOUNDS[prefix] then
         local fallback = NUMERIC_LABEL_FALLBACKS[prefix]
@@ -1251,6 +1374,8 @@ local function isKnownBase(id)
         local work, rank = splitWorkRank(value)
         return work ~= nil and rank >= 1 and rank <= WORK_RANK_MAX
     end
+    if prefix == "defeatedTower" then return TOWER_BOSSES[value] == true end
+    if prefix == "defeatedAlpha" then return ALPHA_SPECIES[value:lower()] == true end
     local bounds = prefix and NUMERIC_PARAM_BOUNDS[prefix]
     if bounds then
         local n = tonumber(value)

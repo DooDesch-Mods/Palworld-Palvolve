@@ -2364,6 +2364,50 @@ namespace
         OutFlag = F.Get<uint8>(STR("ReturnValue")) != 0;
         return true;
     }
+
+    // Keys of a boolean record container whose value is true, e.g. TowerBossDefeatFlag or
+    // NormalBossDefeatFlag. The container is a replicated fast array Lua cannot map, so its
+    // Items are walked here by reflection: every member is found by name and checked for its
+    // type, which keeps a game patch that reshapes the item from being read as garbage.
+    auto read_true_keys(UObject* Record, const std::wstring& PropName, std::vector<std::wstring>& OutKeys,
+                        std::wstring& OutError) -> bool
+    {
+        auto* Container = CastField<FStructProperty>(Record->GetPropertyByNameInChain(PropName.c_str()));
+        if (!Container) { OutError = STR("no record container ") + PropName; return false; }
+        auto* Base = static_cast<uint8*>(Container->ContainerPtrToValuePtr<void>(Record));
+        if (!Base) { OutError = STR("record container unreadable"); return false; }
+
+        FArrayProperty* Items = nullptr;
+        for (FProperty* Inner : Container->GetStruct()->ForEachProperty())
+        {
+            if (Inner->GetName() == STR("Items")) { Items = CastField<FArrayProperty>(Inner); break; }
+        }
+        if (!Items) { OutError = STR("record container has no Items array"); return false; }
+
+        auto* ElemStruct = CastField<FStructProperty>(Items->GetInner());
+        if (!ElemStruct) { OutError = STR("record items are not structs"); return false; }
+
+        FNameProperty* KeyProp = nullptr;
+        FBoolProperty* ValueProp = nullptr;
+        for (FProperty* Member : ElemStruct->GetStruct()->ForEachProperty())
+        {
+            if (Member->GetName() == STR("Key")) KeyProp = CastField<FNameProperty>(Member);
+            else if (Member->GetName() == STR("Value")) ValueProp = CastField<FBoolProperty>(Member);
+        }
+        if (!KeyProp || !ValueProp) { OutError = STR("record item without Key/Value (game patch?)"); return false; }
+
+        FScriptArrayHelper Helper(Items, Base + Items->GetOffset_Internal());
+        for (int32 i = 0; i < Helper.Num(); ++i)
+        {
+            uint8* Elem = Helper.GetRawPtr(i);
+            if (!Elem) continue;
+            if (!ValueProp->GetPropertyValue(Elem + ValueProp->GetOffset_Internal())) continue;
+            FName Key{};
+            std::memcpy(&Key, Elem + KeyProp->GetOffset_Internal(), sizeof(FName));
+            OutKeys.push_back(Key.ToString());
+        }
+        return true;
+    }
 }
 
 class PalvolveNative : public CppUserModBase
@@ -2472,6 +2516,46 @@ class PalvolveNative : public CppUserModBase
 
         lua.register_function("PalvolveNative_UnlockCaptureRecord", [](const LuaMadeSimple::Lua& L) -> int {
             return handle_call(L, true);
+        });
+
+        // PalvolveNative_GetRecordFlags(containerName, uid?, playerStateName?)
+        //   -> "key,key,..." or nil, message
+        // Only the boss defeat containers are accepted: the caller names a property of the
+        // player record, and an open list would let a typo walk into an unrelated struct.
+        lua.register_function("PalvolveNative_GetRecordFlags", [](const LuaMadeSimple::Lua& L) -> int {
+            std::wstring PropName;
+            std::wstring PlayerUid;
+            std::wstring PlayerStateName;
+            if (L.is_string()) PropName = to_wstring(std::string{L.get_string()});
+            if (L.is_string()) PlayerUid = to_wstring(std::string{L.get_string()});
+            if (L.is_string()) PlayerStateName = to_wstring(std::string{L.get_string()});
+
+            if (PropName != STR("TowerBossDefeatFlag") && PropName != STR("NormalBossDefeatFlag"))
+            {
+                L.set_nil();
+                L.set_string("unsupported record container");
+                return 2;
+            }
+
+            std::wstring Error;
+            auto* Record = find_player_record(PlayerUid, PlayerStateName, Error);
+            std::vector<std::wstring> Keys;
+            if (!Record || !read_true_keys(Record, PropName, Keys, Error))
+            {
+                Output::send<LogLevel::Warning>(STR("[PalvolveNative] record flags {} failed: {}\n"), PropName, Error);
+                L.set_nil();
+                L.set_string(to_string(Error));
+                return 2;
+            }
+            std::wstring Joined;
+            for (const auto& Key : Keys)
+            {
+                if (!Joined.empty()) Joined += STR(",");
+                Joined += Key;
+            }
+            L.set_string(to_string(Joined));
+            L.set_string("ok");
+            return 2;
         });
 
         // Work suitability after an evolution. The Lua side passes the individual parameter
