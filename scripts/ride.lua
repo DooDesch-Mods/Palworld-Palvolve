@@ -23,9 +23,13 @@ local function Log(msg)
     print(string.format("[Palvolve] [ride] %s\n", tostring(msg)))
 end
 
+local function isValidUnsafe(obj)
+    return obj:IsValid()
+end
+
 local function isLive(obj)
     if obj == nil then return false end
-    local ok, valid = pcall(function() return obj:IsValid() end)
+    local ok, valid = pcall(isValidUnsafe, obj)
     return ok and valid == true
 end
 
@@ -127,7 +131,7 @@ function Ride.dismount(palActor, onDone, label)
         label, nameOf(rider), tostring(okOff), tostring(result)))
 
     local waited, detached = 0, false
-    GameLoop.start(POLL_MS, function()
+    local handle = GameLoop.start(POLL_MS, function()
         waited = waited + POLL_MS
         if not stillRiding(palActor, rider, rc) then
             Log(string.format("%s: the rider is off after %d ms", label, waited))
@@ -153,6 +157,12 @@ function Ride.dismount(palActor, onDone, label)
         end
         return false
     end, "dismount")
+    -- Without the poll nobody would ever call onDone, and the caller's lock
+    -- would stay held.
+    if handle == nil then
+        Log(string.format("[ERROR] %s: the dismount poll did not start", label))
+        onDone(false, "dismount poll did not start")
+    end
 end
 
 return Ride

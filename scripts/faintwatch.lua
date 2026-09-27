@@ -34,9 +34,21 @@ local function individualKeyUnsafe(param)
     return string.format("%08X-%08X-%08X-%08X", g.A, g.B, g.C, g.D)
 end
 
+-- The poll and the evaluator repeat every few seconds; a failing read is
+-- logged once per distinct message.
+local function warnOnce(reason)
+    if reason == lastError then return end
+    lastError = reason
+    Log("[WARN] faint tracker: " .. reason)
+end
+
 local function individualKey(param)
     local ok, key = pcall(individualKeyUnsafe, param)
-    if not ok or key == "00000000-00000000-00000000-00000000" then return nil end
+    if not ok then
+        warnOnce("Pal id unreadable: " .. tostring(key))
+        return nil
+    end
+    if key == "00000000-00000000-00000000-00000000" then return nil end
     return key
 end
 
@@ -83,27 +95,14 @@ local function pollUnsafe()
     local now = os.time()
     for _, pc in ipairs(controllers) do
         local ok, err = pcall(scanControllerUnsafe, pc, now)
-        if not ok then
-            -- once per distinct message, the poll repeats every few seconds
-            local reason = tostring(err)
-            if reason ~= lastError then
-                lastError = reason
-                Log("[WARN] faint tracker: party scan failed: " .. reason)
-            end
-        end
+        if not ok then warnOnce("party scan failed: " .. tostring(err)) end
     end
 end
 
 --- Never returns true: the tracker runs for the rest of the session.
 local function poll()
     local ok, err = pcall(pollUnsafe)
-    if not ok then
-        local reason = tostring(err)
-        if reason ~= lastError then
-            lastError = reason
-            Log("[WARN] faint tracker: poll failed: " .. reason)
-        end
-    end
+    if not ok then warnOnce("poll failed: " .. tostring(err)) end
     return false
 end
 
@@ -127,6 +126,7 @@ function FaintWatch.minutesSince(param)
     local key = individualKey(param)
     if not key then return nil end
     local okDead, dead = pcall(isDeadUnsafe, param)
+    if not okDead then warnOnce("fainted state unreadable: " .. tostring(dead)) end
     if okDead and dead then
         lastFaintAt[key] = os.time()
         return 0

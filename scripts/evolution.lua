@@ -2447,7 +2447,8 @@ local function performEvolutionNow(p)
                         return
                     end
                     local back = nil
-                    pcall(function() back = holder:TryGetSpawnedOtomo() end)
+                    local okBack, backErr = pcall(function() back = holder:TryGetSpawnedOtomo() end)
+                    if not okBack then Log("[WARN] summon rescue check: summoned Pal unreadable: " .. tostring(backErr)) end
                     if back and back:IsValid() then
                         Log("summon rescue brought a Pal back out")
                     else

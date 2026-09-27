@@ -149,6 +149,17 @@ local function riderOfUnsafe(util, mount)
     return util:FindRiderByRidingActor(mount)
 end
 
+-- The watcher reads the player several times a second, so a failing read is
+-- logged once per distinct message instead of on every evaluation.
+local lastRiderError = nil
+
+local function warnRiderRead(what, err)
+    local reason = what .. ": " .. tostring(err)
+    if reason == lastRiderError then return end
+    lastRiderError = reason
+    Log("[WARN] player character: " .. reason .. "; reading the pawn instead")
+end
+
 -- The player's own character. While riding, the controller's pawn is the
 -- mount, so the rider behind it is the player.
 local function playerCharacter(ctx)
@@ -157,18 +168,33 @@ local function playerCharacter(ctx)
     local pc = ctx.playerCtx.pc
     if not (pc and pc:IsValid()) then return pawn end
     local okRiding, riding = pcall(controllerRidingUnsafe, pc)
-    if not (okRiding and riding) then return pawn end
+    if not okRiding then
+        warnRiderRead("riding state unreadable", riding)
+        return pawn
+    end
+    if not riding then return pawn end
     local util = palUtility()
-    if not util then return pawn end
+    if not util then
+        warnRiderRead("rider lookup unavailable", "PalUtility not found")
+        return pawn
+    end
     local okRider, rider = pcall(riderOfUnsafe, util, pawn)
-    if okRider and rider and rider:IsValid() then return rider end
+    if not okRider then
+        warnRiderRead("rider lookup failed", rider)
+        return pawn
+    end
+    if rider and rider:IsValid() then return rider end
     return pawn
 end
 
 local function playerParamUnsafe(ctx)
     local character = playerCharacter(ctx)
     if not character then error("player character unavailable") end
-    return character.CharacterParameterComponent:GetIndividualParameter()
+    local component = character.CharacterParameterComponent
+    if not (component and component:IsValid()) then error("player parameter component unavailable") end
+    local param = component:GetIndividualParameter()
+    if not (param and param:IsValid()) then error("player parameter unavailable") end
+    return param
 end
 
 -- UFunction-returned TArray access. The indexed route avoids allocating a
@@ -216,13 +242,12 @@ local function statusActive(ctx, statusId)
     return nil
 end
 
--- the same status read on the player's own character
+-- The same status read on the player's own character. A failure raises, so
+-- the evaluator logs its reason.
 local function playerStatusActive(ctx, statusId)
     local character = playerCharacter(ctx)
-    if not character then return nil end
-    local ok, active = pcall(statusOnUnsafe, character, statusId)
-    if ok then return active end
-    return nil
+    if not character then error("player character unavailable") end
+    return statusOnUnsafe(character, statusId)
 end
 
 -- the player's current region row key ("" when none, nil when unavailable)
@@ -843,10 +868,10 @@ local function playerStateNameUnsafe(playerCtx)
     return ""
 end
 
--- set of the true keys of one record container, nil when unreadable
+-- set of the true keys of one record container; raises when unreadable
 local function bossFlags(ctx, container)
     local playerCtx = ctx.playerCtx
-    if not playerCtx then return nil end
+    if not playerCtx then error("player unavailable") end
     if type(PalvolveNative_GetRecordFlags) ~= "function" then
         error("PalvolveNative is not loaded")
     end
@@ -858,9 +883,18 @@ local function bossFlags(ctx, container)
     end
     local cacheKey = uid .. "|" .. stateName .. "|" .. container
     local cached = bossCache[cacheKey]
-    if cached and os.clock() - cached.at < BOSS_CACHE_S then return cached.keys end
+    if cached and os.clock() - cached.at < BOSS_CACHE_S then
+        if cached.err then error(cached.err) end
+        return cached.keys
+    end
     local joined, message = PalvolveNative_GetRecordFlags(container, uid, stateName)
-    if joined == nil then error("boss record unreadable: " .. tostring(message)) end
+    if joined == nil then
+        -- a failure is kept as long as an answer, so the object list is not
+        -- searched again on every evaluation
+        local err = "boss record unreadable: " .. tostring(message)
+        bossCache[cacheKey] = { at = os.clock(), err = err }
+        error(err)
+    end
     local keys = {}
     for key in tostring(joined):gmatch("[^,]+") do keys[key] = true end
     bossCache[cacheKey] = { at = os.clock(), keys = keys }
@@ -886,7 +920,13 @@ end
 local function alphaCountUnsafe(ctx)
     local pc = ctx.playerCtx and ctx.playerCtx.pc
     if not (pc and pc:IsValid()) then error("player controller unavailable") end
-    return pc:GetPalPlayerState():GetRecordData():GetNormalBossDefeatCount()
+    -- Each hop is checked: a UFunction called on a null object is a native
+    -- access violation, not a Lua error.
+    local ps = pc:GetPalPlayerState()
+    if not (ps and ps:IsValid()) then error("player state unavailable") end
+    local record = ps:GetRecordData()
+    if not (record and record:IsValid()) then error("player record unavailable") end
+    return record:GetNormalBossDefeatCount()
 end
 
 -- "alphasDefeated:<n>": the player has beaten at least n Alphas
@@ -1193,7 +1233,7 @@ local WORK_NAME_FALLBACKS = {
     EmitFlame = "Kindling", Watering = "Watering", Seeding = "Planting",
     GenerateElectricity = "Generating Electricity", Handcraft = "Handiwork",
     Collection = "Gathering", Deforest = "Lumbering", Mining = "Mining",
-    OilExtraction = "Oil Extraction", ProductMedicine = "Medicine Production",
+    OilExtraction = "Crude Oil Extraction", ProductMedicine = "Medicine Production",
     Cool = "Cooling", Transport = "Transporting", MonsterFarm = "Farming",
 }
 
@@ -1204,7 +1244,8 @@ local function localizedWorkNameUnsafe(work)
     local out = {}
     ui:GetWorkSuitabilityName(ctx, WORK_SUITABILITIES[work], out)
     local value = out.outName and out.outName:ToString()
-    if value and value ~= "" then return value end
+    -- a few languages ship "-" where the name is missing
+    if value and value ~= "" and value ~= "-" then return value end
     return nil
 end
 

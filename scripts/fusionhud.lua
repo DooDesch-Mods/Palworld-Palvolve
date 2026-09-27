@@ -38,10 +38,35 @@ local function Log(msg)
     print(string.format("[Palvolve] [fusionhud] %s\n", tostring(msg)))
 end
 
+-- Named functions for the calls made on every tick, so the tick allocates no
+-- closure (UE4SS-LESSONS.md, section 1).
+local function isValidUnsafe(obj)
+    return obj:IsValid()
+end
+
 local function isLive(obj)
     if obj == nil then return false end
-    local ok, valid = pcall(function() return obj:IsValid() end)
+    local ok, valid = pcall(isValidUnsafe, obj)
     return ok and valid == true
+end
+
+local function setFillWidthUnsafe(bar, width, height)
+    bar.Slot:SetSize({ X = width, Y = height })
+end
+
+local function setColorUnsafe(widget, color)
+    widget:SetColorAndOpacity(color)
+end
+
+-- A widget call that fails fails again on the next tick; log it once per
+-- distinct message.
+local lastTickError = nil
+
+local function warnTick(what, err)
+    local reason = what .. ": " .. tostring(err)
+    if reason == lastTickError then return end
+    lastTickError = reason
+    Log("[WARN] " .. reason)
 end
 
 local current = nil      -- { target, endsAt, duration }
@@ -59,10 +84,13 @@ end
 
 local function palName(id)
     local ok, evo = pcall(require, "evolution")
-    if ok and evo and evo.displayName then
-        local okName, name = pcall(evo.displayName, id)
-        if okName and name then return name end
+    if not (ok and evo and evo.displayName) then
+        Log("[WARN] Pal names unavailable, the countdown shows the id: " .. tostring(evo))
+        return id
     end
+    local okName, name = pcall(evo.displayName, id)
+    if not okName then Log("[WARN] name of " .. tostring(id) .. " unreadable: " .. tostring(name)) end
+    if okName and name then return name end
     return id
 end
 
@@ -115,7 +143,8 @@ local function build()
     if isLive(shardTex) then
         local shard = W.construct("/Script/UMG.Image", "PvFuseHudShard")
         if shard then
-            pcall(function() shard:SetBrushFromTexture(shardTex, false) end)
+            local okBrush, brushErr = pcall(function() shard:SetBrushFromTexture(shardTex, false) end)
+            if not okBrush then Log("[WARN] Fusion Shard icon not set: " .. tostring(brushErr)) end
             W.place(box, shard, SHARD_X, (BOX_H - SHARD) / 2, SHARD, SHARD)
         end
     else
@@ -127,7 +156,8 @@ local function build()
     W.solid(box, BAR_X, BAR_Y, BAR_W, BAR_H, TRACK)
     fill = W.solid(box, BAR_X, BAR_Y, BAR_W, BAR_H, FILL)
     -- HitTestInvisible: the panel and everything in it lets clicks through
-    pcall(function() root:SetVisibility(3) end)
+    local okVis, visErr = pcall(function() root:SetVisibility(3) end)
+    if not okVis then Log("[WARN] countdown visibility not set, it may catch clicks: " .. tostring(visErr)) end
     local okShow, showErr = pcall(function() root:AddToViewport(5) end)
     if not okShow then
         Log("[WARN] countdown not added to the screen: " .. tostring(showErr))
@@ -142,11 +172,12 @@ local function setSeconds(n, warn)
     if not isLive(seconds) then return end
     local W = widgets()
     if not W then return end
-    pcall(function()
+    local ok, err = pcall(function()
         local t = W.toText(tostring(n))
         if t then seconds:SetText(t) end
         seconds:SetColorAndOpacity({ SpecifiedColor = warn and AMBER or WHITE, ColorUseRule = 0 })
     end)
+    if not ok then warnTick("countdown seconds not updated", err) end
 end
 
 local function tick()
@@ -177,10 +208,12 @@ local function tick()
     end
     if isLive(fill) then
         local share = math.max(0, math.min(1, left / math.max(1, current.duration)))
-        pcall(function() fill.Slot:SetSize({ X = BAR_W * share, Y = BAR_H + 0.0 }) end)
+        local okSize, sizeErr = pcall(setFillWidthUnsafe, fill, BAR_W * share, BAR_H + 0.0)
+        if not okSize then warnTick("countdown bar not resized", sizeErr) end
         if warn ~= warned then
             warned = warn
-            pcall(function() fill:SetColorAndOpacity(warn and FILL_WARN or FILL) end)
+            local okColor, colorErr = pcall(setColorUnsafe, fill, warn and FILL_WARN or FILL)
+            if not okColor then warnTick("countdown bar color not set", colorErr) end
         end
     end
     return false

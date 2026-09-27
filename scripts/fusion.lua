@@ -473,6 +473,11 @@ local function separate(key, e, reason)
     if isLive(actor) then
         local okKey, key = pcall(function() return api.individualKey(api.paramOf(actor)) end)
         summoned = okKey and key == e.aKey
+        -- logged once: the tick calls this again while a split waits
+        if not okKey and not e.summonedKeyLogged then
+            e.summonedKeyLogged = true
+            Log("[WARN] the summoned Pal's id is unreadable, splitting as if it were not out: " .. tostring(key))
+        end
     end
     -- Another player's evolution or fusion holds the sequence. The split waits
     -- for it instead of leaving C's body out over A's data; the tick asks again.
@@ -647,7 +652,7 @@ local function recoverFromFile(oneShot)
                 end
             else
                 -- the fused Pal's HP at the close is unknown; A gets what it had
-                -- before the fusion (full HP for a record from before 2.0.1)
+                -- before the fusion (full HP for an older record without it)
                 local err = splitData(e, 1, r.snapA and r.snapA.hp)
                 if err then
                     Log("[ERROR] a fusion left over from the last session could not be undone fully: " .. err)
