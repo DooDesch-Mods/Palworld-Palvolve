@@ -173,7 +173,7 @@ local PARAM_HINT_GROUP = {
     fedFood = "food", inParty = "party", playerLevel = "playerLevel",
     trustRank = "trust", ivTotal = "iv", ivEach = "iv", ivHP = "iv",
     ivMelee = "iv", ivShot = "iv", ivDefense = "iv",
-    palLevel = "pal", faintedAgo = "pal", playerHp = "player",
+    palLevel = "pal", faintedAgo = "pal", playerHp = "player", workRank = "work",
 }
 
 function I18n.conditionDescription(id, level)

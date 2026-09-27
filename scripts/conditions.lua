@@ -52,6 +52,15 @@ local ELEMENTS = {
     Ice = 6, Earth = 7, Dark = 8, Dragon = 9,
 }
 
+-- EPalWorkSuitability (Pal_enums.hpp:6352), the work types a Pal can hold a rank in
+local WORK_SUITABILITIES = {
+    EmitFlame = 1, Watering = 2, Seeding = 3, GenerateElectricity = 4,
+    Handcraft = 5, Collection = 6, Deforest = 7, Mining = 8,
+    OilExtraction = 9, ProductMedicine = 10, Cool = 11, Transport = 12,
+    MonsterFarm = 13,
+}
+local WORK_RANK_MAX = 10
+
 -- EPalGenderType (objectdump 99662-99666)
 local GENDER_MALE, GENDER_FEMALE = 1, 2
 
@@ -780,6 +789,28 @@ PARAM_EVAL.playerLevel = function(ctx, value)
     return (tonumber(level) or 0) >= need
 end
 
+local function splitWorkRank(value)
+    local work, rawRank = value:match("^(%a+):(%d+)$")
+    local rank = tonumber(rawRank)
+    if not work or not WORK_SUITABILITIES[work] or not rank then return nil, nil end
+    return work, rank
+end
+
+-- The rank the status screen shows, condenser bonus included. PalvolveNative
+-- answers this getter for an evolved Pal with its new species.
+local function workRankUnsafe(param, work)
+    return param:GetWorkSuitabilityRankWithCharacterRank(WORK_SUITABILITIES[work])
+end
+
+-- "workRank:<EPalWorkSuitability>:<n>": the Pal's rank in that work is at least n
+PARAM_EVAL.workRank = function(ctx, value)
+    local work, need = splitWorkRank(value)
+    if not work then return false end
+    local ok, rank = pcall(workRankUnsafe, ctx.param, work)
+    if not ok or rank == nil then return nil end
+    return (tonumber(rank) or 0) >= need
+end
+
 -- "palLevel:<n>": the Pal itself is at least level n
 local function palLevelUnsafe(ctx)
     return ctx.param:GetLevel()
@@ -1071,6 +1102,41 @@ local function skillLabel(id, textPrefix)
     return id
 end
 
+local WORK_NAME_FALLBACKS = {
+    EmitFlame = "Kindling", Watering = "Watering", Seeding = "Planting",
+    GenerateElectricity = "Generating Electricity", Handcraft = "Handiwork",
+    Collection = "Gathering", Deforest = "Lumbering", Mining = "Mining",
+    OilExtraction = "Oil Extraction", ProductMedicine = "Medicine Production",
+    Cool = "Cooling", Transport = "Transporting", MonsterFarm = "Farming",
+}
+
+local function localizedWorkNameUnsafe(work)
+    local ui = StaticFindObject("/Script/Pal.Default__PalUIUtility")
+    local ctx = FindFirstOf("PalPlayerCharacter")
+    if not (ui and ui:IsValid() and ctx and ctx:IsValid()) then return nil end
+    local out = {}
+    ui:GetWorkSuitabilityName(ctx, WORK_SUITABILITIES[work], out)
+    local value = out.outName and out.outName:ToString()
+    if value and value ~= "" then return value end
+    return nil
+end
+
+-- Set after the first failed read, so a broken getter is logged once and the
+-- English names take over instead of a warning per label.
+local workNameBroken = false
+
+local function workLabel(work)
+    if not workNameBroken then
+        local ok, name = pcall(localizedWorkNameUnsafe, work)
+        if ok and name then return name end
+        if not ok then
+            workNameBroken = true
+            Log("[WARN] work suitability names unreadable, using English: " .. tostring(name))
+        end
+    end
+    return WORK_NAME_FALLBACKS[work] or work
+end
+
 local function localizedMessage(key, fallback, ...)
     local value = I18n.msg(key, ...)
     if value ~= key then return value end
@@ -1125,6 +1191,10 @@ local function positiveLabel(id)
         return localizedMessage("fedFoodLabel", "Last ate %s", itemName)
     end
     if prefix == "inParty" then return I18n.msg("inPartyLabel", palLabel(value)) end
+    if prefix == "workRank" then
+        local work, rank = splitWorkRank(value)
+        if work then return localizedMessage("workRankLabel", "%s %d+", workLabel(work), rank) end
+    end
     if prefix and NUMERIC_PARAM_BOUNDS[prefix] then
         local fallback = NUMERIC_LABEL_FALLBACKS[prefix]
         if fallback then
@@ -1143,6 +1213,10 @@ function Conditions.label(id)
     local negated, base = splitNegation(id)
     if not negated then return positiveLabel(base) end
     local prefix, value = splitParamId(base)
+    if prefix == "workRank" then
+        local work, rank = splitWorkRank(value)
+        if work then return localizedMessage("workRankUnderLabel", "%s < %d", workLabel(work), rank) end
+    end
     if prefix and NUMERIC_PARAM_BOUNDS[prefix] then
         local fallback = NUMERIC_UNDER_FALLBACKS[prefix]
         if fallback then
@@ -1173,6 +1247,10 @@ local function isKnownBase(id)
         return value ~= "None" and value:match("^[%w_]+$") ~= nil
     end
     if prefix == "inParty" then return value:match("^[%w_]+$") ~= nil end
+    if prefix == "workRank" then
+        local work, rank = splitWorkRank(value)
+        return work ~= nil and rank >= 1 and rank <= WORK_RANK_MAX
+    end
     local bounds = prefix and NUMERIC_PARAM_BOUNDS[prefix]
     if bounds then
         local n = tonumber(value)
