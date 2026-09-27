@@ -4817,6 +4817,42 @@ function Evolution.init()
                 if okProbes and probes.worldProbe then probes.worldProbe() end
                 Role.ack(senderCtx, "condition probe done - see log")
             end,
+            -- evaluates the player and boss conditions for the sender's summoned
+            -- Pal where the authority checks them, so a server answers for a
+            -- remote player exactly as an evolve request would
+            xcheck = function(senderCtx)
+                if not Config.devMode then return end
+                local holder = findHolderFor(senderCtx, nil)
+                local actor = nil
+                if holder then
+                    local okSpawned, spawned = pcall(function() return holder:TryGetSpawnedOtomo() end)
+                    if okSpawned then actor = spawned else Log("[WARN] xcheck: summoned Pal unreadable: " .. tostring(spawned)) end
+                end
+                local param = actor and actor:IsValid() and paramOf(actor) or nil
+                if not param and holder then
+                    -- no Pal out: the first party Pal still answers every
+                    -- condition that does not need the Pal's actor
+                    local okParam, first = pcall(function()
+                        return holder:GetOtomoIndividualHandle(0):TryGetIndividualParameter()
+                    end)
+                    if okParam then param = first else Log("[WARN] xcheck: party Pal unreadable: " .. tostring(first)) end
+                end
+                if not (param and param:IsValid()) then
+                    Role.ack(senderCtx, "xcheck: no Pal in the party")
+                    return
+                end
+                local ctx = { actor = actor, param = param, playerCtx = senderCtx, holder = holder }
+                local parts = {}
+                for _, id in ipairs({ "isAlpha", "palLevel:1", "playerLevel:1", "playerHp:50", "playerHungry",
+                    "playerBurning", "faintedAgo:1", "workRank:Mining:1", "defeatedTower:GrassBoss",
+                    "defeatedAlpha:GrassMammoth", "alphasDefeated:1" }) do
+                    local met = Conditions.evaluate({ conditions = { id } }, ctx)
+                    table.insert(parts, id .. "=" .. tostring(met))
+                end
+                local line = "xcheck " .. table.concat(parts, " ")
+                Log(line)
+                Role.ack(senderCtx, line)
+            end,
             -- writes an add-rank on the summoned pal and reports whether the
             -- getters the Team and Palbox screens read move with it. Run right
             -- after an evolution.
