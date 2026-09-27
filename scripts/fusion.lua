@@ -23,6 +23,9 @@ local Conditions = require("conditions")
 local PalPassives = require("palpassives")
 local FusionRules = require("fusionrules")
 local FusionPartner = require("fusionpartner")
+local Ride = require("ride")
+local FusionHud = require("fusionhud")
+local NetChannel = require("netchannel")
 local PASSIVE_RANK = require("passive_rank_static")
 
 local Fusion = {}
@@ -51,6 +54,13 @@ local carried = {}
 local RECOVERY_GIVE_UP_S = 120
 local recoveryStartedAt = nil
 local recoverySkipLogged = {} -- A's key -> true once the skip was logged
+-- What a connected client knows of its own fusions: the host keeps `active`
+-- and `cooldowns`, and sends each player theirs (Fusion.applyRemoteState).
+local remote = {}            -- A's individual key -> { bKey, target, endsAt }
+local remoteCooldowns = {}   -- pair key -> os.clock() when it runs out
+-- How often the host repeats a running fusion's state to its player, so a
+-- lost frame or a client clock that drifted is corrected.
+local STATE_RESEND_S = 5
 
 -- ---------------------------------------------------------------- small reads
 
@@ -139,6 +149,10 @@ local function captureA(param)
     -- Read now: right after the species is written back, the game still answers
     -- with the fused Pal's maximum until the Pal is summoned again.
     snap.maxHp = maxHpOf(param)
+    -- A's HP before the fusion: what a recovery hands back when the game closed
+    -- mid-fusion and the fused Pal's HP at that moment is unknown.
+    local hpBefore, hpKnown = hpOf(param)
+    if hpKnown then snap.hp = hpBefore end
     return snap
 end
 
@@ -284,8 +298,9 @@ local function cooldownKey(e)
 end
 
 --- Data-only split: A back to what it was, B back to its own HP share.
---- fraction is C's remaining HP share (0 when C died).
-local function splitData(e, fraction)
+--- fraction is C's remaining HP share (0 when C died). hpA, when given, is
+--- A's HP outright instead of its share.
+local function splitData(e, fraction, hpA)
     local errs = {}
     local paramA, paramB = e.paramA, e.paramB
     if not isLive(paramA) then paramA = paramByKey(e.aKey) end
@@ -294,7 +309,10 @@ local function splitData(e, fraction)
         local err = restoreA(paramA, e.snapA)
         if err then errs[#errs + 1] = "A: " .. err end
         local maxA = tonumber(e.snapA.maxHp)
-        if maxA then
+        if hpA then
+            local okHp, hpErr = pcall(setHp, paramA, hpA)
+            if not okHp then errs[#errs + 1] = "A hp: " .. tostring(hpErr) end
+        elseif maxA then
             local okHp, hpErr = pcall(setHp, paramA, maxA * fraction)
             if not okHp then errs[#errs + 1] = "A hp: " .. tostring(hpErr) end
         else
@@ -357,21 +375,33 @@ end
 --- restarts, so calling it again after the swap covers the new body).
 local function protect(holder, seconds)
     if not isLive(holder) then return end
-    setMuteki(spawnedOf(holder), true)
-    guards[holderKey(holder)] = { holder = holder, untilT = os.clock() + seconds }
+    local actor = spawnedOf(holder)
+    setMuteki(actor, true)
+    local g = guards[holderKey(holder)] or { holder = holder, actors = {} }
+    g.untilT = os.clock() + seconds
+    -- Every body the flag went on: a Pal recalled while protected keeps its
+    -- actor in the pool, and would come back out still unhittable.
+    if isLive(actor) then g.actors[#g.actors + 1] = actor end
+    guards[holderKey(holder)] = g
+end
+
+local function clearGuard(g)
+    for _, actor in ipairs(g.actors or {}) do setMuteki(actor, false) end
+    setMuteki(spawnedOf(g.holder), false)
 end
 
 local function release(holder)
     if not holder then return end
-    setMuteki(spawnedOf(holder), false)
+    local g = guards[holderKey(holder)]
     guards[holderKey(holder)] = nil
+    if g then clearGuard(g) else setMuteki(spawnedOf(holder), false) end
 end
 
 local function expireGuards(now)
     for key, g in pairs(guards) do
         if now >= g.untilT then
             guards[key] = nil
-            setMuteki(spawnedOf(g.holder), false)
+            clearGuard(g)
         end
     end
 end
@@ -386,19 +416,74 @@ local function settle(e)
     while #settled > SETTLED_KEEP do table.remove(settled, 1) end
 end
 
+--- Hands a fusion's state to the player it belongs to: the countdown on the
+--- host's own screen, or a frame to a connected client.
+local function announce(e, state, cooldown)
+    local ctx = e.playerCtx
+    if not ctx then
+        Log("[WARN] fusion state not announced: no player")
+        return
+    end
+    local duration = Config.fusion.durationSeconds or 60
+    local remaining = 0
+    if state == "on" and e.endsAt and e.endsAt ~= math.huge then
+        remaining = math.max(0, e.endsAt - os.clock())
+    end
+    if ctx.isLocal then
+        if state == "on" then FusionHud.show(e.target, remaining, duration) else FusionHud.hide() end
+        return
+    end
+    if not isLive(ctx.pc) then
+        Log("[WARN] fusion state not sent: the player left")
+        return
+    end
+    NetChannel.sendFusionState(ctx.pc, {
+        state = state, aKey = e.aKey, bKey = e.bKey, target = e.target,
+        idA = e.idA, idB = e.idB, remaining = remaining, duration = duration,
+        cooldown = cooldown or 0,
+    })
+    e.lastAnnounce = os.clock()
+end
+
 local function finish(key, e, how)
     settle(e)
     active[key] = nil
     cooldowns[cooldownKey(e)] = os.clock() + (Config.fusion.cooldownSeconds or 300)
     saveState()
     Log(string.format("fusion %s ended (%s)", tostring(e.target), how))
+    announce(e, "off", Config.fusion.cooldownSeconds or 300)
     Role.chat(e.playerCtx, I18n.msg("fusionEnded", api.displayName(e.target)), "info")
 end
+
+-- How long a split waits for another evolution or fusion to finish before it
+-- puts the data back without the presentation.
+local BUSY_SPLIT_WAIT_S = 30
 
 --- Ends one fusion. With C out and alive the split plays like a short
 --- evolution back into A; otherwise only the data is put back.
 local function separate(key, e, reason)
     if e.splitting then return end
+    local actor = spawnedOf(e.holder)
+    -- by key: UE4SS hands out a fresh userdata per lookup, so == never matches
+    local summoned = false
+    if isLive(actor) then
+        local okKey, key = pcall(function() return api.individualKey(api.paramOf(actor)) end)
+        summoned = okKey and key == e.aKey
+    end
+    -- Another player's evolution or fusion holds the sequence. The split waits
+    -- for it instead of leaving C's body out over A's data; the tick asks again.
+    if summoned and reason ~= "fainted" and api.busy() then
+        e.busySince = e.busySince or os.clock()
+        if os.clock() - e.busySince < BUSY_SPLIT_WAIT_S then
+            if not e.busyLogged then
+                e.busyLogged = true
+                Log(string.format("[INFO] the split of %s waits for another sequence to finish", tostring(e.target)))
+            end
+            return
+        end
+        Log(string.format("[WARN] another sequence ran for %ds, %s splits from its data",
+            BUSY_SPLIT_WAIT_S, tostring(e.target)))
+    end
     e.splitting = true
     local paramA = e.paramA
     local live = isLive(paramA)
@@ -407,21 +492,14 @@ local function separate(key, e, reason)
     if reason == "fainted" then fraction = 0 end
     e.splitFraction, e.splitReason = fraction, reason
 
-    local actor = spawnedOf(e.holder)
-    -- by key: UE4SS hands out a fresh userdata per lookup, so == never matches
-    local summoned = false
-    if isLive(actor) then
-        local okKey, key = pcall(function() return api.individualKey(api.paramOf(actor)) end)
-        summoned = okKey and key == e.aKey
-    end
     if not summoned or reason == "fainted" or api.busy() then
         local err = splitData(e, fraction)
         if err then Log("[ERROR] split after " .. reason .. " left errors: " .. err) end
-        -- A fainted C whose body is still out would keep C's look over A's
-        -- data; back into the ball, the next summon spawns A.
-        if summoned and reason == "fainted" then
+        -- C's body still out would keep C's look over A's data; back into the
+        -- ball, the next summon spawns A.
+        if summoned then
             local okOff, errOff = pcall(function() e.holder:InactivateCurrentOtomo() end)
-            if not okOff then Log("[WARN] the fainted fused Pal could not be recalled: " .. tostring(errOff)) end
+            if not okOff then Log("[WARN] the fused Pal could not be recalled: " .. tostring(errOff)) end
         end
         finish(key, e, reason)
         return
@@ -433,6 +511,8 @@ local function separate(key, e, reason)
     local started, why = api.run({
         actor = actor, param = paramA, holder = e.holder, playerCtx = e.playerCtx,
         isAlpha = isAlphaC,
+        -- A comes back exactly as it was, Alpha or not, whatever C turned into
+        targetId = e.snapA.rawId,
         pair = { from = baseC, to = api.baseCharacterId(e.snapA.rawId), category = "fusion", stone = "none" },
         fusion = {
             kind = "temporary",
@@ -492,6 +572,7 @@ local function undoStart(key, e, why)
     settle(e)
     active[key] = nil
     saveState()
+    announce(e, "off", 0)
     if #errs > 0 then
         Log("[ERROR] fusion of " .. tostring(e.target) .. " taken back (" .. why .. ") with errors: "
             .. table.concat(errs, "; "))
@@ -511,11 +592,13 @@ local function carriesMarker(param)
     return false
 end
 
-local function recoverFromFile()
+--- oneShot: one pass without waiting, for the retries of records that
+--- belonged to another world when they were first read.
+local function recoverFromFile(oneShot)
     local records = loadState()
     if #records == 0 then return true end
     recoveryStartedAt = recoveryStartedAt or os.clock()
-    local giveUp = os.clock() - recoveryStartedAt > RECOVERY_GIVE_UP_S
+    local giveUp = oneShot or os.clock() - recoveryStartedAt > RECOVERY_GIVE_UP_S
     local pending = 0
     local keep = {}
     for _, r in ipairs(records) do
@@ -559,7 +642,9 @@ local function recoverFromFile()
                         .. tostring(errB) .. "; " .. tostring(hpErr))
                 end
             else
-                local err = splitData(e, 1)
+                -- the fused Pal's HP at the close is unknown; A gets what it had
+                -- before the fusion (full HP for a record from before 2.0.1)
+                local err = splitData(e, 1, r.snapA and r.snapA.hp)
                 if err then
                     Log("[ERROR] a fusion left over from the last session could not be undone fully: " .. err)
                 else
@@ -571,8 +656,10 @@ local function recoverFromFile()
         end
     end
     if pending > 0 then return false end
-    if #keep > 0 then
+    if #keep > 0 and not oneShot then
         Log(string.format("[WARN] %d fusion record(s) belong to Pals that are not in this world; they stay in the recovery file", #keep))
+    elseif #carried > 0 and #keep < #carried then
+        Log(string.format("[INFO] %d fusion record(s) from another world were settled", #carried - #keep))
     end
     carried = keep
     saveState()
@@ -583,10 +670,45 @@ end
 -- owner left. Its record, and with it the recovery file, stays until both Pals
 -- are loaded again; only then is anything written.
 local LOST_RETRY_S = 5
+local LOST_RETRY_MAX_S = 60
+-- The partner loaded while A stays missing this long: A was released or
+-- traded away, and the partner is given back instead of waiting at 0 HP.
+local PARTNER_GIVE_BACK_S = 120
+
+local function giveBackPartner(key, e, paramB)
+    local errs = {}
+    local passives, captureErr = PalPassives.capture(paramB)
+    if passives then
+        local okB, errB = PalPassives.restore(paramB, withoutMarker(passives))
+        if not okB then errs[#errs + 1] = "marker: " .. tostring(errB) end
+    else
+        errs[#errs + 1] = "passives unreadable, marker left: " .. tostring(captureErr)
+    end
+    local okHp, hpErr = pcall(setHp, paramB, e.hpB)
+    if not okHp then errs[#errs + 1] = "hp: " .. tostring(hpErr) end
+    active[key] = nil
+    saveState()
+    announce(e, "off", 0)
+    if #errs > 0 then
+        Log("[ERROR] the partner of a fused Pal that is gone was not fully given back: " .. table.concat(errs, "; "))
+    else
+        Log(string.format("[WARN] the fused Pal (%s) is gone for good; its partner was given back",
+            tostring(e.target)))
+    end
+end
+
 local function tickLost(key, e, now)
     if now < (e.nextLookup or 0) then return end
-    e.nextLookup = now + LOST_RETRY_S
+    e.lostSince = e.lostSince or now
+    -- Each miss waits longer, up to a minute: every lookup scans all Pals in
+    -- memory, and a Pal that is gone for good would cost that every 5 seconds.
+    e.lostDelay = math.min((e.lostDelay or (LOST_RETRY_S / 2)) * 2, LOST_RETRY_MAX_S)
+    e.nextLookup = now + e.lostDelay
     local paramA, paramB = paramByKey(e.aKey), paramByKey(e.bKey)
+    if not paramA and paramB and now - e.lostSince >= PARTNER_GIVE_BACK_S then
+        giveBackPartner(key, e, paramB)
+        return
+    end
     if not (paramA and paramB) then
         if not e.lostLogged then
             e.lostLogged = true
@@ -605,16 +727,32 @@ local function tickLost(key, e, now)
     end
 end
 
+-- The first recovery scans every Pal in memory per record; while it waits for
+-- a world to load it does so this often, not on every tick.
+local RECOVERY_RETRY_S = 2
+local recoveryNextTry = 0
+-- Records of Pals that were not in the world when the recovery ran (another
+-- world, a player not joined yet) are looked for again this often.
+local CARRIED_RETRY_S = 60
+local carriedNextTry = 0
+
 local function tickGameThread()
     if not Role.hasWorldAuthority() then return end
-    if recoveryPending then
+    local clock = os.clock()
+    if recoveryPending and clock >= recoveryNextTry then
+        recoveryNextTry = clock + RECOVERY_RETRY_S
         local okRecover, done = pcall(recoverFromFile)
         if not okRecover then
             Log("[ERROR] recovery raised: " .. tostring(done))
             recoveryPending = false
         elseif done then
             recoveryPending = false
+            carriedNextTry = clock + CARRIED_RETRY_S
         end
+    elseif not recoveryPending and #carried > 0 and clock >= carriedNextTry then
+        carriedNextTry = clock + CARRIED_RETRY_S
+        local okRetry, retryErr = pcall(recoverFromFile, true)
+        if not okRetry then Log("[ERROR] recovery retry raised: " .. tostring(retryErr)) end
     end
     local now = os.clock()
     expireGuards(now)
@@ -641,6 +779,9 @@ local function tickGameThread()
                     separate(key, e, "fainted")
                 elseif now >= e.endsAt then
                     separate(key, e, "time")
+                elseif e.playerCtx and not e.playerCtx.isLocal
+                    and now - (e.lastAnnounce or 0) >= STATE_RESEND_S then
+                    announce(e, "on")
                 end
             end
         end
@@ -652,7 +793,7 @@ local function tick()
     if recoveryPending and not recoveryFileExists() then
         recoveryPending = false
     end
-    if not recoveryPending and next(active) == nil and next(guards) == nil then return false end
+    if not recoveryPending and next(active) == nil and next(guards) == nil and #carried == 0 then return false end
     tickGameThread()
     return false
 end
@@ -685,8 +826,13 @@ function Fusion.resolveTarget(idA, idB, levelA, levelB, condCtx)
     end
     if unmet then return nil, unmet end
     if not Config.fusion.fallback then return nil, "fusionNoRule" end
-    local child = FusionRules.fallback(idA, idB, (Config.fusion.fallbackPercent or 20) / 100)
-    if not child then return nil, "fusionNothingStronger" end
+    local child, info = FusionRules.fallback(idA, idB, (Config.fusion.fallbackPercent or 20) / 100)
+    if not child then
+        -- "nothing stronger" only when the formula ran; a Pal without breeding
+        -- data (a gym leader, a legendary) never had a formula to run
+        if info and info.reason == "nothing-stronger" then return nil, "fusionNothingStronger" end
+        return nil, "fusionNoFallback"
+    end
     return child, "fallback", nil
 end
 
@@ -715,6 +861,9 @@ function Fusion.startBattle(playerCtx, partnerSlot)
     if not (paramA and api.isOwnedBy(paramA, playerCtx.playerUId)) then
         return reply(playerCtx, "noPalSummoned")
     end
+    -- On the ground the rider is taken off first (Evolution's run does that);
+    -- in the air that would drop them.
+    if Ride.ridingInAir(actor) then return reply(playerCtx, "landFirst") end
     local keyA = api.individualKey(paramA)
     if active[keyA] or starting[keyA] then return reply(playerCtx, "fusionAlreadyActive") end
 
@@ -788,21 +937,19 @@ function Fusion.startBattle(playerCtx, partnerSlot)
     local okRareB, rawRareB = pcall(function() return paramB.SaveParameter.IsRarePal end)
     if not okRareB then Log("[WARN] partner's Lucky flag unreadable, counting it as not Lucky: " .. tostring(rawRareB)) end
     local rareB = okRareB and rawRareB == true
-    local targetId = target
-    if alphaA or alphaB then targetId = "BOSS_" .. target end
+    -- An Alpha half makes an Alpha, where the game has an Alpha of the target;
+    -- a made-up BOSS_ id writes fine and leaves a Pal that cannot be spawned.
+    local targetId = ((alphaA or alphaB) and api.alphaTargetId(target)) or target
 
     local entry = {
         aKey = keyA, bKey = keyB, paramA = paramA, paramB = paramB, holder = holder,
         playerCtx = playerCtx, uid = uid, pairKey = pairKey, target = target,
+        idA = idA, idB = idB,
         snapA = snapA, hpB = hpOf(paramB), maxB = maxHpOf(paramB),
     }
 
     local function mutate(param)
         local speciesErr = api.writeSpecies(param, targetId)
-        if speciesErr and targetId ~= target then
-            -- no Alpha row for this species: the plain form is the next best
-            speciesErr = api.writeSpecies(param, target)
-        end
         if speciesErr then return speciesErr end
         for field, v in pairs(merged) do
             local ok, err = pcall(writeBoth, param, field, v)
@@ -849,7 +996,7 @@ function Fusion.startBattle(playerCtx, partnerSlot)
         protect(holder, 10)
         local started, why = api.run({
             actor = actor, param = paramA, holder = holder, playerCtx = playerCtx,
-            isAlpha = alphaA, key = keyA,
+            isAlpha = alphaA, key = keyA, targetId = targetId,
             pair = { from = idA, to = target, category = "fusion", stone = "fusionShard" },
             fusion = {
                 kind = "temporary",
@@ -858,6 +1005,7 @@ function Fusion.startBattle(playerCtx, partnerSlot)
                 onCommitted = function()
                     protect(holder, 1.5)
                     entry.endsAt = os.clock() + (Config.fusion.durationSeconds or 60)
+                    announce(entry, "on")
                     Log(string.format("%s + %s fused into %s (Lv %d, %s) for %ds", idA, idB, target, level,
                         source, Config.fusion.durationSeconds or 60))
                     Role.chat(playerCtx, I18n.msg("fusionStarted", api.displayName(idA),
@@ -880,25 +1028,52 @@ function Fusion.startBattle(playerCtx, partnerSlot)
     end
 
     starting[keyA], starting[keyB] = true, true
-    protect(holder, 10)
-    local shown, showWhy = FusionPartner.play({
-        worldCtx = playerCtx.pc, actorA = actor, handleB = handleB, paramB = paramB, idA = idA, idB = idB,
-        freeze = api.freeze,
-        onDone = function(wasShown)
-            if not wasShown then Log("[INFO] the partner was not shown, the fusion goes on without it") end
-            local ok, err = pcall(begin)
-            if not ok then
-                starting[keyA], starting[keyB] = nil, nil
-                Log("[ERROR] fusion start failed after the partner scene: " .. tostring(err))
-                Role.chat(playerCtx, I18n.msg("optionUnavailable"), "reply")
-            end
-        end,
-    })
-    if not shown then
-        Log("[WARN] partner scene did not start (" .. tostring(showWhy) .. "), fusing without it")
-        local okBegin, beginMsg = begin()
-        if okBegin == false then return false, beginMsg end
+
+    -- The partner scene freezes A, and a frozen mount holds its rider in place;
+    -- the rider gets off before anything of the fusion plays.
+    local function playPartner()
+        protect(holder, 10)
+        local shown, showWhy = FusionPartner.play({
+            worldCtx = playerCtx.pc, actorA = actor, handleB = handleB, paramB = paramB, idA = idA, idB = idB,
+            freeze = api.freeze,
+            onDone = function(wasShown)
+                if not wasShown then Log("[INFO] the partner was not shown, the fusion goes on without it") end
+                local ok, err = pcall(begin)
+                if not ok then
+                    starting[keyA], starting[keyB] = nil, nil
+                    Log("[ERROR] fusion start failed after the partner scene: " .. tostring(err))
+                    Role.chat(playerCtx, I18n.msg("optionUnavailable"), "reply")
+                end
+            end,
+        })
+        if not shown then
+            Log("[WARN] partner scene did not start (" .. tostring(showWhy) .. "), fusing without it")
+            local okBegin, beginMsg = begin()
+            if okBegin == false then return false, beginMsg end
+        end
+        return true
     end
+
+    if not Ride.riderOf(actor) then return playPartner() end
+    Ride.dismount(actor, function(off, why)
+        if not off then
+            starting[keyA], starting[keyB] = nil, nil
+            Log("[WARN] fusion not started: the rider could not get off (" .. tostring(why) .. ")")
+            Role.chat(playerCtx, I18n.msg("dismountFailed"), "reply")
+            return
+        end
+        if not isLive(actor) then
+            starting[keyA], starting[keyB] = nil, nil
+            Log("[WARN] fusion not started: the Pal was gone after the rider got off")
+            return
+        end
+        local okPlay, playErr = pcall(playPartner)
+        if not okPlay then
+            starting[keyA], starting[keyB] = nil, nil
+            Log("[ERROR] fusion start failed after the rider got off: " .. tostring(playErr))
+            Role.chat(playerCtx, I18n.msg("optionUnavailable"), "reply")
+        end
+    end, "fusion of " .. tostring(idA))
     return true
 end
 
@@ -921,6 +1096,7 @@ function Fusion.wheelOptions(playerCtx, holder, paramA)
     local nameA = api.displayName(idA)
     local keyA = api.individualKey(paramA)
     local levelA = levelOf(paramA)
+    local inAir = Ride.ridingInAir(spawnedOf(holder))
     local uid = playerCtx and playerCtx.playerUId and string.format("%s-%s-%s-%s",
         tostring(playerCtx.playerUId.A), tostring(playerCtx.playerUId.B),
         tostring(playerCtx.playerUId.C), tostring(playerCtx.playerUId.D)) or "local"
@@ -939,7 +1115,9 @@ function Fusion.wheelOptions(playerCtx, holder, paramA)
                 local opt = { fusion = "battle", partnerSlot = slot, index = slot + 1,
                     label = I18n.msg("fusionWithShort", nameB) }
                 local levelB = levelOf(paramB)
-                if active[keyA] or Fusion.isFused(paramB) then
+                if inAir then
+                    opt.blocked = I18n.msg("landFirst")
+                elseif active[keyA] or Fusion.isFused(paramA) or Fusion.isFused(paramB) then
                     opt.blocked = I18n.msg("fusionAlreadyActive")
                 elseif hpOf(paramB) <= 0 then
                     opt.blocked = I18n.msg("fusionPartnerFainted")
@@ -950,6 +1128,7 @@ function Fusion.wheelOptions(playerCtx, holder, paramA)
                         opt.blocked = I18n.msg(why, nameA, nameB)
                     else
                         local cdEnd = cooldowns[FusionRules.pairKey(idA, idB) .. "|" .. uid]
+                            or remoteCooldowns[FusionRules.pairKey(idA, idB)]
                         local costList = Costs.resolve({ from = idA, to = target, stone = "fusionShard" }, levelA, holder)
                         local costOk, missing = Costs.check(playerCtx, costList)
                         if cdEnd and os.clock() < cdEnd then
@@ -982,7 +1161,31 @@ function Fusion.isFused(param)
     for _, e in pairs(active) do
         if e.bKey == key then return true end
     end
+    local now = os.clock()
+    for aKey, r in pairs(remote) do
+        if r.endsAt <= now then
+            remote[aKey] = nil
+        elseif aKey == key or r.bKey == key then
+            return true
+        end
+    end
     return false
+end
+
+--- Client side: a fusion state the host sent (netchannel.lua). "on" starts or
+--- corrects the countdown, "off" ends it and starts the pair's cooldown.
+function Fusion.applyRemoteState(info)
+    if info.state == "on" then
+        remote[info.aKey] = { bKey = info.bKey, target = info.target, endsAt = os.clock() + info.remaining }
+        FusionHud.show(info.target, info.remaining, info.duration)
+    else
+        remote[info.aKey] = nil
+        FusionHud.hide()
+        if info.cooldown > 0 then
+            remoteCooldowns[FusionRules.pairKey(info.idA, info.idB)] = os.clock() + info.cooldown
+        end
+        Log(string.format("the host ended the fusion into %s (cooldown %ds)", info.target, info.cooldown))
+    end
 end
 
 function Fusion.init(evolution)

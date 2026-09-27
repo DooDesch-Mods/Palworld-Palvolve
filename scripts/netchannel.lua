@@ -59,6 +59,8 @@ local PHASE_PREFIX = "PVLV3|phase|"
 -- host -> client: an altar fusion starts, play its picture (fusionfx.lua)
 local SCENE_PREFIX = "PVLV3|scene|"
 local PARTNER_PREFIX = "PVLV3|partner|"
+-- host -> owning client: a battle fusion runs (countdown) or ended (cooldown)
+local FSTATE_PREFIX = "PVLV3|fstate|"
 
 local function palUtility()
     local u = StaticFindObject("/Script/Pal.Default__PalUtility")
@@ -649,6 +651,28 @@ function NetChannel.broadcastPartner(info)
     return sendToPlayers(frame, "PalvolvePartner", "partner prelude")
 end
 
+--- Tells the player who owns a battle fusion that it runs or ended, so their
+--- client can draw the countdown and close the wheel entries the host would
+--- refuse. info: state ("on"|"off"), aKey, bKey, target, idA, idB, remaining,
+--- duration, cooldown (whole seconds).
+function NetChannel.sendFusionState(pc, info)
+    for _, v in ipairs({ info.state, info.aKey, info.bKey, info.target, info.idA, info.idB }) do
+        if not phaseFieldSafe(v) then
+            Log("[net] fusion state not sent: invalid field " .. tostring(v))
+            return false
+        end
+    end
+    local frame = FSTATE_PREFIX .. table.concat({
+        info.state, info.aKey, info.bKey, info.target, info.idA, info.idB,
+        tostring(math.max(0, math.floor(tonumber(info.remaining) or 0))),
+        tostring(math.max(0, math.floor(tonumber(info.duration) or 0))),
+        tostring(math.max(0, math.floor(tonumber(info.cooldown) or 0))),
+    }, "|")
+    local ok = sendClientText(pc, frame, "PalvolveFusion")
+    if not ok then Log("[WARN] [net] fusion state " .. info.state .. " not sent") end
+    return ok
+end
+
 function NetChannel.sendPhaseReveal(pc, seq)
     local n = tonumber(seq)
     local v3Ok = false
@@ -939,6 +963,40 @@ function NetChannel._sceneGameThread()
     end
 end
 
+local fstateFrames = {}
+
+local function parseFusionState(text)
+    local f = {}
+    for part in (text:sub(#FSTATE_PREFIX + 1) .. "|"):gmatch("([^|]*)|") do f[#f + 1] = part end
+    if #f ~= 9 then return nil end
+    if f[1] ~= "on" and f[1] ~= "off" then return nil end
+    for i = 2, 6 do
+        if f[i] == "" then return nil end
+    end
+    local remaining, duration, cooldown = tonumber(f[7]), tonumber(f[8]), tonumber(f[9])
+    if not (remaining and duration and cooldown) then return nil end
+    return { state = f[1], aKey = f[2], bKey = f[3], target = f[4], idA = f[5], idB = f[6],
+        remaining = remaining, duration = duration, cooldown = cooldown }
+end
+
+function NetChannel._fstateGameThread()
+    while #fstateFrames > 0 do
+        local text = table.remove(fstateFrames, 1)
+        local info = parseFusionState(text)
+        if not info then
+            Log("[WARN] [net] fusion state frame unreadable: " .. text)
+        else
+            local Fusion = package.loaded["fusion"]
+            if not Fusion then
+                Log("[WARN] [net] fusion state arrived, but the fusion module is not loaded")
+            else
+                local ok, err = pcall(Fusion.applyRemoteState, info)
+                if not ok then Log("[ERROR] [net] fusion state not applied: " .. tostring(err)) end
+            end
+        end
+    end
+end
+
 local function readMessageText(Message)
     return Message:get():ToString()
 end
@@ -961,6 +1019,11 @@ local function handleClientMessage(_, Message)
     if text:sub(1, #PARTNER_PREFIX) == PARTNER_PREFIX then
         partnerFrames[#partnerFrames + 1] = text
         ExecuteInGameThread(NetChannel._partnerGameThread)
+        return
+    end
+    if text:sub(1, #FSTATE_PREFIX) == FSTATE_PREFIX then
+        fstateFrames[#fstateFrames + 1] = text
+        ExecuteInGameThread(NetChannel._fstateGameThread)
         return
     end
 

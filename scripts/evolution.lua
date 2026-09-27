@@ -23,6 +23,8 @@ local PalSlots = require("palslots")
 local Prestige = require("prestige")
 local Sound = require("sound")
 local GameLoop = require("gameloop")
+local Ride = require("ride")
+local FusionRules = require("fusionrules")
 
 local Evolution = {}
 
@@ -268,10 +270,20 @@ local function palDisplayName(id)
         cachedNameCtx, cachedNameMdt = nil, nil
         ask()
     end
+    -- Gym leaders, predators, raid and quest Pals carry ids like GYM_ElecPanda
+    -- or Quest_Farmer03_PinkCat that have no name row of their own; they are
+    -- named as the species they are a variant of.
+    if not name then
+        local base = FusionRules.baseSpecies(id)
+        if base and base ~= lookupId then
+            lookupId = base
+            ask()
+        end
+    end
     -- Five species have no PAL_NAME_ row at all, so no amount of retrying
     -- produces a name and the raw CharacterID was what the wheel showed. Their
     -- names are baked per language from the same source the website uses.
-    if not name then name = I18n.palName(id) end
+    if not name then name = I18n.palName(id) or I18n.palName(lookupId) end
     if Config.devMode then
         Log(string.format("[radial] name lookup %s -> %s", id, name or "FAIL"))
     end
@@ -947,6 +959,7 @@ local function controllerHasAuthority(pc)
 end
 
 local function characterIdUnsafe(param)
+    -- raw on purpose: every caller compares it through Config.canonicalId
     return param:GetCharacterID():ToString()
 end
 
@@ -1154,6 +1167,7 @@ end
 
 local function readPrestigeFieldsUnsafe(param)
     return {
+        -- raw on purpose: written back as read, compared through Config.canonicalId
         characterId = param:GetCharacterID():ToString(),
         level = param.SaveParameter.Level,
         exp = param.SaveParameter.Exp,
@@ -1369,7 +1383,7 @@ local function findEligibleFor(playerCtx)
     return actor, param, pair, level, holder, isAlpha, pairIndex, isPrestigePair(pair)
 end
 
-local function performEvolution(p)
+local function performEvolutionNow(p)
     local actor, param, pair, holder = p.actor, p.param, p.pair, p.holder
     local isAlpha = p.isAlpha == true
     local isPrestige = pair.category == "prestige"
@@ -1733,7 +1747,9 @@ local function performEvolution(p)
             abandonOnTeardown()
             return
         end
-        local targetId = swapTargetId(pair, isAlpha) or pair.to
+        -- A fusion names its target itself: which of the two Pals was an
+        -- Alpha decides the fused form, not only the summoned one.
+        local targetId = p.targetId or swapTargetId(pair, isAlpha) or pair.to
 
         -- Swap in the despawned state (safest write moment) + verify
         if not param:IsValid() then
@@ -2405,6 +2421,23 @@ local function performEvolution(p)
                 end)
                 Log(string.format("EVOLVED (data only): %s -> %s (level %d) - respawn not confirmed (got class '%s', expected id %s); summon rescue ok=%s",
                     pair.from, pair.to, level, cls, targetId, tostring(okRescue)))
+                -- The rescue call raising nothing says nothing about the Pal:
+                -- look again once it had time to arrive, and tell the player
+                -- when it did not.
+                GameLoop.after(1500, function()
+                    if not (holder and holder:IsValid()) then
+                        Log("[WARN] summon rescue check skipped: the world is gone")
+                        return
+                    end
+                    local back = nil
+                    pcall(function() back = holder:TryGetSpawnedOtomo() end)
+                    if back and back:IsValid() then
+                        Log("summon rescue brought a Pal back out")
+                    else
+                        Log("[ERROR] summon rescue: no Pal is out; the player has to summon it again")
+                        Role.chat(playerCtx, I18n.msg("summonAgain", palDisplayName(pair.to)), "reply")
+                    end
+                end, "summon rescue check")
                 finishAbort()
             end
         end
@@ -2577,6 +2610,38 @@ local function performEvolution(p)
     end, "evolution teardown start")
     -- the sequence is started; asynchronous stages report their outcome
     -- through the sequence's own logging/abort paths
+    return true
+end
+
+--- Every evolution, prestige and battle fusion goes through here. A Pal with
+--- a rider on its back is never taken away: the rider would stay attached to a
+--- mount that no longer exists, and the game would ignore every input except
+--- the camera. The rider gets off first, then the sequence starts.
+local function performEvolution(p)
+    if lockBusy() then return false, I18n.msg("evolutionRunning") end
+    if not Ride.riderOf(p.actor) then return performEvolutionNow(p) end
+    -- The lock covers the wait, so nothing else starts on this Pal meanwhile.
+    sequenceRunning = true
+    sequenceStartedAt = os.clock()
+    sequenceBudgetS = 15
+    currentAbort = nil
+    Ride.dismount(p.actor, function(off, why)
+        sequenceRunning = false
+        if not off then
+            Log("Evolution not started: the rider could not get off (" .. tostring(why) .. ")")
+            Role.chat(p.playerCtx, I18n.msg("dismountFailed"), "reply")
+            return
+        end
+        if not (p.actor and p.actor:IsValid()) then
+            Log("Evolution not started: the Pal was gone after the rider got off")
+            return
+        end
+        local started, reason = performEvolutionNow(p)
+        if not started then
+            Log("Evolution not started after the rider got off: " .. tostring(reason))
+            if reason then Role.chat(p.playerCtx, reason, "reply") end
+        end
+    end, "evolution of " .. tostring(p.pair and p.pair.from))
     return true
 end
 
@@ -3241,6 +3306,7 @@ local function evolutionOptions()
     if not (actor and actor:IsValid()) then return nil, I18n.msg("noPalSummoned") end
     local param = paramOf(actor)
     if not (param and isOwnedBy(param, playerCtx and playerCtx.playerUId)) then return nil, I18n.msg("noPalSummoned") end
+    if Ride.ridingInAir(actor) then return nil, I18n.msg("landFirst") end
     local id, isAlpha = baseCharacterId(param:GetCharacterID():ToString())
     local pairList, isPrestige, prestigeErr = optionPairsFor(id, param)
     if isPrestige and prestigeAtMax(param) then
@@ -3419,6 +3485,10 @@ local function handleEvolveRequest(playerCtx, fromId, toId, exactPairIndex, pres
     local okFusion, Fusion = pcall(require, "fusion")
     if okFusion and Fusion.isFused(param) then
         return false, I18n.msg("fusionBusy")
+    end
+    -- On the ground the rider is taken off first; in the air that would drop them.
+    if Ride.ridingInAir(actor) then
+        return false, I18n.msg("landFirst")
     end
     local id, isAlpha = baseCharacterId(param:GetCharacterID():ToString())
     if id ~= fromId then
@@ -5239,6 +5309,8 @@ Evolution.fusionApi = {
     characterId = function(param) return characterIdUnsafe(param) end,
     hasAuthority = function(pc) return controllerHasAuthority(pc) end,
     displayName = palDisplayName,
+    --- The Alpha id of a species, or nil when the game has no Alpha row for it.
+    alphaTargetId = alphaTargetId,
     --- The transform-safe freeze the MP reveal uses: movement tick, AI and
     --- queued actions stop, the transform stays writable from Lua.
     freeze = function(actor, frozen) setRevealFrozen(actor, frozen) end,

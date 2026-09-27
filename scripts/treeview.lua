@@ -278,6 +278,12 @@ local function palImage(canvas, palId, x, y, size)
     return img
 end
 
+-- The fusion countdown (fusionhud.lua) draws with the same pieces.
+M.widgets = {
+    cls = cls, construct = construct, place = place, solid = solid,
+    label = label, palImage = palImage, toText = toText,
+}
+
 -- ------------------------------------------------------------------ state
 
 local win = nil          -- the root UserWidget on the viewport

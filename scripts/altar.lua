@@ -389,8 +389,10 @@ function Altar.resolveTarget(idA, idB, levelA, levelB, condCtx)
     end
     if unmet then return nil, unmet end
     if not Config.fusion.fallback then return nil, "fusionNoRule" end
-    local child = FusionRules.fallback(idA, idB, (Config.fusion.fallbackPercent or 20) / 100)
-    if not child then return nil, "fusionNothingStronger" end
+    local child, info = FusionRules.fallback(idA, idB, (Config.fusion.fallbackPercent or 20) / 100)
+    if not child then
+        return nil, (info and info.reason == "nothing-stronger") and "fusionNothingStronger" or "fusionNoFallback"
+    end
     return child, "fallback"
 end
 
@@ -533,9 +535,10 @@ function Altar.start(playerCtx, choice, opts)
     end
 
     local function mutateA()
-        local wanted = (alphaA or alphaB) and ("BOSS_" .. target) or target
+        -- Only species with an Alpha row: the write of a made-up BOSS_ id reads
+        -- back fine and leaves a Pal the game cannot spawn.
+        local wanted = ((alphaA or alphaB) and api.alphaTargetId(target)) or target
         local e = api.writeSpecies(A.param, wanted)
-        if e and wanted ~= target then e = api.writeSpecies(A.param, target) end
         if e then return e end
         for f, v in pairs(merged) do
             local ok, err = pcall(writeBoth, A.param, f, v)

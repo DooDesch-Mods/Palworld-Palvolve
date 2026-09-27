@@ -30,11 +30,41 @@ for _, id in ipairs(COMBI.pool) do
 end
 FusionRules.RANK_MAX = RANK_MAX
 
---- Alpha individuals fuse as their base species.
+-- Variant ids the game gives special Pals: Alphas (BOSS_ and one Boss_ row),
+-- gym leaders (GYM_ElecPanda, GYM_ElecPanda_Otomo), predators, raid and summon
+-- bosses (PREDATOR_Umihebi_Fire_Quest) and quest Pals (Quest_Farmer03_PinkCat).
+-- None of them has breeding data of its own; each is its species underneath.
+local VARIANT_PREFIXES = { "boss_", "gym_", "predator_", "raid_", "summon_" }
+
+local function knownSpecies(id)
+    return COMBI.ranks[id] ~= nil
+end
+
+--- The species a Pal id stands for: the id itself when it is a known species,
+--- else the longest run of its "_"-separated parts that is one (GYM_ElecPanda
+--- -> ElecPanda, Quest_Farmer03_PinkCat -> PinkCat). An id with no known
+--- species inside comes back without its variant prefix.
 function FusionRules.baseSpecies(id)
     if type(id) ~= "string" then return nil end
-    if id:sub(1, 5) == "BOSS_" then return id:sub(6) end
-    return id
+    if knownSpecies(id) then return id end
+    local stripped = id
+    local lower = id:lower()
+    for _, prefix in ipairs(VARIANT_PREFIXES) do
+        if lower:sub(1, #prefix) == prefix then
+            stripped = id:sub(#prefix + 1)
+            break
+        end
+    end
+    if knownSpecies(stripped) then return stripped end
+    local parts = {}
+    for part in stripped:gmatch("[^_]+") do parts[#parts + 1] = part end
+    for len = #parts - 1, 1, -1 do
+        for first = 1, #parts - len + 1 do
+            local candidate = table.concat(parts, "_", first, first + len - 1)
+            if knownSpecies(candidate) then return candidate end
+        end
+    end
+    return stripped
 end
 
 --- Order-free key for a pair of species.
