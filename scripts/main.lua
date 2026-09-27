@@ -58,20 +58,14 @@ do
     if not okInstall then Log("install check failed to load: " .. tostring(errInstall)) end
 end
 
--- Workbench unlock stage: PalSchema data, so this only writes the file and the
--- new stage applies on the next start. Runs on every launch, which also repairs
--- the value after a Workshop update replaced the PalSchema folder.
+-- Stone recipes and the workbench's cost and unlock stage: PalSchema data, so
+-- this only writes the files and a change applies on the next start. Runs on
+-- every launch, which also repairs them after a Workshop update replaced the
+-- PalSchema folder, and runs on a dedicated server too, where the file is read
+-- on this side.
 do
-    local okTech, errTech = pcall(function() require("techlevel").apply() end)
-    if not okTech then Log("tech level: " .. tostring(errTech)) end
-end
-
--- Prestige Stone recipe: PalSchema data as well, so the same next-start contract
--- applies. Runs even on a dedicated server, where the bench that lists it belongs
--- to the clients but the file is read on this side.
-do
-    local okRecipe, errRecipe = pcall(function() require("prestigerecipe").apply() end)
-    if not okRecipe then Log("prestige recipe: " .. tostring(errRecipe)) end
+    local okStones, errStones = pcall(function() require("stonedata").apply() end)
+    if not okStones then Log("stone data: " .. tostring(errStones)) end
 end
 
 -- Fusion recipes and the altar's cost and unlock stage: PalSchema data too.

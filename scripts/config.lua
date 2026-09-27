@@ -61,10 +61,22 @@ local Config = {
 
     -- Player level at which the Pal Alchemy Workbench becomes buildable in the
     -- technology tree. The stage lives in PalSchema data, not in Lua, so this is
-    -- applied by rewriting that file and takes effect on the next game start.
-    -- Keeping it here means it survives a Workshop update, which overwrites the
-    -- PalSchema file itself. 10 is the shipped default.
+    -- applied by rewriting that file (stonedata.lua) and takes effect on the
+    -- next game start. Keeping it here means it survives a Workshop update,
+    -- which overwrites the PalSchema file itself. 10 is the shipped default.
     techLevelCap = 10,
+
+    -- Crafting recipes of the stones and the workbench's build cost. Written
+    -- into PalSchema files at every start (stonedata.lua), so a change applies
+    -- on the next game start. "ItemId:count" entries separated by commas, at
+    -- most four. An Adaptation Stone always adds its element's essence, so its
+    -- setting is the rest of the recipe and holds at most three.
+    recipes = {
+        evolutionStone = "Pal_crystal_S:20,MeteorDrop:3,PalFluid:5",
+        prestigeStone = "Palvolve_EvolutionStone:1,NightStone:1",
+        adaptationStone = "Palvolve_EvolutionStone:1",
+        benchMaterials = "Wood:30,Stone:20,Pal_crystal_S:10",
+    },
 
     -- Server check: a connected client asks the host whether Palvolve runs
     -- server-side and which version. Without a host-side answer, evolution and
@@ -131,9 +143,9 @@ local Config = {
     prestigeMinLevel = 80,
 
     -- Off means no Pal is ever offered a prestige, whatever the tree says, and
-    -- the Prestige Stone recipe goes with it. The recipe is PalSchema data
-    -- rather than a runtime value, but Lua runs before PalSchema reads its raw
-    -- folder, so both halves land on the same restart.
+    -- the Prestige Stone recipe goes with it. The recipe is PalSchema data,
+    -- which PalSchema reads before any Lua runs, so the recipe follows on the
+    -- next game start.
     prestigeEnabled = true,
 
     -- Off stops the automatic derivation, so only prestige connections the tree
@@ -207,8 +219,8 @@ local Config = {
         evolution = "Palvolve_EvolutionStone",
         -- crafted from an Evolution Stone + Nightstar Sand (item id NightStone)
         prestige = "Palvolve_PrestigeStone",
-        -- per-element adaptation stones (crafted from Evolution Stone +
-        -- MeteorDrop + the matching element essence)
+        -- per-element adaptation stones (crafted from recipes.adaptationStone
+        -- plus the matching element essence)
         adaptation = {
             Normal      = "Palvolve_AdaptationStone_Normal",
             Fire        = "Palvolve_AdaptationStone_Fire",
@@ -2572,6 +2584,11 @@ local USER_KEYS = {
     { path = "fusion.shardRecipe", kind = "materials" },
     { path = "fusion.coreRecipe", kind = "materials" },
     { path = "fusion.altarMaterials", kind = "materials" },
+    -- crafting: PalSchema files as well
+    { path = "recipes.evolutionStone", kind = "materials" },
+    { path = "recipes.prestigeStone", kind = "materials" },
+    { path = "recipes.adaptationStone", kind = "materials", maxEntries = 3 },
+    { path = "recipes.benchMaterials", kind = "materials" },
 
     -- costs
     { path = "stoneCount", kind = "int", min = 1, max = 99 },
@@ -2627,7 +2644,9 @@ local MATERIAL_COUNT_MAX = 9999
 --- The ids end up inside a JSON file PalSchema reads, so only letters, digits
 --- and underscores pass: a quote or a brace in an id would break the file for
 --- every recipe in it. Returns nil and the reason for anything else.
-function Config.parseMaterials(raw)
+--- maxEntries lowers the limit of four for a recipe that adds one of its own.
+function Config.parseMaterials(raw, maxEntries)
+    local max = tonumber(maxEntries) or MATERIALS_MAX
     if type(raw) ~= "string" then return nil, "expected a string like \"PalFluid:5,Wood:10\"" end
     local list, seen = {}, {}
     for entry in raw:gmatch("[^,]+") do
@@ -2644,8 +2663,8 @@ function Config.parseMaterials(raw)
         list[#list + 1] = { id = id, count = count }
     end
     if #list == 0 then return nil, "no material listed" end
-    if #list > MATERIALS_MAX then
-        return nil, string.format("%d materials, at most %d fit", #list, MATERIALS_MAX)
+    if #list > max then
+        return nil, string.format("%d materials, at most %d fit", #list, max)
     end
     return list
 end
@@ -2753,7 +2772,7 @@ local function applyUserKeys(user)
                     why = "expected a string"
                 end
             elseif entry.kind == "materials" then
-                local list, err = Config.parseMaterials(raw)
+                local list, err = Config.parseMaterials(raw, entry.maxEntries)
                 if list then
                     local parts = {}
                     for i, m in ipairs(list) do parts[i] = m.id .. ":" .. m.count end

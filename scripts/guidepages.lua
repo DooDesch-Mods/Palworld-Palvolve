@@ -5,7 +5,7 @@
 -- native screen a mod can extend without cooking a widget: correct fonts,
 -- gamepad navigation and open/close sounds come for free.
 --
--- Like the workbench stage in techlevel.lua this writes a PalSchema file, so a
+-- Like the workbench stage in stonedata.lua this writes a PalSchema file, so a
 -- change applies on the next start rather than immediately. That matches the
 -- data it describes: config_user.lua is read once at startup too, so a tree the
 -- player just downloaded is not live in this session either.

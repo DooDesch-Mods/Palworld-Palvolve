@@ -85,4 +85,41 @@ function PalSchemaFile.writeWhole(path, wanted, label)
     return true
 end
 
+-- ---------------------------------------------------------------- recipe JSON
+-- The shipped files are byte-equal to what these produce for the default
+-- settings, so a default install logs "unchanged" instead of rewriting them.
+-- check-mod-lua.mjs holds them to that.
+
+--- `"MaterialN_Id"` / `"MaterialN_Count"` lines for a parsed list, comma
+--- separated, the last one without a comma.
+function PalSchemaFile.materialLines(list, indent)
+    local lines = {}
+    for i, m in ipairs(list) do
+        lines[#lines + 1] = string.format('%s"Material%d_Id": "%s",', indent, i, m.id)
+        lines[#lines + 1] = string.format('%s"Material%d_Count": %d', indent, i, m.count)
+    end
+    for i = 2, #lines, 2 do
+        if i < #lines then lines[i] = lines[i] .. "," end
+    end
+    return table.concat(lines, "\n")
+end
+
+--- One DT_ItemRecipeDataTable row.
+function PalSchemaFile.recipeRow(rowName, productId, workAmount, list)
+    local indent = "            "
+    return string.format('        "%s": {\n'
+        .. '%s"Product_Id": "%s",\n'
+        .. '%s"Product_Count": 1,\n'
+        .. '%s"WorkAmount": %d,\n'
+        .. '%s\n'
+        .. '        }',
+        rowName, indent, productId, indent, indent, workAmount, PalSchemaFile.materialLines(list, indent))
+end
+
+--- A whole raw recipe file from rows made by recipeRow; no rows is an empty table.
+function PalSchemaFile.recipeTable(rows)
+    local body = #rows > 0 and ("{\n" .. table.concat(rows, ",\n") .. "\n    }") or "{}"
+    return '{\n    "DT_ItemRecipeDataTable": ' .. body .. '\n}\n'
+end
+
 return PalSchemaFile

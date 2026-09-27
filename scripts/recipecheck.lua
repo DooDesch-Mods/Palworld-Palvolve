@@ -19,14 +19,21 @@
 local RecipeCheck = {}
 
 local MOD_NAME = "Palvolve"
-local FILES = { "DT_ItemRecipeDataTable.json", "DT_ItemRecipeDataTable_Prestige.json" }
+-- The last three are written from the settings at every start (stonedata.lua,
+-- fusiondata.lua), so a configured recipe with a wrong id is caught here too.
+local FILES = {
+    "DT_ItemRecipeDataTable.json",
+    "DT_ItemRecipeDataTable_Stones.json",
+    "DT_ItemRecipeDataTable_Prestige.json",
+    "DT_ItemRecipeDataTable_Fusion.json",
+}
 
 local function Log(message)
     print(string.format("[%s] %s\n", MOD_NAME, tostring(message)))
 end
 
 -- <...>/Mods/Palvolve/scripts/recipecheck.lua -> <...>/Mods/PalSchema/mods/Palvolve/raw/
--- Same walk as prestigerecipe.lua, which writes into that folder.
+-- Same walk as palschemafile.lua, which writes into that folder.
 local function rawDir()
     local dir = nil
     pcall(function()

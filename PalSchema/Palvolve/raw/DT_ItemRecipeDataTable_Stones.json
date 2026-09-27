@@ -1,0 +1,96 @@
+{
+    "DT_ItemRecipeDataTable": {
+        "Palvolve_Craft_A01_EvolutionStone": {
+            "Product_Id": "Palvolve_EvolutionStone",
+            "Product_Count": 1,
+            "WorkAmount": 300,
+            "Material1_Id": "Pal_crystal_S",
+            "Material1_Count": 20,
+            "Material2_Id": "MeteorDrop",
+            "Material2_Count": 3,
+            "Material3_Id": "PalFluid",
+            "Material3_Count": 5
+        },
+        "Palvolve_Craft_B01_Adapt_Normal": {
+            "Product_Id": "Palvolve_AdaptationStone_Normal",
+            "Product_Count": 1,
+            "WorkAmount": 300,
+            "Material1_Id": "Palvolve_EvolutionStone",
+            "Material1_Count": 1,
+            "Material2_Id": "Palvolve_Essence_Normal",
+            "Material2_Count": 1
+        },
+        "Palvolve_Craft_B02_Adapt_Fire": {
+            "Product_Id": "Palvolve_AdaptationStone_Fire",
+            "Product_Count": 1,
+            "WorkAmount": 300,
+            "Material1_Id": "Palvolve_EvolutionStone",
+            "Material1_Count": 1,
+            "Material2_Id": "Palvolve_Essence_Fire",
+            "Material2_Count": 1
+        },
+        "Palvolve_Craft_B03_Adapt_Water": {
+            "Product_Id": "Palvolve_AdaptationStone_Water",
+            "Product_Count": 1,
+            "WorkAmount": 300,
+            "Material1_Id": "Palvolve_EvolutionStone",
+            "Material1_Count": 1,
+            "Material2_Id": "Palvolve_Essence_Water",
+            "Material2_Count": 1
+        },
+        "Palvolve_Craft_B04_Adapt_Leaf": {
+            "Product_Id": "Palvolve_AdaptationStone_Leaf",
+            "Product_Count": 1,
+            "WorkAmount": 300,
+            "Material1_Id": "Palvolve_EvolutionStone",
+            "Material1_Count": 1,
+            "Material2_Id": "Palvolve_Essence_Leaf",
+            "Material2_Count": 1
+        },
+        "Palvolve_Craft_B05_Adapt_Electricity": {
+            "Product_Id": "Palvolve_AdaptationStone_Electricity",
+            "Product_Count": 1,
+            "WorkAmount": 300,
+            "Material1_Id": "Palvolve_EvolutionStone",
+            "Material1_Count": 1,
+            "Material2_Id": "Palvolve_Essence_Electricity",
+            "Material2_Count": 1
+        },
+        "Palvolve_Craft_B06_Adapt_Ice": {
+            "Product_Id": "Palvolve_AdaptationStone_Ice",
+            "Product_Count": 1,
+            "WorkAmount": 300,
+            "Material1_Id": "Palvolve_EvolutionStone",
+            "Material1_Count": 1,
+            "Material2_Id": "Palvolve_Essence_Ice",
+            "Material2_Count": 1
+        },
+        "Palvolve_Craft_B07_Adapt_Earth": {
+            "Product_Id": "Palvolve_AdaptationStone_Earth",
+            "Product_Count": 1,
+            "WorkAmount": 300,
+            "Material1_Id": "Palvolve_EvolutionStone",
+            "Material1_Count": 1,
+            "Material2_Id": "Palvolve_Essence_Earth",
+            "Material2_Count": 1
+        },
+        "Palvolve_Craft_B08_Adapt_Dark": {
+            "Product_Id": "Palvolve_AdaptationStone_Dark",
+            "Product_Count": 1,
+            "WorkAmount": 300,
+            "Material1_Id": "Palvolve_EvolutionStone",
+            "Material1_Count": 1,
+            "Material2_Id": "Palvolve_Essence_Dark",
+            "Material2_Count": 1
+        },
+        "Palvolve_Craft_B09_Adapt_Dragon": {
+            "Product_Id": "Palvolve_AdaptationStone_Dragon",
+            "Product_Count": 1,
+            "WorkAmount": 300,
+            "Material1_Id": "Palvolve_EvolutionStone",
+            "Material1_Count": 1,
+            "Material2_Id": "Palvolve_Essence_Dragon",
+            "Material2_Count": 1
+        }
+    }
+}

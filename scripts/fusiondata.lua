@@ -48,28 +48,8 @@ local function uses(list, id)
     return false
 end
 
-local function materialLines(list, indent)
-    local lines = {}
-    for i, m in ipairs(list) do
-        lines[#lines + 1] = string.format('%s"Material%d_Id": "%s",', indent, i, m.id)
-        lines[#lines + 1] = string.format('%s"Material%d_Count": %d', indent, i, m.count)
-    end
-    for i = 2, #lines, 2 do
-        if i < #lines then lines[i] = lines[i] .. "," end
-    end
-    return table.concat(lines, "\n")
-end
-
-local function recipeRow(rowName, productId, workAmount, list)
-    local indent = "            "
-    return string.format('        "%s": {\n'
-        .. '%s"Product_Id": "%s",\n'
-        .. '%s"Product_Count": 1,\n'
-        .. '%s"WorkAmount": %d,\n'
-        .. '%s\n'
-        .. '        }',
-        rowName, indent, productId, indent, indent, workAmount, materialLines(list, indent))
-end
+local materialLines = PalSchemaFile.materialLines
+local recipeRow = PalSchemaFile.recipeRow
 
 local function recipeFile(fusionOn)
     local shard = materials("shardRecipe")
@@ -98,8 +78,7 @@ local function recipeFile(fusionOn)
     local rows = {}
     if listShard then rows[#rows + 1] = recipeRow("Palvolve_Craft_A03_FusionShard", SHARD_ID, 300, shard) end
     if listCore then rows[#rows + 1] = recipeRow("Palvolve_Craft_A04_FusionCore", CORE_ID, 1200, core) end
-    local body = #rows > 0 and ("{\n" .. table.concat(rows, ",\n") .. "\n    }") or "{}"
-    return '{\n    "DT_ItemRecipeDataTable": ' .. body .. '\n}\n',
+    return PalSchemaFile.recipeTable(rows),
         listShard and "listed" or "hidden", listCore and "listed" or "hidden"
 end
 
@@ -143,28 +122,29 @@ local function altarFile()
 ]], materialLines(materials("altarMaterials"), indent), level), level
 end
 
+--- Every file this module writes, with its content for the current config:
+--- { rel, label, content, summary }. check-mod-lua.mjs compares the default
+--- output with the shipped files.
+function FusionData.files()
+    local recipes, shardState, coreState = recipeFile(Config.fusion.enabled ~= false)
+    local altar, level = altarFile()
+    return {
+        { rel = "raw\\DT_ItemRecipeDataTable_Fusion.json", label = "Fusion recipes", content = recipes,
+            summary = string.format("Shard %s, Core %s", shardState, coreState) },
+        { rel = "buildings\\palvolve_fusion_altar.json", label = "Fusion Altar", content = altar,
+            summary = string.format("unlocks at technology level %d, costs %s", level,
+                tostring(Config.fusion.altarMaterials)) },
+    }
+end
+
 function FusionData.apply()
-    local fusionOn = Config.fusion.enabled ~= false
-
-    local recipePath = PalSchemaFile.path("raw\\DT_ItemRecipeDataTable_Fusion.json")
-    if recipePath then
-        local content, shardState, coreState = recipeFile(fusionOn)
-        if PalSchemaFile.writeWhole(recipePath, content, "Fusion recipes") then
-            Log(string.format("[INFO] Fusion recipes: Shard %s, Core %s", shardState, coreState))
+    for _, f in ipairs(FusionData.files()) do
+        local path = PalSchemaFile.path(f.rel)
+        if not path then
+            Log(string.format("[ERROR] %s: could not resolve the PalSchema file - unchanged", f.label))
+        elseif PalSchemaFile.writeWhole(path, f.content, f.label) then
+            Log(string.format("[INFO] %s: %s", f.label, f.summary))
         end
-    else
-        Log("[ERROR] Fusion recipes: could not resolve the PalSchema raw file - recipes unchanged")
-    end
-
-    local altarPath = PalSchemaFile.path("buildings\\palvolve_fusion_altar.json")
-    if altarPath then
-        local content, level = altarFile()
-        if PalSchemaFile.writeWhole(altarPath, content, "Fusion Altar") then
-            Log(string.format("[INFO] Fusion Altar: unlocks at technology level %d, costs %s",
-                level, tostring(Config.fusion.altarMaterials)))
-        end
-    else
-        Log("[ERROR] Fusion Altar: could not resolve the PalSchema building file - altar unchanged")
     end
 end
 
