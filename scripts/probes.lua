@@ -25,6 +25,7 @@
 local M = {}
 
 local GameLoop = require("gameloop")
+local Role = require("role")
 
 -- Every keybind listed above is OFF. They fire during ordinary play, and two of
 -- them change the world while they do: BACKSPACE runs a full evolution, F7
@@ -540,7 +541,6 @@ end))
 -- get unlocked in the web editor.
 
 local Conditions = require("conditions")
-local Role = require("role")
 
 -- gate-shaped ctx: the summoned otomo of the LOCAL player (never FindFirstOf
 -- on controllers - wrong player on a host with guests)
