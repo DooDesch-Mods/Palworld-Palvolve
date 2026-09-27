@@ -18,9 +18,14 @@ local REBUILD_EVERY_S = 1.0
 
 -- Layout units are the viewport's DPI-scaled units, anchored bottom left.
 local BOX_X, BOX_BOTTOM = 36, 335
-local BOX_W, BOX_H = 252, 52
-local ICON = 40
-local BAR_X, BAR_Y, BAR_W, BAR_H = 54, 36, 186, 8
+local BOX_W, BOX_H = 290, 52
+-- the Fusion Shard first, so the panel reads as the fusion's at a glance,
+-- then the fused Pal
+local SHARD_X, SHARD = 6, 34
+local ICON_X, ICON = 44, 40
+local BAR_X, BAR_Y, BAR_W, BAR_H = 92, 36, 186, 8
+-- the texture PalSchema builds from Palvolve's fusionshard.png
+local SHARD_TEXTURE = "/Engine/Transient.PalSchema/Resources/Palvolve/fusionshard"
 
 local PANEL = { R = 0.067, G = 0.094, B = 0.129, A = 0.82 }
 local TRACK = { R = 0.18, G = 0.24, B = 0.31, A = 1.0 }
@@ -106,7 +111,17 @@ local function build()
         return false
     end
     W.solid(box, 0, 0, BOX_W, BOX_H, PANEL)
-    W.palImage(box, current.target, 6, 6, ICON)
+    local shardTex = StaticFindObject(SHARD_TEXTURE)
+    if isLive(shardTex) then
+        local shard = W.construct("/Script/UMG.Image", "PvFuseHudShard")
+        if shard then
+            pcall(function() shard:SetBrushFromTexture(shardTex, false) end)
+            W.place(box, shard, SHARD_X, (BOX_H - SHARD) / 2, SHARD, SHARD)
+        end
+    else
+        Log("[WARN] Fusion Shard texture not found, the countdown shows without it: " .. SHARD_TEXTURE)
+    end
+    W.palImage(box, current.target, ICON_X, 6, ICON)
     W.label(box, palName(current.target), BAR_X, 6, 140, 15, WHITE)
     seconds = W.label(box, "", BAR_X + 146, 4, 40, 17, WHITE)
     W.solid(box, BAR_X, BAR_Y, BAR_W, BAR_H, TRACK)
