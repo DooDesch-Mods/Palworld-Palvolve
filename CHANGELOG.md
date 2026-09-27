@@ -1,9 +1,19 @@
 # Changelog
 
-## [2.0.1] - 2026-09-27
+## [2.1.0] - 2026-09-27
 
 ### Added
 
+- **Servers set the recipes of the Evolution, Prestige and Adaptation Stones and the build cost of the Pal Alchemy Workbench in the config.** Every Adaptation Stone still needs the essence of its element on top. Changes apply after the next game start. Thanks to Narayan, who found the Meteorite Fragments too hard to get early on.
+- **Each prestige stage can ask for more levels.** A new setting adds a number of levels to the minimum for each stage a Pal has already reached, up to level 80. At 0 every stage asks the same, as before. Thanks to Narayan.
+- **New conditions for evolutions and fusions:**
+  - **Alpha Pal.** Thanks to Jackie.
+  - **Pal level, at least or at most.** Thanks to Ddsjsa.
+  - **Your own state: hungry, poisoned, burning, wet, frozen, electrified, and your HP in percent.** Thanks to Cold Baka and TheDungeonToucan.
+  - **The Pal fainted within the last minutes.** Thanks to Cold Baka.
+  - **A work suitability at a rank, like Mining 3 or more.** Thanks to Cold Baka.
+  - **A tower boss beaten, an Alpha of a species beaten, or a number of Alphas beaten.** They count exactly the fights the game counts. Thanks to Narayan.
+- **The editor warns when a Pal can never get a required status.** A Fire Pal never burns, a Water Pal never gets wet. Thanks to Narayan.
 - **A countdown shows how long a fight fusion has left.** It sits above the party panel with a Fusion Shard, the fused Pal's icon, the seconds and a bar that turns amber for the last ten seconds. Players on a server see their own, and their wheel now knows their fusion cooldowns. Thanks to Narayan for the idea.
 
 ### Fixed
@@ -11,11 +21,12 @@
 - **A fusion that ends while you ride the fused Pal no longer locks the game.** You get off first, then the two split. Before, only the camera still moved and the menu did not open. Thanks to Narayan for the report and the log.
 - **You can evolve or fuse the Pal you ride.** On the ground you get off and it starts. In the air the wheel says "Land first".
 - **Gym leaders and other special Pals show their name in the wheel.** A Grizzbolt caught in a gym read as "GYM_ElecPanda". Pals without breeding data now say that there is no fusion for them, not that nothing is stronger. Thanks to Narayan.
-- **An Alpha partner no longer leaves the fused Pal missing.** The fused Pal took 25 seconds to give up coming back.
+- **An Alpha partner no longer leaves the fused Pal missing.** Before, the fused Pal tried to come back for 25 seconds, then gave up.
 - **When a Pal does not come back after an evolution or a fusion, the chat tells you to summon it again.**
-- **A fusion that ends during another player's evolution waits for it, so the fused Pal no longer stays out with the other Pal's stats.**
+- **A fusion that ends during another player's evolution now waits for it.** Before, the fused Pal stayed out with the other Pal's stats.
 - **The partner of a fused Pal you released comes back after two minutes instead of staying fainted.**
 - **A game closed during a fusion gives the Pal back the HP it had before, not full HP.**
+- **"Player level" counts your level while you ride.** It read the mount's level.
 
 ## [2.0.0] - 2026-09-26
 

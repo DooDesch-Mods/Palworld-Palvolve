@@ -16,8 +16,9 @@
 - Pals keep level, nickname, gender, passives, IVs, souls, condenser rank and every learned move. That includes moves the new form could never learn on its own. Alphas stay Alpha. Luckys stay Lucky.
 - At the end of an evolution line, a Pal can **prestige**. Level returns to 1. The Pal keeps its nickname, passives, IVs, souls and every learned move. Each prestige adds one Prestige rank, up to 10. The prestige sequence grows with each rank. The Pal shimmers afterwards.
 - **Fuse two Pals.** Pick "Fusion" in the wheel, then a partner from your party, and your summoned Pal and the partner become a stronger Pal for 60 seconds, then split again. At the Fusion Altar, two Pals become one for good: set two Pals into it, then choose the gender and up to four passives. A fight fusion costs a Fusion Shard, an altar fusion a Fusion Core. The default tree ships 17 fusion rules, and any other pair fuses into a stronger species by the breeding formula. Servers set the altar's unlock level, its build cost and both recipes in the config.
-- **A countdown above the party panel shows how long a fight fusion has left.** It shows a Fusion Shard, the fused Pal's icon, the seconds and a bar. Players on a server see it too.
-- An evolution may depend on day or night, water, a status effect, a location, a party member, a known move or passive, an item or an amount of gold, a condenser rank, the last thing the Pal was fed, or a trainer-level, trust-rank or IV threshold. Any condition can be inverted. Greyed options name the missing part in your game language.
+- **A countdown above the party panel shows how long a fight fusion has left.** It has a Fusion Shard, the fused Pal's icon, the seconds and a bar. Players on a server see it too.
+- An evolution may depend on day or night, water, a status effect, a location, a party member, a known move or passive, an item or an amount of gold, a condenser rank, the last thing the Pal was fed, a trainer-level, Pal-level, trust-rank, IV or work-suitability threshold, an Alpha Pal, a recent faint, your own hunger, status or HP, or a beaten tower boss or Alpha. Any condition can be inverted. Greyed options name the missing part in your game language.
+- Servers set the recipes of the Evolution, Prestige and Adaptation Stones and the build cost of the Pal Alchemy Workbench in the config.
 - Set an evolution to **automatic** and it runs as soon as its conditions are met. The cost and rollback stay the same. `!palvolve lock` excludes one Pal; `!palvolve unlock` puts it back.
 - The Palpedia gets an **Evolutions** tab next to Stats and Habitat. It shows what the selected Pal evolves from and into, plus the level, stone and conditions for each step. Click any Pal in the tree to centre it and follow the line without leaving the screen.
 - Build your own evolution tree in the [web configurator](https://palvolve.doodesch.de/?utm_source=github&utm_medium=readme&utm_campaign=palvolve). Change pairs, set levels and conditions, share a short link, then download `config_user.lua`. 17 languages.
@@ -109,6 +110,13 @@ A hand-written `config_user.lua` uses `conditions = { "night", "knowsMove:Dragon
 - `ivTotal:<n>` - sum of the three IVs (HP, Attack, Defense), 1-300. Older rules above 300 count as 300
 - `ivEach:<n>` - every IV, 1-100
 - `ivHP:<n>` / `ivShot:<n>` / `ivDefense:<n>` - one specific IV, 1-100. `ivShot` is the Attack IV; older `ivMelee` rules count it too.
+- `palLevel:<n>` - the Pal's own level, 1-80
+- `playerHp:<n>` - your HP in percent, 1-100
+- `faintedAgo:<n>` - minutes since the Pal last fainted in this session, 1-120. `"!faintedAgo:11"` means it fainted within the last ten minutes
+- `workRank:<work>:<n>` - work suitability rank, 1-10, e.g. `workRank:Mining:3`. Works: EmitFlame, Watering, Seeding, GenerateElectricity, Handcraft, Collection, Deforest, Mining, OilExtraction, ProductMedicine, Cool, Transport, MonsterFarm
+- `alphasDefeated:<n>` - Alphas you have beaten, 1-200
+
+Also `isAlpha`, `playerHungry`, `playerPoisoned`, `playerBurning`, `playerWet`, `playerFrozen`, `playerElectrified`, `defeatedTower:<boss>` (GrassBoss, ElectricBoss, ForestBoss, SnowBoss, DesertBoss, SakurajimaBoss, VikingBoss, SorajimaBoss, KingWhaleBoss, WorldTreeMiddleBoss1-3, WorldTreeBoss) and `defeatedAlpha:<species>`. Boss defeats need the native component.
 
 A leading `!` inverts a condition. `"!night"` requires anything except night. `"!knowsMove:Dragon"` requires no Dragon move. An inverted threshold means strictly below the number. `"!trustRank:4"` means trust rank 1-3. `"!ivEach:70"` means at least one IV is below 70. Use one `!` per condition. Two pairs such as `{ "trustRank:4" }` and `{ "!trustRank:4" }` split one Pal into a high-trust and a low-trust branch. Mod versions before 1.3.10 ignore `!` conditions (the pair still works, without that requirement).
 
