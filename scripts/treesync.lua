@@ -181,6 +181,11 @@ local GLOBALS = {
     { key = "digimon.peakDegPerSec", kind = "number" },
     { key = "digimon.elementColors", kind = "bool" },
     { key = "finale.style", kind = "enum", values = { layered = true, legacy = true } },
+
+    -- The level a prestige asks per stage, for the same reason prestigeMinLevel
+    -- travels: the client's wheel names the level the host checks. Last in the
+    -- list, so the frames of the keys before it keep their layout.
+    { key = "prestigeLevelStep", kind = "number", since = 3 },
 }
 
 local function readPath(root, path)

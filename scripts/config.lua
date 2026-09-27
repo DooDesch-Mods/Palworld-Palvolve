@@ -141,6 +141,9 @@ local Config = {
     -- depth and level gates apply to every derived or authored connection.
     prestigeMinEvolutions = 1,
     prestigeMinLevel = 80,
+    -- Each further prestige stage asks this many levels more than
+    -- prestigeMinLevel, up to 80. 0 keeps one level for every stage.
+    prestigeLevelStep = 0,
 
     -- Off means no Pal is ever offered a prestige, whatever the tree says, and
     -- the Prestige Stone recipe goes with it. The recipe is PalSchema data,
@@ -2554,6 +2557,7 @@ local USER_KEYS = {
     { path = "autoEvolve", kind = "bool" },
     { path = "prestigeMinEvolutions", kind = "int", min = 0, max = 5 },
     { path = "prestigeMinLevel", kind = "int", min = 1, max = 80 },
+    { path = "prestigeLevelStep", kind = "int", min = 0, max = 20 },
     { path = "prestigeEnabled", kind = "bool" },
     { path = "prestigeAutoLink", kind = "bool" },
     { path = "evolutionMode", kind = "enum", values = { "selected", "conditioned" } },

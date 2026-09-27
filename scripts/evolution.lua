@@ -1016,9 +1016,26 @@ local function optionPairsFor(characterId, param)
     return offered, false, err
 end
 
-local function requiredLevelFor(pair)
+--- The prestige stage a Pal has reached, 0 for none.
+local function prestigeStageOf(param)
+    if not param then return 0 end
+    local okStages, stages = pcall(PalPassives.resolve, param)
+    if not okStages or type(stages) ~= "table" then
+        Log("[WARN] prestige stage unreadable, counting it as 0: " .. tostring(stages))
+        return 0
+    end
+    return stages.prestige and tonumber(stages.prestige.stage) or 0
+end
+
+--- The level a pair asks of this Pal. A prestige asks prestigeMinLevel for its
+--- first stage and prestigeLevelStep more for each stage after it, up to 80;
+--- without the Pal at hand the first stage's level is the answer.
+local function requiredLevelFor(pair, param)
     if pair and pair.category == "prestige" then
-        return tonumber(Config.prestigeMinLevel) or 1
+        local base = tonumber(Config.prestigeMinLevel) or 1
+        local step = tonumber(Config.prestigeLevelStep) or 0
+        if step <= 0 or not param then return base end
+        return math.min(80, base + step * prestigeStageOf(param))
     end
     return tonumber(pair and pair.minLevel) or 0
 end
@@ -1329,10 +1346,10 @@ local function findEligibleFor(playerCtx)
             firstReason = firstReason or unknownReason
         elseif isAlpha and not swapTargetId(cand, true) then
             alphaBlockedTo = alphaBlockedTo or cand.to
-        elseif level < requiredLevelFor(cand) then
+        elseif level < requiredLevelFor(cand, param) then
             firstReason = firstReason or I18n.msg(
                 isPrestigePair(cand) and "needsLevelPrestige" or "needsLevel",
-                palDisplayName(id), requiredLevelFor(cand), level)
+                palDisplayName(id), requiredLevelFor(cand, param), level)
         else
             local condOk, unmet = Conditions.evaluate(cand, condCtx)
             if not condOk and AutoUnlock.has(param, cand.to) then condOk = true end
@@ -3250,7 +3267,7 @@ end
 -- then price. The target's own name is left out because the wheel segment
 -- already carries it. Costs resolve against the pair's minimum level, the
 -- earliest point the price applies, which is the level the guide quotes too.
-local function requirementLine(pair, level, worldCtx)
+local function requirementLine(pair, level, worldCtx, param)
     local lines = {}
     -- What KIND of step this is, above the level and the price. A prestige and
     -- an ordinary evolution ask for the same things and cost the same shape of
@@ -3264,7 +3281,7 @@ local function requirementLine(pair, level, worldCtx)
     if pair.autoEvolve == true then
         wrapText(I18n.msg("autoLockEntry"), CENTER_WIDTH, lines)
     end
-    local minLevel = requiredLevelFor(pair)
+    local minLevel = requiredLevelFor(pair, param)
     if minLevel > 0 then wrapText(I18n.msg("guideLevelShort", minLevel), CENTER_WIDTH, lines) end
 
     local cond = Conditions.describe(pair, Config.conditionDisclosure)
@@ -3351,7 +3368,7 @@ local function evolutionOptions()
         -- phrased the same way the guide pages phrase it. Without this the
         -- wheel names targets and nothing else, so the only way to learn what
         -- an evolution costs was to try it and read the refusal.
-        opt.requirement = requirementLine(pair, level, holder)
+        opt.requirement = requirementLine(pair, level, holder, param)
         local rulePasses = false
         -- Marked further down once the unlock is known, because an entry that is
         -- open only because the Pal earned it once looks identical to a normally
@@ -3363,8 +3380,8 @@ local function evolutionOptions()
             opt.blocked = unknownReason
         elseif isAlpha and not swapTargetId(pair, true) then
             opt.blocked = I18n.msg("noAlphaFormShort", opt.label)
-        elseif level < requiredLevelFor(pair) then
-            opt.blocked = I18n.msg("needsLevelShort", opt.label, requiredLevelFor(pair), level)
+        elseif level < requiredLevelFor(pair, param) then
+            opt.blocked = I18n.msg("needsLevelShort", opt.label, requiredLevelFor(pair, param), level)
         else
             local condOk, unmet = Conditions.evaluate(pair, condCtx)
             -- A target this Pal has already qualified for once stays reachable,
@@ -3542,10 +3559,10 @@ return false, I18n.msg("selectionOutdated", palDisplayName(id), palDisplayName(f
             failReason = failReason or unknownReason
         elseif isAlpha and not swapTargetId(cand, true) then
             failReason = failReason or I18n.msg("noAlphaForm", palDisplayName(cand.to))
-        elseif level < requiredLevelFor(cand) then
+        elseif level < requiredLevelFor(cand, param) then
             failReason = failReason or I18n.msg(
                 prestigeRequest and "needsLevelPrestige" or "needsLevel",
-                palDisplayName(id), requiredLevelFor(cand), level)
+                palDisplayName(id), requiredLevelFor(cand, param), level)
         else
             local condOk, unmet = Conditions.evaluate(cand, condCtx)
             -- The same relaxation listOptions applies when it draws the wheel.
@@ -4423,7 +4440,7 @@ local function scanAutoControllerUnsafe(pc)
     local ready = {}
     for i, pair in ipairs(pairList) do
         if pair.autoEvolve == true and not unknownConditionReason(pair)
-            and level >= requiredLevelFor(pair)
+            and level >= requiredLevelFor(pair, param)
             and not (isAlpha and not swapTargetId(pair, true)) then
             local met, total = Conditions.progress(pair, condCtx)
             nextDelay = math.min(nextDelay, autoDelayFor(met, total))
