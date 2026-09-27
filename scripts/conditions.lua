@@ -24,6 +24,7 @@
 
 local I18n = require("i18n")
 local ConditionFeed = require("conditionfeed")
+local FaintWatch = require("faintwatch")
 local WAZA_IDS = require("waza_static")
 
 local Conditions = {}
@@ -117,6 +118,36 @@ local function playerPawn(ctx)
     return nil
 end
 
+local function controllerRidingUnsafe(pc)
+    return pc:IsRiding() == true
+end
+
+local function riderOfUnsafe(util, mount)
+    return util:FindRiderByRidingActor(mount)
+end
+
+-- The player's own character. While riding, the controller's pawn is the
+-- mount, so the rider behind it is the player.
+local function playerCharacter(ctx)
+    local pawn = playerPawn(ctx)
+    if not pawn then return nil end
+    local pc = ctx.playerCtx.pc
+    if not (pc and pc:IsValid()) then return pawn end
+    local okRiding, riding = pcall(controllerRidingUnsafe, pc)
+    if not (okRiding and riding) then return pawn end
+    local util = palUtility()
+    if not util then return pawn end
+    local okRider, rider = pcall(riderOfUnsafe, util, pawn)
+    if okRider and rider and rider:IsValid() then return rider end
+    return pawn
+end
+
+local function playerParamUnsafe(ctx)
+    local character = playerCharacter(ctx)
+    if not character then error("player character unavailable") end
+    return character.CharacterParameterComponent:GetIndividualParameter()
+end
+
 -- UFunction-returned TArray access. The indexed route avoids allocating a
 -- callback closure for every condition evaluation, which matters once the
 -- auto-evolve watcher calls this several times per second.
@@ -149,15 +180,24 @@ local function forEachInArray(arr, fn, state)
     return true
 end
 
-local function statusActiveUnsafe(ctx, statusId)
-    local sc = ctx.actor.StatusComponent
+local function statusOnUnsafe(actor, statusId)
+    local sc = actor.StatusComponent
     if not (sc and sc:IsValid()) then error("status component unavailable") end
     local status = sc:GetExecutionStatus(statusId)
     return status ~= nil and status:IsValid()
 end
 
 local function statusActive(ctx, statusId)
-    local ok, active = pcall(statusActiveUnsafe, ctx, statusId)
+    local ok, active = pcall(statusOnUnsafe, ctx.actor, statusId)
+    if ok then return active end
+    return nil
+end
+
+-- the same status read on the player's own character
+local function playerStatusActive(ctx, statusId)
+    local character = playerCharacter(ctx)
+    if not character then return nil end
+    local ok, active = pcall(statusOnUnsafe, character, statusId)
     if ok then return active end
     return nil
 end
@@ -358,6 +398,17 @@ end
 -- variant had no way to say so and hasPassive:Rare was the obvious wrong
 -- guess: a shiny without that passive looks identical to the player and fails
 -- the rule, which is how the first report of this arrived.
+-- An Alpha is its species with a BOSS_ prefix on the CharacterID.
+local function characterIdUnsafe(param)
+    return param:GetCharacterID():ToString()
+end
+
+BOOL_EVAL.isAlpha = function(ctx)
+    local ok, id = pcall(characterIdUnsafe, ctx.param)
+    if not ok or type(id) ~= "string" then return nil end
+    return id:lower():sub(1, 5) == "boss_"
+end
+
 BOOL_EVAL.isShiny = function(ctx)
     local ok, shiny = pcall(shinyUnsafe, ctx)
     if not ok then return nil end
@@ -488,6 +539,17 @@ BOOL_EVAL.hpFull = function(ctx) return hpRate(ctx) >= HP_FULL_RATE end
 BOOL_EVAL.hungry = function(ctx)
     return ctx.param:GetFullStomachRate() <= HUNGRY_RATE
 end
+
+-- the player's own state, read from the player character (the rider when
+-- mounted), with the Pal's thresholds and status ids
+BOOL_EVAL.playerHungry = function(ctx)
+    return playerParamUnsafe(ctx):GetFullStomachRate() <= HUNGRY_RATE
+end
+BOOL_EVAL.playerPoisoned = function(ctx) return playerStatusActive(ctx, STATUS.Poison) end
+BOOL_EVAL.playerBurning = function(ctx) return playerStatusActive(ctx, STATUS.Burn) end
+BOOL_EVAL.playerWet = function(ctx) return playerStatusActive(ctx, STATUS.Wetness) end
+BOOL_EVAL.playerFrozen = function(ctx) return playerStatusActive(ctx, STATUS.Freeze) end
+BOOL_EVAL.playerElectrified = function(ctx) return playerStatusActive(ctx, STATUS.Electrical) end
 BOOL_EVAL.wellFed = function(ctx)
     return ctx.param:GetFullStomachRate() >= WELL_FED_RATE
 end
@@ -614,6 +676,9 @@ end
 local NUMERIC_PARAM_BOUNDS = {
     playerLevel = { min = 1, max = 80 },
     trustRank = { min = 1, max = 10 },
+    palLevel = { min = 1, max = 80 },
+    playerHp = { min = 1, max = 100 },
+    faintedAgo = { min = 1, max = 120 },
     condenserRank = { min = 1, max = 4 },
     soulHP = { min = 1, max = 20 },
     soulAttack = { min = 1, max = 20 },
@@ -704,9 +769,7 @@ end
 
 -- "playerLevel:<n>": the TRAINER (player character) is at least level n
 local function playerLevelUnsafe(ctx)
-    local pawn = playerPawn(ctx)
-    if not pawn then error("player pawn unavailable") end
-    return pawn.CharacterParameterComponent:GetIndividualParameter():GetLevel()
+    return playerParamUnsafe(ctx):GetLevel()
 end
 
 PARAM_EVAL.playerLevel = function(ctx, value)
@@ -715,6 +778,47 @@ PARAM_EVAL.playerLevel = function(ctx, value)
     local ok, level = pcall(playerLevelUnsafe, ctx)
     if not ok or level == nil then return nil end
     return (tonumber(level) or 0) >= need
+end
+
+-- "palLevel:<n>": the Pal itself is at least level n
+local function palLevelUnsafe(ctx)
+    return ctx.param:GetLevel()
+end
+
+PARAM_EVAL.palLevel = function(ctx, value)
+    local need = tonumber(value)
+    if not need then return false end
+    local ok, level = pcall(palLevelUnsafe, ctx)
+    if not ok or level == nil then return nil end
+    return (tonumber(level) or 0) >= need
+end
+
+-- "playerHp:<pct>": the player's HP is at least pct percent of the maximum
+local function playerHpRateUnsafe(ctx)
+    local param = playerParamUnsafe(ctx)
+    local hp = param:GetHP().Value
+    local maxHp = param:GetMaxHP()
+    if not (hp and maxHp) or maxHp <= 0 then error("player hp unavailable") end
+    return hp / (maxHp * HP_FIXED_SCALE)
+end
+
+PARAM_EVAL.playerHp = function(ctx, value)
+    local need = tonumber(value)
+    if not need then return false end
+    local ok, rate = pcall(playerHpRateUnsafe, ctx)
+    if not ok or type(rate) ~= "number" then return nil end
+    return rate * 100 >= need
+end
+
+-- "faintedAgo:<n>": at least n minutes since the Pal last fainted. A Pal that
+-- has not fainted this session counts as long ago; "!faintedAgo:11" is the
+-- usual form, fainted within the last ten minutes.
+PARAM_EVAL.faintedAgo = function(ctx, value)
+    local need = tonumber(value)
+    if not need then return false end
+    local minutes = FaintWatch.minutesSince(ctx.param)
+    if minutes == nil then return nil end
+    return minutes >= need
 end
 
 -- "trustRank:<n>": the pal's friendship rank is at least n (scale 1..10;
@@ -878,9 +982,11 @@ Conditions.ORDER = {
     "inCave", "inDesert", "inVolcano", "inSnow", "inGrassland", "inForest",
     "inSakura", "inDarkIsland", "onSkyIsland", "onMushroomIsland",
     "atWorldTree", "onOilrig", "inSanctuary",
-    "isMale", "isFemale", "isShiny",
+    "isMale", "isFemale", "isShiny", "isAlpha",
     "hpLow", "hpFull", "hungry", "wellFed", "highTrust",
     "isGliding", "inOwnBase", "inCombat",
+    "playerHungry", "playerPoisoned", "playerBurning", "playerWet",
+    "playerFrozen", "playerElectrified",
     "raining", "snowing", "thunderstorm", "foggy",
     -- available to hand-written configs only
     "isRiding",
@@ -901,7 +1007,11 @@ Conditions.LABELS = {
     atWorldTree = "At the World Tree", onOilrig = "On the oil rig",
     inSanctuary = "In a wildlife sanctuary",
     isMale = "Male", isFemale = "Female", isShiny = "Lucky Pal (shiny)",
+    isAlpha = "Alpha Pal",
     isGliding = "Gliding", inOwnBase = "In your own base", inCombat = "In combat",
+    playerHungry = "You are hungry", playerPoisoned = "You are poisoned",
+    playerBurning = "You are burning", playerWet = "You are wet",
+    playerFrozen = "You are frozen", playerElectrified = "You are electrified",
     raining = "Raining", snowing = "Snowing", thunderstorm = "Thunderstorm",
     foggy = "Foggy",
     hpLow = "Low HP", hpFull = "Full HP",
@@ -974,6 +1084,9 @@ local NUMERIC_LABEL_FALLBACKS = {
     soulAttack = "Attack Soul rank %d+",
     soulDefense = "Defense Soul rank %d+",
     soulCraftSpeed = "Craft Speed Soul rank %d+",
+    palLevel = "Pal level %d+",
+    playerHp = "Your HP %d%%+",
+    faintedAgo = "Fainted %d+ min ago",
 }
 
 local NUMERIC_UNDER_FALLBACKS = {
@@ -982,6 +1095,9 @@ local NUMERIC_UNDER_FALLBACKS = {
     soulAttack = "Attack Soul rank below %d",
     soulDefense = "Defense Soul rank below %d",
     soulCraftSpeed = "Craft Speed Soul rank below %d",
+    palLevel = "Pal level below %d",
+    playerHp = "Your HP below %d%%",
+    faintedAgo = "Fainted less than %d min ago",
 }
 
 -- human label for a positive (base) id
@@ -1217,9 +1333,9 @@ function Conditions.debugDump(ctx)
             tostring(ctx.param:GetFriendshipRank())))
     end)
     pcall(function()
-        local pawn = playerPawn(ctx)
-        local level = pawn and pawn.CharacterParameterComponent:GetIndividualParameter():GetLevel()
-        Log(string.format("[cond] raw player: level=%s", tostring(level)))
+        local param = playerParamUnsafe(ctx)
+        Log(string.format("[cond] raw player: level=%s stomachRate=%.2f hpRate=%.3f",
+            tostring(param:GetLevel()), param:GetFullStomachRate(), playerHpRateUnsafe(ctx)))
     end)
     pcall(function()
         local parts = {}

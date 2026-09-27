@@ -158,8 +158,10 @@ local CONDITION_HINT_GROUP = {
     onMushroomIsland = "location", atWorldTree = "location",
     onOilrig = "location", inSanctuary = "location",
     isMale = "pal", isFemale = "pal", isShiny = "pal", hpLow = "pal", hpFull = "pal",
-    hungry = "pal", wellFed = "pal", highTrust = "pal",
+    hungry = "pal", wellFed = "pal", highTrust = "pal", isAlpha = "pal",
     isGliding = "context", inOwnBase = "context", inCombat = "context",
+    playerHungry = "player", playerPoisoned = "player", playerBurning = "player",
+    playerWet = "player", playerFrozen = "player", playerElectrified = "player",
     raining = "weather", snowing = "weather", thunderstorm = "weather",
     foggy = "weather", isRiding = "gated",
 }
@@ -171,6 +173,7 @@ local PARAM_HINT_GROUP = {
     fedFood = "food", inParty = "party", playerLevel = "playerLevel",
     trustRank = "trust", ivTotal = "iv", ivEach = "iv", ivHP = "iv",
     ivMelee = "iv", ivShot = "iv", ivDefense = "iv",
+    palLevel = "pal", faintedAgo = "pal", playerHp = "player",
 }
 
 function I18n.conditionDescription(id, level)
