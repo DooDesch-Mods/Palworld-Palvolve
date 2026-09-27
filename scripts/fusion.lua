@@ -437,11 +437,15 @@ local function announce(e, state, cooldown)
         Log("[WARN] fusion state not sent: the player left")
         return
     end
-    NetChannel.sendFusionState(ctx.pc, {
+    local sent = NetChannel.sendFusionState(ctx.pc, {
         state = state, aKey = e.aKey, bKey = e.bKey, target = e.target,
         idA = e.idA, idB = e.idB, remaining = remaining, duration = duration,
         cooldown = cooldown or 0,
     })
+    -- the first "on" and every "off"; the repeats every few seconds stay quiet
+    if sent and (state == "off" or not e.lastAnnounce) then
+        Log(string.format("fusion state %s sent to its player (%s)", state, tostring(e.target)))
+    end
     e.lastAnnounce = os.clock()
 end
 
