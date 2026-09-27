@@ -1,10 +1,10 @@
 # Changelog
 
-## [Unreleased]
+## [2.0.1] - 2026-09-27
 
 ### Added
 
-- **A countdown shows how long a fight fusion has left.** It sits above the party panel with the fused Pal's icon, the seconds and a bar that turns amber for the last ten seconds. Players on a server see their own, and their wheel now knows their fusion cooldowns. Thanks to Narayan for the idea.
+- **A countdown shows how long a fight fusion has left.** It sits above the party panel with a Fusion Shard, the fused Pal's icon, the seconds and a bar that turns amber for the last ten seconds. Players on a server see their own, and their wheel now knows their fusion cooldowns. Thanks to Narayan for the idea.
 
 ### Fixed
 
@@ -13,9 +13,9 @@
 - **Gym leaders and other special Pals show their name in the wheel.** A Grizzbolt caught in a gym read as "GYM_ElecPanda". Pals without breeding data now say that there is no fusion for them, not that nothing is stronger. Thanks to Narayan.
 - **An Alpha partner no longer leaves the fused Pal missing.** The fused Pal took 25 seconds to give up coming back.
 - **When a Pal does not come back after an evolution or a fusion, the chat tells you to summon it again.**
-- **A fusion that ends during another player's evolution waits for it,** so the fused Pal no longer stays out with the other Pal's stats.
-- **The partner of a fused Pal you released comes back after two minutes** instead of staying fainted.
-- **A game closed during a fusion gives the Pal back the HP it had before,** not full HP.
+- **A fusion that ends during another player's evolution waits for it, so the fused Pal no longer stays out with the other Pal's stats.**
+- **The partner of a fused Pal you released comes back after two minutes instead of staying fainted.**
+- **A game closed during a fusion gives the Pal back the HP it had before, not full HP.**
 
 ## [2.0.0] - 2026-09-26
 
