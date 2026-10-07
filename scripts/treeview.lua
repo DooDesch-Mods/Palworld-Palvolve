@@ -11,6 +11,8 @@
 -- and a badge on a neighbour says how many further paths it has. Following one
 -- means clicking it, which makes it the new centre.
 
+local ObjTrack = require("objtrack")
+local Role = require("role")
 local Config = require("config")
 
 local M = {}
@@ -147,7 +149,7 @@ local CLS = {}
 local function cls(path)
     if CLS[path] == nil then
         local c = nil
-        pcall(function() c = StaticFindObject(path) end)
+        pcall(function() c = ObjTrack.static(path) end)
         CLS[path] = c
     end
     return CLS[path]
@@ -164,7 +166,7 @@ local function outer()
             return o
         end
     end
-    return FindFirstOf("PalPlayerController")
+    return Role.getLocalPlayerController()
 end
 
 local made = 0
@@ -198,10 +200,10 @@ local function white()
     if whiteTex ~= nil then return whiteTex or nil end
     local path = "/Engine/EngineResources/WhiteSquareTexture.WhiteSquareTexture"
     local tex = nil
-    pcall(function() tex = StaticFindObject(path) end)
+    pcall(function() tex = ObjTrack.static(path) end)
     if not (tex and tex:IsValid()) then
         pcall(function() LoadAsset(path) end)
-        pcall(function() tex = StaticFindObject(path) end)
+        pcall(function() tex = ObjTrack.static(path) end)
     end
     whiteTex = (tex and tex:IsValid()) and tex or false
     return whiteTex or nil
@@ -227,7 +229,7 @@ local function toText(s)
     local okDirect, text = pcall(FText, s)
     if okDirect and text then return text end
     local okFallback, converted = pcall(function()
-        local ktl = StaticFindObject("/Script/Engine.Default__KismetTextLibrary")
+        local ktl = ObjTrack.static("/Script/Engine.Default__KismetTextLibrary")
         if not (ktl and ktl:IsValid()) then return nil end
         return ktl:Conv_StringToText(s)
     end)
@@ -260,10 +262,10 @@ local function palIcon(palId)
     if iconCache[palId] ~= nil then return iconCache[palId] or nil end
     local path = string.format(ICON_PATH, palId, palId)
     local tex = nil
-    pcall(function() tex = StaticFindObject(path) end)
+    pcall(function() tex = ObjTrack.static(path) end)
     if not (tex and tex:IsValid()) then
         pcall(function() LoadAsset(path) end)
-        pcall(function() tex = StaticFindObject(path) end)
+        pcall(function() tex = ObjTrack.static(path) end)
     end
     iconCache[palId] = (tex and tex:IsValid()) and tex or false
     return iconCache[palId] or nil
@@ -381,8 +383,8 @@ end
 
 local function screenSize()
     local w, h = 1920, 1080
-    local lib = StaticFindObject("/Script/UMG.Default__WidgetLayoutLibrary")
-    local pc = FindFirstOf("PalPlayerController")
+    local lib = ObjTrack.static("/Script/UMG.Default__WidgetLayoutLibrary")
+    local pc = Role.getLocalPlayerController()
     if lib and pc then
         pcall(function()
             local v = lib:GetViewportSize(pc)
@@ -421,9 +423,9 @@ M.onwardCount = onwardCount
 M.palName = palName
 
 function M.close()
-    local pc = FindFirstOf("PalPlayerController")
+    local pc = Role.getLocalPlayerController()
     if pc and pc:IsValid() then
-        local lib = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+        local lib = ObjTrack.static("/Script/UMG.Default__WidgetBlueprintLibrary")
         pcall(function() lib:SetInputMode_GameOnly(pc, true) end)
         pcall(function() pc.bShowMouseCursor = false end)
     end
@@ -440,7 +442,7 @@ function M.open()
         M.close()
         return
     end
-    local pc = FindFirstOf("PalPlayerController")
+    local pc = Role.getLocalPlayerController()
     if not (pc and pc:IsValid()) then
         Log("[tree] no player controller")
         return
@@ -453,7 +455,7 @@ function M.open()
     end
     selected, listTop = 1, 1
 
-    local lib = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+    local lib = ObjTrack.static("/Script/UMG.Default__WidgetBlueprintLibrary")
     local root = nil
     pcall(function() root = lib:Create(pc, cls("/Script/UMG.UserWidget"), pc) end)
     if not (root and root:IsValid()) then

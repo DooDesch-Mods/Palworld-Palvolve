@@ -9,6 +9,7 @@
 -- Only the authority calls dismount: on a client the ride state is a
 -- replicated copy, and a write there changes nothing the server keeps.
 
+local ObjTrack = require("objtrack")
 local GameLoop = require("gameloop")
 
 local Ride = {}
@@ -34,7 +35,7 @@ local function isLive(obj)
 end
 
 local function palUtility()
-    local u = StaticFindObject("/Script/Pal.Default__PalUtility")
+    local u = ObjTrack.static("/Script/Pal.Default__PalUtility")
     if isLive(u) then return u end
     return nil
 end

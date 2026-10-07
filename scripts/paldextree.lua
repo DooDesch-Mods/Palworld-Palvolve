@@ -29,6 +29,8 @@ local okCfg, Config = pcall(require, "config")
 if not okCfg or type(Config) ~= "table" then Config = { devMode = false } end
 
 local GameLoop = require("gameloop")
+local ObjTrack = require("objtrack")
+local Role = require("role")
 
 local function Log(msg)
     print(string.format("[Palvolve] %s\n", msg))
@@ -47,10 +49,10 @@ end
 local function loadClass(pkg, assetName)
     local objPath = string.format("%s.%s", pkg, assetName)
     local c = nil
-    pcall(function() c = StaticFindObject(objPath) end)
+    pcall(function() c = ObjTrack.static(objPath) end)
     if c and c:IsValid() then return c, "already resident" end
 
-    local helpers = StaticFindObject("/Script/AssetRegistry.Default__AssetRegistryHelpers")
+    local helpers = ObjTrack.static("/Script/AssetRegistry.Default__AssetRegistryHelpers")
     if not (helpers and helpers:IsValid()) then return nil, "no asset registry helpers" end
 
     pcall(function()
@@ -74,14 +76,14 @@ end
 --- left alone: that screen brings its own input mode, and taking it over there
 --- made the page answer while the rest of the Palpedia went deaf.
 local function grabInput(pc)
-    local lib = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+    local lib = ObjTrack.static("/Script/UMG.Default__WidgetBlueprintLibrary")
     -- EMouseLockMode: 0 = DoNotLock, so the cursor can leave the window.
     pcall(function() lib:SetInputMode_UIOnlyEx(pc, nil, 0, false) end)
     pcall(function() pc.bShowMouseCursor = true end)
 end
 
 local function releaseInput(pc)
-    local lib = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+    local lib = ObjTrack.static("/Script/UMG.Default__WidgetBlueprintLibrary")
     pcall(function() lib:SetInputMode_GameOnly(pc, true) end)
     pcall(function() pc.bShowMouseCursor = false end)
 end
@@ -231,7 +233,7 @@ local function startTreeWebWatcher(html, firstDelivery)
         -- alt-tab the page then still draws but swallows nothing, and every
         -- click goes to the world behind it.
         if ticks % 8 == 0 and not treeWebKeepInput then
-            local pc2 = FindFirstOf("PalPlayerController")
+            local pc2 = Role.getLocalPlayerController()
             if pc2 and pc2:IsValid() then grabInput(pc2) end
         end
 
@@ -331,7 +333,7 @@ function M.toggleTreeWindow(keepInput)
     if treeWebOpen and treeWebWidget and treeWebWidget:IsValid() then
         treeWebStop = true
         treeWebOpen = false
-        local pc = FindFirstOf("PalPlayerController")
+        local pc = Role.getLocalPlayerController()
         if pc and pc:IsValid() and not treeWebKeepInput then releaseInput(pc) end
         -- Collapsed, not removed: off the viewport the browser would have to
         -- start over, and starting it is the expensive part.
@@ -358,7 +360,7 @@ function M.toggleTreeWindow(keepInput)
             treeWebPageDocked = treeWebDocked
         end
         pcall(function() treeWebBrowser:LoadString(treeWebPage, TREE_ORIGIN) end)
-        local pc = FindFirstOf("PalPlayerController")
+        local pc = Role.getLocalPlayerController()
         if pc and pc:IsValid() and not treeWebKeepInput then grabInput(pc) end
         treeWebOpen = true
         startTreeWebWatcher(html, false)
@@ -377,13 +379,13 @@ function M.toggleTreeWindow(keepInput)
     Log(string.format("tree page class ready (%s) after %d ms",
         how, math.floor((os.clock() - tOpen) * 1000)))
 
-    local pc = FindFirstOf("PalPlayerController")
+    local pc = Role.getLocalPlayerController()
     if not (pc and pc:IsValid()) then
         Log("no player controller, the tree page cannot open")
         return
     end
 
-    local lib = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+    local lib = ObjTrack.static("/Script/UMG.Default__WidgetBlueprintLibrary")
     local t1 = os.clock()
     local widget = nil
     pcall(function() widget = lib:Create(pc, cls, pc) end)
@@ -422,10 +424,10 @@ function M.toggleTreeWindow(keepInput)
     -- window to the top-left at half the intended scale.
     local t3 = os.clock()
     local frame, canvas, slot = nil, nil, nil
-    pcall(function() frame = lib:Create(pc, StaticFindObject("/Script/UMG.UserWidget"), pc) end)
+    pcall(function() frame = lib:Create(pc, ObjTrack.static("/Script/UMG.UserWidget"), pc) end)
     if frame and frame:IsValid() then
         pcall(function()
-            canvas = StaticConstructObject(StaticFindObject("/Script/UMG.CanvasPanel"),
+            canvas = StaticConstructObject(ObjTrack.static("/Script/UMG.CanvasPanel"),
                                            frame, FName("PalvolveFrame"))
             frame.WidgetTree.RootWidget = canvas
         end)
@@ -663,6 +665,8 @@ end
 local PALDEX_TAB = "/Game/Pal/Blueprint/UI/UserInterface/MainMenu/Paldex/WBP_Paldex_tab.WBP_Paldex_tab_C"
 local PALDEX_TABSET = "WBP_Paldex_tabset_C"
 local PALDEX_SCREEN = "WBP_Paldex_C"
+local PALDEX_ROW = "WBP_Paldex_List_C"
+local PALDEX_DIR = "/Game/Pal/Blueprint/UI/UserInterface/MainMenu/Paldex/"
 -- Everything that screen shows sits in one canvas, WBP_Paldex_C:WidgetTree.CanvasPanel_2,
 -- with the tab bar as a 32 px strip along its top. It is reached through the
 -- tabset's slot rather than by name.
@@ -689,6 +693,7 @@ local paldexWant = nil       -- "open" or "close", set by the click hook
 local paldexLit = false      -- true while the highlight is ours, not the game's
 local paldexBusy = false     -- true while the mod is inside a call to the game
 local paldexPendingRowName = nil -- the button whose row was just clicked
+local paldexPendingRowButton = nil -- that button itself, to find its row from
 -- The Palpedia screen we are working with, kept between polls: finding it walks
 -- the object list and resolves a full name per candidate, and the fast loop asks
 -- for it sixteen times a second.
@@ -699,25 +704,40 @@ local paldexScreenSeen = nil
 local paldexCheckedScreen = 0
 local slowChecks = 0
 
---- A widget that is really on screen. Not just "not the default object": every
---- widget blueprint also keeps a cooked template of its whole tree, and that one
---- answers to the same class. Only what lives under /Engine/Transient was built
---- for the running game - taking the template for an open Paldex is what made
---- the mod inject its tab before the screen even existed.
-local function liveOne(className)
-    for _, o in ipairs(FindAllOf(className) or {}) do
-        local n = ""
-        pcall(function() n = tostring(o:GetFullName()) end)
-        if o:IsValid() and n:find("/Engine/Transient", 1, true)
-            and not n:find("Default__", 1, true) then
-            return o
-        end
-    end
-    return nil
+--- A widget that was built for the running game. Not just "not the default
+--- object": every widget blueprint also keeps a cooked template of its whole
+--- tree, and that one answers to the same class. Only what lives under
+--- /Engine/Transient was built for the running game - taking the template for
+--- an open Paldex is what made the mod inject its tab before the screen even
+--- existed.
+local function builtForTheGame(w)
+    local n = tostring(w:GetFullName())
+    return n:find("/Engine/Transient", 1, true) ~= nil
+        and not n:find("Default__", 1, true)
+end
+
+-- The Palpedia screens and tabsets, listed as the game builds them (objtrack.lua).
+-- Looking for them walks every object in the game, about 30 ms a time, and the
+-- watcher below asks twice a second for as long as the Palpedia is closed -
+-- which is nearly always.
+local paldexScreens = ObjTrack.follow(PALDEX_DIR .. "WBP_Paldex.WBP_Paldex_C",
+    PALDEX_SCREEN, { accept = builtForTheGame })
+local paldexTabsets = ObjTrack.follow(PALDEX_DIR .. "WBP_Paldex_tabset.WBP_Paldex_tabset_C",
+    PALDEX_TABSET, { accept = builtForTheGame })
+
+local function readVisible(w) return w:IsVisible() end
+local function readFullName(o) return tostring(o:GetFullName()) end
+local function readTabBar(tabset) return tabset.HorizontalBox_Tab end
+
+local warnedOnce = {}
+local function warnOnce(key, msg)
+    if warnedOnce[key] then return end
+    warnedOnce[key] = true
+    Log("[WARN] " .. msg)
 end
 
 local function textOf(str)
-    local ktl = StaticFindObject("/Script/Engine.Default__KismetTextLibrary")
+    local ktl = ObjTrack.static("/Script/Engine.Default__KismetTextLibrary")
     if ktl and ktl:IsValid() then return ktl:Conv_StringToText(str) end
     return nil
 end
@@ -731,30 +751,24 @@ local function parentPanelOf(w)
     return nil
 end
 
---- A Paldex tabset that is on screen, with its tab bar. Anything whose name has
---- no /Engine/Transient in it is the cooked template, not a widget the player
---- can see.
+--- A Paldex tabset that is on screen, with its tab bar. The bar is the tabset's
+--- own HorizontalBox_Tab, read off the instance.
 local function liveTabsetWithBox()
-    for _, ts in ipairs(FindAllOf(PALDEX_TABSET) or {}) do
-        local n = ""
-        pcall(function() n = tostring(ts:GetFullName()) end)
-        local shown = false
-        pcall(function() shown = ts:IsVisible() end)
-        if ts:IsValid() and shown and n:find("/Engine/Transient", 1, true)
-            and not n:find("Default__", 1, true) then
-            local path = n:match("%s(.+)$") or n
-            for _, o in ipairs(FindAllOf("HorizontalBox") or {}) do
-                local m = ""
-                pcall(function() m = tostring(o:GetFullName()) end)
-                if o:IsValid() and m:find(path .. ".", 1, true)
-                    and m:find("HorizontalBox_Tab", 1, true) then
-                    return ts, o
-                end
-            end
-            return ts, nil
+    local shownWithoutBar = nil
+    for _, ts in ipairs(paldexTabsets:list()) do
+        local okShown, shown = pcall(readVisible, ts)
+        if not okShown then
+            warnOnce("tabsetVisible", "a Palpedia tabset would not say whether it is shown: " .. tostring(shown))
+        elseif shown then
+            local okBox, box = pcall(readTabBar, ts)
+            if okBox and box and box:IsValid() then return ts, box end
+            -- More than one tabset can be on screen, so the next one is asked.
+            warnOnce("tabBar", "a shown Palpedia tabset would not say its tab bar: "
+                .. tostring(okBox and "none" or box))
+            shownWithoutBar = shownWithoutBar or ts
         end
     end
-    return nil, nil
+    return shownWithoutBar, nil
 end
 
 --- The tabset that owns a given tab bar. Not "the first one of its class": the
@@ -771,10 +785,11 @@ local function selectorForBox(box)
     pcall(function() boxName = tostring(box:GetFullName()) end)
     if boxName == "" then return nil end
     local seen = 0
-    for _, ts in ipairs(FindAllOf(PALDEX_TABSET) or {}) do
-        local n = ""
-        pcall(function() n = tostring(ts:GetFullName()) end)
-        if ts:IsValid() and not n:find("Default__", 1, true) then
+    for _, ts in ipairs(paldexTabsets:list()) do
+        local okName, n = pcall(readFullName, ts)
+        if not okName then
+            warnOnce("tabsetName", "a Palpedia tabset would not say its name: " .. tostring(n))
+        else
             seen = seen + 1
             -- The bar lives in the tabset's own widget tree, so the tabset's
             -- path is the head of the bar's path. MyPanelWidget looked like the
@@ -869,18 +884,18 @@ local function injectPaldexTab()
     local before = 0
     pcall(function() before = box:GetChildrenCount() end)
 
-    local cls = StaticFindObject(PALDEX_TAB)
+    local cls = ObjTrack.static(PALDEX_TAB)
     if not (cls and cls:IsValid()) then
         pcall(function() LoadAsset(PALDEX_TAB) end)
-        cls = StaticFindObject(PALDEX_TAB)
+        cls = ObjTrack.static(PALDEX_TAB)
     end
     if not (cls and cls:IsValid()) then
         Log("WBP_Paldex_tab_C is not loaded")
         return false
     end
 
-    local pc = FindFirstOf("PalPlayerController")
-    local lib = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+    local pc = Role.getLocalPlayerController()
+    local lib = ObjTrack.static("/Script/UMG.Default__WidgetBlueprintLibrary")
     local tab = nil
     pcall(function() tab = lib:Create(pc, cls, pc) end)
     if not (tab and tab:IsValid()) then
@@ -942,15 +957,25 @@ end
 --- Follows the Pal the Paldex is showing, so the tree can centre on it. There is
 --- more than one WBP_Paldex_C alive - the screen sits inside a display wrapper -
 --- so every instance is asked and the one holding a Pal wins.
+local function readRenderedPal(screen) return tostring(screen.nowRenderCharacterID:ToString()) end
+
 local function paldexCharacter()
-    for _, o in ipairs(FindAllOf(PALDEX_SCREEN) or {}) do
-        local n = ""
-        pcall(function() n = tostring(o:GetFullName()) end)
-        if o:IsValid() and not n:find("Default__") then
-            local id = nil
-            pcall(function() id = tostring(o.nowRenderCharacterID:ToString()) end)
-            if id and id ~= "" and id ~= "None" then return id end
-        end
+    for _, o in ipairs(paldexScreens:list()) do
+        local ok, id = pcall(readRenderedPal, o)
+        if ok and id and id ~= "" and id ~= "None" then return id end
+        if not ok then warnOnce("renderedPal", "a Palpedia screen would not say which Pal it shows: " .. tostring(id)) end
+    end
+    return nil
+end
+
+--- The list row a clicked button sits in: the nearest object around it that is
+--- a row.
+local function rowOfButtonUnsafe(button)
+    local o = button
+    for _ = 1, 8 do
+        o = o:GetOuter()
+        if not (o and o:IsValid()) then return nil end
+        if o:GetClass():GetFName():ToString() == PALDEX_ROW then return o end
     end
     return nil
 end
@@ -1021,8 +1046,9 @@ function M.start()
                         -- worst possible moment, and it left nothing behind
                         -- when it failed. The row itself is looked up later,
                         -- from this string.
-                        if n:find("WBP_Paldex_List_C", 1, true) then
+                        if n:find(PALDEX_ROW, 1, true) then
                             paldexPendingRowName = n
+                            paldexPendingRowButton = obj
                         end
                     end)
             end)
@@ -1081,17 +1107,15 @@ function M.start()
         -- keeps more than one Palpedia alive - one of them inside its display
         -- wrapper - and asking the wrong one whether it is visible answers no
         -- for as long as the session lasts. The tab is then never put back.
-        for _, o in ipairs(FindAllOf(PALDEX_SCREEN) or {}) do
-            local n = ""
-            pcall(function() n = tostring(o:GetFullName()) end)
-            if o:IsValid() and n:find("/Engine/Transient", 1, true)
-                and not n:find("Default__", 1, true) then
-                local shown = false
-                pcall(function() shown = o:IsVisible() end)
-                if shown then
-                    paldexScreenSeen = o
-                    return o
-                end
+        -- With the Palpedia closed this is the path every pass takes, so it
+        -- only asks the screens already listed.
+        for _, o in ipairs(paldexScreens:list()) do
+            local okShown, shown = pcall(readVisible, o)
+            if not okShown then
+                warnOnce("screenVisible", "a Palpedia screen would not say whether it is shown: " .. tostring(shown))
+            elseif shown then
+                paldexScreenSeen = o
+                return o
             end
         end
         paldexScreenSeen = nil
@@ -1253,19 +1277,35 @@ function M.start()
         -- clicked rather than off the screen.
         if paldexPendingRowName then
             local wanted = paldexPendingRowName
+            local button = paldexPendingRowButton
             paldexPendingRowName = nil
+            paldexPendingRowButton = nil
 
             -- Looked up right here, not in a deferred call: inside one a
             -- failure left nothing behind at all - which is exactly how this
             -- step went missing twice.
+            -- The row is one of the objects the button sits in, so it is
+            -- reached from the button. Only when that fails is every row in the
+            -- game asked for its path, which walks the whole object list.
             local row = nil
-            for _, o in ipairs(FindAllOf("WBP_Paldex_List_C") or {}) do
-                local m = ""
-                pcall(function() m = tostring(o:GetFullName()) end)
-                local path = m:match("%s(.+)$") or m
-                if path ~= "" and wanted:find(path .. ".", 1, true) then
-                    row = o
-                    break
+            if button and button:IsValid() then
+                local okRow, found = pcall(rowOfButtonUnsafe, button)
+                if okRow then
+                    row = found
+                else
+                    Log("the clicked button would not say its row: " .. tostring(found))
+                end
+            end
+            if not row then
+                Log("no row around the clicked button, searching every list row")
+                for _, o in ipairs(FindAllOf(PALDEX_ROW) or {}) do
+                    local m = ""
+                    pcall(function() m = tostring(o:GetFullName()) end)
+                    local path = m:match("%s(.+)$") or m
+                    if path ~= "" and wanted:find(path .. ".", 1, true) then
+                        row = o
+                        break
+                    end
                 end
             end
             if row then
@@ -1380,6 +1420,11 @@ function M.start()
 end
 
 
+local WARM_BEAT_MS = 150
+-- A gap between two beats longer than this means the game thread is busy
+-- loading, not drawing frames.
+local WARM_LOADING_GAP_S = 1.0
+
 -- Started on load: the tab has to be there the first time the player opens the
 -- Palpedia, and there is no earlier moment to hook it than the mod starting.
 -- Warms the icon cache ahead of time so the first page has nothing left to
@@ -1390,7 +1435,8 @@ end
 -- starting, long before anyone opens the Palpedia. Each beat runs on the game
 -- thread, so its batch is time that frame waits for.
 local warmStarted = os.clock()
-GameLoop.start(400, function()
+local warmLastBeat = os.clock()
+GameLoop.start(WARM_BEAT_MS, function()
     local ok, html = pcall(require, "treehtml")
     if not ok then
         Log("portrait warm-up stopped: treehtml did not load - " .. tostring(html))
@@ -1401,11 +1447,15 @@ GameLoop.start(400, function()
         return true
     end
     local more = false
-    -- Small batches on a slow beat. A faster pace does finish the cache sooner,
-    -- but it competes with the engine's own loading for CPU and for the disk,
-    -- and that was felt as stutter. The page itself no longer depends on this
-    -- being finished, so it stays out of the way.
-    local okWarm, errWarm = pcall(function() more = html.warmIcons(8) end)
+    -- One portrait a beat while the game is running: a portrait is 5 to 10 ms of
+    -- file read and encoding, and a batch of them on one beat is a frame of
+    -- 13 to 16 ms every time. While the game is loading the beats come seconds
+    -- apart and a frame is long anyway, so a batch goes through there instead.
+    -- The page itself does not depend on this being finished.
+    local now = os.clock()
+    local loading = (now - warmLastBeat) > WARM_LOADING_GAP_S
+    warmLastBeat = now
+    local okWarm, errWarm = pcall(function() more = html.warmIcons(loading and 8 or 1) end)
     if not okWarm then
         Log("portrait warm-up stopped: " .. tostring(errWarm))
         return true

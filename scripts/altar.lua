@@ -21,6 +21,7 @@
 local Config = require("config")
 local Role = require("role")
 local GameLoop = require("gameloop")
+local ObjTrack = require("objtrack")
 local I18n = require("i18n")
 local Costs = require("costs")
 local Conditions = require("conditions")
@@ -96,6 +97,21 @@ local function modelId(model)
     return ok and id or nil
 end
 
+--- Whether a display model can be listed yet. Its map object id arrives with
+--- the native setup or the replication, after the model is built, so a model
+--- without one is asked again.
+local function displayModelReady(model)
+    if not isInstance(model) then return false end
+    local id = modelId(model)
+    if id == nil or id == "" or id == "None" then return nil end
+    return true
+end
+
+-- Every display model in the world, vanilla Viewing Cages and fusion altars
+-- alike, listed as the engine builds them (objtrack.lua).
+local displayModels = ObjTrack.follow("/Script/Pal.PalMapObjectDisplayCharacterModel",
+    "PalMapObjectDisplayCharacterModel", { accept = displayModelReady })
+
 local function modelPos(model)
     if not (isLive(model) and notDisposed(model)) then return nil end
     local ok, t = pcall(function() return model:GetTransform() end)
@@ -119,7 +135,7 @@ local function findAltar(playerCtx, allowCage)
     local here = pawnPos(playerCtx)
     if not here then return nil end
     local best, bestD = nil, REACH * REACH
-    for _, m in ipairs(FindAllOf("PalMapObjectDisplayCharacterModel") or {}) do
+    for _, m in ipairs(displayModels:list()) do
         local id = isInstance(m) and modelId(m) or nil
         if id == ALTAR_ID or (allowCage and id == "DisplayCharacter") then
             local p = modelPos(m)
@@ -285,7 +301,7 @@ end
 
 local function totalExp(level)
     local db = nil
-    pcall(function() db = FindFirstOf("BP_PalGameInstance_C").ExpDatabase end)
+    pcall(function() db = ObjTrack.first("BP_PalGameInstance_C").ExpDatabase end)
     if not (db and db:IsValid()) then return nil end
     local ok, v = pcall(function() return db:GetTotalExp(level, false) end)
     return ok and tonumber(v) or nil
@@ -798,7 +814,7 @@ end
 local sceneClass = nil
 local function slotComponents(actor)
     if not (sceneClass and sceneClass:IsValid()) then
-        sceneClass = StaticFindObject("/Script/Engine.SceneComponent")
+        sceneClass = ObjTrack.static("/Script/Engine.SceneComponent")
     end
     local comps = actor:K2_GetComponentsByClass(sceneClass)
     local found = {}
@@ -907,26 +923,31 @@ local function reportSlot(key, body, param)
 end
 
 -- The fusion altars in the world, shared by the stage and the window watch.
--- FindAllOf walks every object in the game (about 27 ms), so the list is searched
--- again only every ALTAR_LIST_S; a model dismantled in between is skipped by the
--- disposed check. With no altar in the list, both ticks leave the game thread
--- alone until the next search is due: an idle tick schedules nothing.
-local ALTAR_LIST_S = 10
+-- Which display model is an altar never changes, so the list is rebuilt only
+-- when a model came or went; a model dismantled in between is skipped by the
+-- disposed check. Nothing here walks the object list: that walk is about 30 ms
+-- on the game thread, and this is asked from a timer in every world, altar or
+-- not.
 local knownAltars = {}
-local altarsListedAt = -math.huge
+local altarsVersion = -1
 
-local function refreshAltars()
-    altarsListedAt = os.clock()
-    local list = {}
-    for _, m in ipairs(FindAllOf("PalMapObjectDisplayCharacterModel") or {}) do
-        if isInstance(m) and modelId(m) == ALTAR_ID then list[#list + 1] = m end
+local function altars()
+    local models = displayModels:list()
+    if displayModels.version ~= altarsVersion then
+        altarsVersion = displayModels.version
+        local list = {}
+        for _, m in ipairs(models) do
+            if modelId(m) == ALTAR_ID then list[#list + 1] = m end
+        end
+        knownAltars = list
+        Log(string.format("[INFO] %d fusion altar(s) among %d display model(s)", #list, #models))
     end
-    knownAltars = list
+    return knownAltars
 end
 
---- True when a tick has nothing to do: no altar known and no search due.
+--- True when a tick has nothing to do: no altar in the world.
 local function altarsIdle()
-    return #knownAltars == 0 and os.clock() - altarsListedAt < ALTAR_LIST_S
+    return displayModels:idle() or #altars() == 0
 end
 
 local function stageGameThread()
@@ -935,8 +956,7 @@ local function stageGameThread()
     -- Every machine stands its own Pals: the bodies a display cage shows are
     -- phantoms each game spawns for itself, and none of them replicate. A
     -- client that left them alone would watch them wander off into the sky.
-    if os.clock() - altarsListedAt >= ALTAR_LIST_S then refreshAltars() end
-    for _, m in ipairs(knownAltars) do
+    for _, m in ipairs(altars()) do
         local cage = containerOf(m)
         local points = cage and slotPoints(m)
         if points then
@@ -1024,7 +1044,7 @@ local watchWarned = false
 
 local function nearestWatched(here)
     local best, bestD = nil, REACH * REACH
-    for _, m in ipairs(knownAltars) do
+    for _, m in ipairs(altars()) do
         local p = isInstance(m) and modelPos(m) or nil
         if p and dist2(p, here) <= bestD then best, bestD = m, dist2(p, here) end
     end
@@ -1033,7 +1053,6 @@ end
 
 local function watchStep()
     if FusionFx.playing() or (api and api.busy()) then return end
-    if os.clock() - altarsListedAt >= ALTAR_LIST_S then refreshAltars() end
     local playerCtx = Role.localPlayerCtx()
     local here = playerCtx and pawnPos(playerCtx)
     if not here then return end
@@ -1083,10 +1102,9 @@ end
 --- server's fusion takes its Pals from here: the phantoms are local, so only
 --- the altar's own container says which body is which.
 function Altar.bodiesNear(x, y, z)
-    if os.clock() - altarsListedAt >= ALTAR_LIST_S then refreshAltars() end
     local here = { x = x, y = y, z = z }
     local best, bestD = nil, 1000 * 1000
-    for _, m in ipairs(knownAltars) do
+    for _, m in ipairs(altars()) do
         local p = isInstance(m) and modelPos(m) or nil
         if p and dist2(p, here) <= bestD then best, bestD = m, dist2(p, here) end
     end
@@ -1103,12 +1121,20 @@ function Altar.bodiesNear(x, y, z)
     return out
 end
 
+local function hookContext(ctx) return ctx:get() end
+
 -- A Pal set into an altar appears 5 m above it and starts to wander off; the
--- stage tick would only catch it on its next round (and a new altar only after
--- the next list search). These two server events put it on its pedestal at once.
-function Altar._onAltarChanged()
+-- stage tick would only catch it on its next round. These two server events put
+-- it on its pedestal at once. The model the event belongs to is handed to the
+-- list as well, so an altar the list missed counts from here on.
+function Altar._onAltarChanged(ctx)
     if not (Config.fusion.enabled and Config.fusion.altarEnabled) then return end
-    altarsListedAt = -math.huge -- a new altar counts from now on
+    local okModel, model = pcall(hookContext, ctx)
+    if okModel then
+        displayModels:offer(model)
+    else
+        warnOnce("hookModel", "altar change without a readable model: " .. tostring(model))
+    end
     local ok, err = pcall(stageGameThread)
     if not ok then Log("[WARN] altar stage after a change failed: " .. tostring(err)) end
 end

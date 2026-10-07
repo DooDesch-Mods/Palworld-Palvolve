@@ -14,6 +14,7 @@
 --
 -- Every call runs on the game thread (fusionfx.lua drives it from its tick).
 
+local ObjTrack = require("objtrack")
 local Role = require("role")
 local GameLoop = require("gameloop")
 local Rig = require("fusionrig")
@@ -163,11 +164,11 @@ function FusionCam.update()
 end
 
 local function loadShake(path)
-    local shake = StaticFindObject(path)
+    local shake = ObjTrack.static(path)
     if live(shake) then return shake end
     local okLoad, loadErr = pcall(LoadAsset, (path:gsub("%.[^.]*$", "")))
     if not okLoad then Log("[WARN] shake asset did not load: " .. tostring(loadErr)) end
-    shake = StaticFindObject(path)
+    shake = ObjTrack.static(path)
     if live(shake) then return shake end
     Log("[WARN] shake class missing: " .. path)
     return nil

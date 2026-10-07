@@ -16,6 +16,7 @@
 -- call per object: transient callback refs get garbage collected under load
 -- ("Ref was not function"), which can free every deferred callback of the mod
 -- at once.
+local ObjTrack = require("objtrack")
 local Config = require("config")
 local ServerCheck = require("servercheck")
 local GameLoop = require("gameloop")
@@ -59,7 +60,7 @@ local craftType = nil
 local function resolveCraftType()
     if craftType ~= nil then return craftType end
     pcall(function()
-        local mgr = FindFirstOf("PalItemIDManager")
+        local mgr = ObjTrack.first("PalItemIDManager")
         if not (mgr and mgr:IsValid()) then return end
         local data = mgr:GetStaticItemData(FName("Palvolve_EvolutionStone"))
         if data and data:IsValid() then craftType = data.TypeB end
@@ -192,7 +193,7 @@ function BenchFilter.init()
         if not installChecked and installTries < INSTALL_CHECK_TRIES then
             installTries = installTries + 1
             local okCheck, errCheck = pcall(function()
-                local mgr = FindFirstOf("PalItemIDManager")
+                local mgr = ObjTrack.first("PalItemIDManager")
                 if not (mgr and mgr:IsValid()) then return end
                 installChecked = true
                 local data = mgr:GetStaticItemData(FName("Palvolve_EvolutionStone"))

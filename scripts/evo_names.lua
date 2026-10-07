@@ -1,6 +1,8 @@
 -- Palvolve display names for Pals: the game's own localized name, cached, with
 -- the fallbacks for species the game has no text for.
 
+local ObjTrack = require("objtrack")
+local Role = require("role")
 local Config = require("config")
 local FusionRules = require("fusionrules")
 local GameLoop = require("gameloop")
@@ -33,18 +35,18 @@ EvoNames.cachedNameCtx = nil
 EvoNames.cachedNameMdt = nil
 local function nameLookupPair()
     if not (EvoNames.cachedNameCtx and EvoNames.cachedNameCtx:IsValid()) then
-        EvoNames.cachedNameCtx = FindFirstOf("PalPlayerCharacter")
+        EvoNames.cachedNameCtx = Role.anyPlayerCharacter()
     end
     if not (EvoNames.cachedNameCtx and EvoNames.cachedNameCtx:IsValid()) then return nil, nil end
     if not (EvoNames.cachedNameMdt and EvoNames.cachedNameMdt:IsValid()) then
-        EvoNames.cachedNameMdt = StaticFindObject("/Script/Pal.Default__PalMasterDataTablesUtility")
+        EvoNames.cachedNameMdt = ObjTrack.static("/Script/Pal.Default__PalMasterDataTablesUtility")
     end
     if not (EvoNames.cachedNameMdt and EvoNames.cachedNameMdt:IsValid()) then return nil, nil end
     return EvoNames.cachedNameMdt, EvoNames.cachedNameCtx
 end
 local function worldIsUp()
     if EvoNames.cachedNameCtx and EvoNames.cachedNameCtx:IsValid() then return true end
-    local pc = FindFirstOf("PalPlayerCharacter")
+    local pc = Role.anyPlayerCharacter()
     if pc and pc:IsValid() then
         EvoNames.cachedNameCtx = pc
         return true

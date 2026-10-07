@@ -10,6 +10,8 @@
 --
 -- Every call runs on the game thread.
 
+local ObjTrack = require("objtrack")
+
 local FusionRig = {}
 
 local function Log(msg)
@@ -30,11 +32,11 @@ FusionRig.live = live
 
 local statics, ksl, rotatingClass, holderClass = nil, nil, nil, nil
 local function engineObjects()
-    if not live(statics) then statics = StaticFindObject("/Script/Engine.Default__GameplayStatics") end
-    if not live(ksl) then ksl = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary") end
-    if not live(rotatingClass) then rotatingClass = StaticFindObject("/Script/Engine.RotatingMovementComponent") end
+    if not live(statics) then statics = ObjTrack.static("/Script/Engine.Default__GameplayStatics") end
+    if not live(ksl) then ksl = ObjTrack.static("/Script/Engine.Default__KismetSystemLibrary") end
+    if not live(rotatingClass) then rotatingClass = ObjTrack.static("/Script/Engine.RotatingMovementComponent") end
     -- a camera actor is the plainest spawnable actor with a root component
-    if not live(holderClass) then holderClass = StaticFindObject("/Script/Engine.CameraActor") end
+    if not live(holderClass) then holderClass = ObjTrack.static("/Script/Engine.CameraActor") end
     return live(statics) and live(ksl) and live(rotatingClass) and live(holderClass)
 end
 

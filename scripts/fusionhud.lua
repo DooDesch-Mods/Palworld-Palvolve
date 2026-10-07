@@ -7,6 +7,7 @@
 -- The host shows it for its own player and sends the others their state
 -- (fusion.lua, netchannel.lua); a dedicated server draws nothing.
 
+local ObjTrack = require("objtrack")
 local Role = require("role")
 local GameLoop = require("gameloop")
 
@@ -108,7 +109,7 @@ local function build()
     if not W then return false end
     local pc = Role.getLocalPlayerController()
     if not isLive(pc) then return false end
-    local lib = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+    local lib = ObjTrack.static("/Script/UMG.Default__WidgetBlueprintLibrary")
     if not isLive(lib) then
         Log("[WARN] WidgetBlueprintLibrary not found, no countdown")
         return false
@@ -139,7 +140,7 @@ local function build()
         return false
     end
     W.solid(box, 0, 0, BOX_W, BOX_H, PANEL)
-    local shardTex = StaticFindObject(SHARD_TEXTURE)
+    local shardTex = ObjTrack.static(SHARD_TEXTURE)
     if isLive(shardTex) then
         local shard = W.construct("/Script/UMG.Image", "PvFuseHudShard")
         if shard then

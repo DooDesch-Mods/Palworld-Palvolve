@@ -10,6 +10,7 @@
 --   #g/<1|2> picks male or female
 --   #ok      confirms, #close cancels
 
+local ObjTrack = require("objtrack")
 local I18n = require("i18n")
 local Role = require("role")
 local GameLoop = require("gameloop")
@@ -268,7 +269,7 @@ local function hide(reason)
     -- game gets its input back, and the mouse stays for that menu. UI-only
     -- input here would leave the player unable to move once the menu closes.
     if s and s.cursorBefore and pc and pc:IsValid() then
-        local lib = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+        local lib = ObjTrack.static("/Script/UMG.Default__WidgetBlueprintLibrary")
         local okMode, modeErr = pcall(function()
             lib:SetInputMode_GameAndUIEx(pc, nil, 0, false, false)
             pc.bShowMouseCursor = true
@@ -288,7 +289,7 @@ local function overlayOpen(w) return w:IsActivated() and w:IsVisible() end
 local overlayClass = nil
 local function nestedInOverlay(w)
     if not (overlayClass and overlayClass:IsValid()) then
-        overlayClass = StaticFindObject("/Script/Pal.PalUserWidgetOverlayUI")
+        overlayClass = ObjTrack.static("/Script/Pal.PalUserWidgetOverlayUI")
     end
     local o = w:GetOuter()
     for _ = 1, 12 do
@@ -434,7 +435,7 @@ local function ensureWindow()
         Log("[WARN] no player controller, the pick window cannot open")
         return false
     end
-    local lib = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+    local lib = ObjTrack.static("/Script/UMG.Default__WidgetBlueprintLibrary")
     local widget = nil
     pcall(function() widget = lib:Create(pc, cls, pc) end)
     if not (widget and widget:IsValid()) then
@@ -450,10 +451,10 @@ local function ensureWindow()
     -- The same frame the tree window uses: a canvas of our own, so the window
     -- can be anchored by fractions and the world stays visible around it.
     local frame, canvas, slot = nil, nil, nil
-    pcall(function() frame = lib:Create(pc, StaticFindObject("/Script/UMG.UserWidget"), pc) end)
+    pcall(function() frame = lib:Create(pc, ObjTrack.static("/Script/UMG.UserWidget"), pc) end)
     if frame and frame:IsValid() then
         pcall(function()
-            canvas = StaticConstructObject(StaticFindObject("/Script/UMG.CanvasPanel"),
+            canvas = StaticConstructObject(ObjTrack.static("/Script/UMG.CanvasPanel"),
                 frame, FName("PalvolveFusePick"))
             frame.WidgetTree.RootWidget = canvas
         end)

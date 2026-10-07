@@ -31,6 +31,8 @@
 -- highlight and hit testing stay fully native there; our hooks track the
 -- hovered option and commit the selected evolution on decide/close.
 
+local ObjTrack = require("objtrack")
+local Role = require("role")
 local Config = require("config")
 local I18n = require("i18n")
 local GameLoop = require("gameloop")
@@ -115,9 +117,9 @@ local function playHoverTick(wheel)
         local snd = savedHoverSound
         if not (snd and snd:IsValid()) then snd = wheel.HoveredSound end
         if not (snd and snd:IsValid()) then return end
-        local aks = StaticFindObject("/Script/AkAudio.Default__AkGameplayStatics")
+        local aks = ObjTrack.static("/Script/AkAudio.Default__AkGameplayStatics")
         if not (aks and aks:IsValid()) then return end
-        local pawn = FindFirstOf("PalPlayerCharacter")
+        local pawn = Role.anyPlayerCharacter()
         aks:PostEvent(snd, pawn, 0, nil, false)
     end)
 end
@@ -173,7 +175,7 @@ local function toText(s)
     local okDirect, text = pcall(FText, s)
     if okDirect and text then return text end
     local okFallback, converted = pcall(function()
-        local ktl = StaticFindObject("/Script/Engine.Default__KismetTextLibrary")
+        local ktl = ObjTrack.static("/Script/Engine.Default__KismetTextLibrary")
         if not (ktl and ktl:IsValid()) then return nil end
         return ktl:Conv_StringToText(s)
     end)
@@ -190,8 +192,8 @@ end
 local function makeLabelWidget(owner, text)
     local widget = nil
     pcall(function()
-        local cls = StaticFindObject(CONTENT_WBP)
-        local lib = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+        local cls = ObjTrack.static(CONTENT_WBP)
+        local lib = ObjTrack.static("/Script/UMG.Default__WidgetBlueprintLibrary")
         -- widget owner must be THIS machine's player controller; on a listen
         -- host FindFirstOf could return a remote client's controller
         local pc = require("role").getLocalPlayerController()
@@ -211,7 +213,7 @@ local function makeLabelWidget(owner, text)
 end
 
 local function canvasSlot(widget)
-    local lib = StaticFindObject("/Script/UMG.Default__WidgetLayoutLibrary")
+    local lib = ObjTrack.static("/Script/UMG.Default__WidgetLayoutLibrary")
     return lib:SlotAsCanvasSlot(widget)
 end
 

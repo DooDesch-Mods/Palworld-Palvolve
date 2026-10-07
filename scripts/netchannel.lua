@@ -12,6 +12,7 @@
 -- index), never the target species. The host re-derives the pair or prestige
 -- target from its OWN config and re-validates ownership/level/cost - a hostile
 -- or desynced client can never name something the host did not authorize.
+local ObjTrack = require("objtrack")
 local Config = require("config")
 local Role = require("role")
 local GameLoop = require("gameloop")
@@ -63,7 +64,7 @@ local PARTNER_PREFIX = "PVLV3|partner|"
 local FSTATE_PREFIX = "PVLV3|fstate|"
 
 local function palUtility()
-    local u = StaticFindObject("/Script/Pal.Default__PalUtility")
+    local u = ObjTrack.static("/Script/Pal.Default__PalUtility")
     if u and u:IsValid() then return u end
     return nil
 end
@@ -74,7 +75,7 @@ end
 local function worldIsAuthority(wc)
     local ok = false
     pcall(function()
-        local k = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+        local k = ObjTrack.static("/Script/Engine.Default__KismetSystemLibrary")
         if k and k:IsValid() and wc then ok = (k:IsServer(wc) == true) end
     end)
     return ok
@@ -280,6 +281,7 @@ local function greetSender(senderCtx)
     -- called on every vanilla otomo selection, so dedup the WHOLE greet per sender
     if greeted[uid] and (now - greeted[uid]) <= GREET_WINDOW_S then return end
     greeted[uid] = now
+    Role.sawController(senderCtx.pc)
     -- hidden pong drives the client's detection + version compare
     NetChannel.sendSignal(senderCtx.pc, "pong|" .. tostring(Config.modVersion))
     -- one visible [SYSTEM] line, delivered to just this player. The world context
@@ -292,7 +294,7 @@ local function greetSender(senderCtx)
     -- its own still follows the setting.
     pcall(function()
         local util = palUtility()
-        local world = FindFirstOf("World")
+        local world = ObjTrack.first("World")
         local g = senderCtx.playerUId
         if util and world then
             util:SendSystemToPlayerChat(world,
@@ -603,7 +605,7 @@ local function readName(o) return o:GetFullName() end
 --- many it reached.
 local function sendToPlayers(frame, channel, label)
     local sent, failed = 0, 0
-    for _, pc in ipairs(FindAllOf("PalPlayerController") or {}) do
+    for _, pc in ipairs(Role.controllers()) do
         local okName, name = pcall(readName, pc)
         local okLocal, isLocal = pcall(readIsLocal, pc)
         if okName and not name:find("Default__", 1, true) and okLocal and not isLocal then

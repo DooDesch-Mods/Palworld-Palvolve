@@ -4,6 +4,7 @@
 -- (Model.MapObjectMasterDataId / BuildObjectId == our PalSchema row), never
 -- by class - the class is shared with vanilla benches.
 
+local ObjTrack = require("objtrack")
 local Config = require("config")
 local ServerCheck = require("servercheck")
 local GameLoop = require("gameloop")
@@ -84,7 +85,7 @@ local function setScalarParam(mat, param, value) mat:SetScalarParameterValue(FNa
 
 local function tintActor(actor)
     local ok, err = pcall(function()
-        local meshClass = StaticFindObject("/Script/Engine.StaticMeshComponent")
+        local meshClass = ObjTrack.static("/Script/Engine.StaticMeshComponent")
         if not (meshClass and meshClass:IsValid()) then
             Log("bench tint: StaticMeshComponent class not found")
             return
@@ -98,7 +99,7 @@ local function tintActor(actor)
         if count == 0 and (PROBE or Config.devMode) then
             -- the visuals may live on other component types (or on a child
             -- actor entirely) - list what the actor actually carries
-            local allClass = StaticFindObject("/Script/Engine.ActorComponent")
+            local allClass = ObjTrack.static("/Script/Engine.ActorComponent")
             local comps = actor:K2_GetComponentsByClass(allClass)
             local total = comps and #comps or 0
             Log(string.format("bench tint: %d total components", total))
@@ -115,8 +116,8 @@ local function tintActor(actor)
         -- per-instance MIDs (parameters resolve through the parent chain up
         -- to M_PalLit). Never wrap the runtime MID in another MID - that
         -- loses the texture overrides and renders the mesh untextured.
-        local midClass = StaticFindObject("/Script/Engine.MaterialInstanceDynamic")
-        local kismet = StaticFindObject("/Script/Engine.Default__KismetMaterialLibrary")
+        local midClass = ObjTrack.static("/Script/Engine.MaterialInstanceDynamic")
+        local kismet = ObjTrack.static("/Script/Engine.Default__KismetMaterialLibrary")
         for i = 1, count do
             local mesh = unwrap(meshes[i])
             if mesh and mesh:IsValid() then
@@ -171,6 +172,12 @@ end
 -- refs get garbage collected under load ("Ref was not function"), which can
 -- free every deferred callback of the mod at once.
 local MAX_TRIES = 8
+-- How long one pass may spend on queued build objects before the rest waits. A
+-- base streaming in queues every one of its build objects at once.
+local PASS_BUDGET_S = 0.003
+-- How soon the next pass follows one that ran out of time. Those passes take
+-- first looks only: tries and delays are counted on the one-second beat.
+local BACKLOG_MS = 50
 
 -- returns true when the entry is finished (tinted or not ours), false when
 -- the actor's row id is not readable yet and the entry should be retried
@@ -243,7 +250,8 @@ function BenchVisual.init()
     end
 
     -- One pass of work, created once so the tick below allocates no closure.
-    local function work()
+    -- Returns true when it ran out of time with first looks still waiting.
+    local function work(backlogOnly)
         if not swept then
             -- benches already placed when the mod loads
             swept = true
@@ -252,15 +260,27 @@ function BenchVisual.init()
                 pending[#pending + 1] = { actor = bo, tries = 0 }
             end
         end
-        if #pending == 0 then return end
+        if #pending == 0 then return false end
         local batch = pending
         pending = {}
-        for _, entry in ipairs(batch) do
-            if entry.delay and entry.delay > 0 then
+        local started = os.clock()
+        -- What was not reached goes ahead of what waits or is tried again.
+        local later = {}
+        local outOfTime = false
+        for i, entry in ipairs(batch) do
+            if os.clock() - started >= PASS_BUDGET_S then
+                -- out of time: the rest keeps its place and its counters
+                for j = i, #batch do pending[#pending + 1] = batch[j] end
+                outOfTime = true
+                break
+            end
+            if backlogOnly and (entry.tries > 0 or (entry.delay and entry.delay > 0)) then
+                later[#later + 1] = entry
+            elseif entry.delay and entry.delay > 0 then
                 -- completion re-tints wait out the mesh swap and the
                 -- build-complete animation before touching materials
                 entry.delay = entry.delay - 1
-                pending[#pending + 1] = entry
+                later[#later + 1] = entry
             else
                 -- pcall(namedFn, arg): one per queued object per tick,
                 -- and the initial sweep queues every build object in the
@@ -270,18 +290,44 @@ function BenchVisual.init()
                 if not (ok and done) then
                     entry.tries = entry.tries + 1
                     if entry.tries < MAX_TRIES then
-                        pending[#pending + 1] = entry
+                        later[#later + 1] = entry
                     end
                 end
             end
         end
+        for _, entry in ipairs(later) do pending[#pending + 1] = entry end
+        return outOfTime
+    end
+
+    -- A base streaming in queues more than one pass can look at. While that
+    -- lasts a faster loop takes the first looks, and ends itself when a pass
+    -- gets through.
+    local backlogRunning = false
+    local function backlogPass()
+        local ok, outOfTime = pcall(work, true)
+        if not ok then
+            Log("[ERROR] bench tint backlog pass failed: " .. tostring(outOfTime))
+            backlogRunning = false
+            return true
+        end
+        if outOfTime then return false end
+        backlogRunning = false
+        return true
     end
 
     -- Runs on the game thread; idle ticks return before doing any work.
     GameLoop.start(1000, function()
         if swept and #pending == 0 then return false end
-        local ok, err = pcall(work)
-        if not ok then Log("[ERROR] bench tint pass failed: " .. tostring(err)) end
+        local ok, outOfTime = pcall(work, false)
+        if not ok then
+            Log("[ERROR] bench tint pass failed: " .. tostring(outOfTime))
+        elseif outOfTime and not backlogRunning then
+            backlogRunning = true
+            if GameLoop.start(BACKLOG_MS, backlogPass, "bench tint backlog") == nil then
+                backlogRunning = false
+                Log("[WARN] bench tint: the backlog loop did not start, the rest waits for the next pass")
+            end
+        end
         return false
     end, "bench tint")
 end

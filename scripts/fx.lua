@@ -32,6 +32,8 @@
 -- at the spot, meshHalfTo the target's mesh-space body half (FX framing
 -- only). Run-private state lives inside ctx.fx.
 
+local ObjTrack = require("objtrack")
+local Role = require("role")
 local Config = require("config")
 local Recipes = require("finale_recipes")
 local Finale = require("finale")
@@ -128,7 +130,7 @@ local function playEffect(actor, effectId)
 end
 
 local function glowMaterial()
-    local mat = StaticFindObject("/Game/Pal/Effect/Material/M_Glow.M_Glow")
+    local mat = ObjTrack.static("/Game/Pal/Effect/Material/M_Glow.M_Glow")
     if mat and mat:IsValid() then return mat end
     return nil
 end
@@ -143,8 +145,8 @@ local function spawnLight(worldCtx, x, y, z)
     -- context object, so a freed one faults natively, past any pcall
     if not (worldCtx and worldCtx:IsValid()) then return end
     pcall(function()
-        local ns = StaticFindObject("/Game/Pal/Effect/Common/Return/NS_Return.NS_Return")
-        local lib = StaticFindObject("/Script/Niagara.Default__NiagaraFunctionLibrary")
+        local ns = ObjTrack.static("/Game/Pal/Effect/Common/Return/NS_Return.NS_Return")
+        local lib = ObjTrack.static("/Script/Niagara.Default__NiagaraFunctionLibrary")
         if ns and ns:IsValid() and lib and lib:IsValid() then
             lib:SpawnSystemAtLocation(worldCtx, ns, { X = x, Y = y, Z = z },
                 { Pitch = 0, Yaw = 0, Roll = 0 }, { X = 1, Y = 1, Z = 1 }, true, true, 0, false)
@@ -167,7 +169,7 @@ local function preloadBursts(...)
             local path = ELEMENT_BURSTS[elem]
             if path then
                 pcall(function()
-                    local ns = StaticFindObject(path)
+                    local ns = ObjTrack.static(path)
                     if not (ns and ns:IsValid()) then LoadAsset(path) end
                 end)
             end
@@ -188,12 +190,12 @@ local function spawnBurst(worldCtx, x, y, z, elem)
     local path = elem and ELEMENT_BURSTS[elem]
     if not path then return end
     pcall(function()
-        local ns = StaticFindObject(path)
+        local ns = ObjTrack.static(path)
         if not (ns and ns:IsValid()) then
             LoadAsset(path)
-            ns = StaticFindObject(path)
+            ns = ObjTrack.static(path)
         end
-        local lib = StaticFindObject("/Script/Niagara.Default__NiagaraFunctionLibrary")
+        local lib = ObjTrack.static("/Script/Niagara.Default__NiagaraFunctionLibrary")
         if ns and ns:IsValid() and lib and lib:IsValid() then
             lib:SpawnSystemAtLocation(worldCtx, ns, { X = x, Y = y, Z = z },
                 { Pitch = 0, Yaw = 0, Roll = 0 }, { X = 1, Y = 1, Z = 1 }, true, true, 0, false)
@@ -218,12 +220,12 @@ local function spawnSystemAt(worldCtx, path, x, y, z, scale, autoDestroy)
     if not (worldCtx and worldCtx:IsValid()) then return nil end
     local comp = nil
     pcall(function()
-        local ns = StaticFindObject(path)
+        local ns = ObjTrack.static(path)
         if not (ns and ns:IsValid()) then
             LoadAsset(path)
-            ns = StaticFindObject(path)
+            ns = ObjTrack.static(path)
         end
-        local lib = StaticFindObject("/Script/Niagara.Default__NiagaraFunctionLibrary")
+        local lib = ObjTrack.static("/Script/Niagara.Default__NiagaraFunctionLibrary")
         if not (ns and ns:IsValid() and lib and lib:IsValid()) then return end
         local sc = scale or 1
         comp = lib:SpawnSystemAtLocation(worldCtx, ns, { X = x, Y = y, Z = z },
@@ -287,7 +289,7 @@ local function yawTowardsPlayer(ctx, x, y)
         -- host with several players it may face the wrong one
         local player = ctx and ctx.playerPawn
         if not (player and player:IsValid()) then
-            player = FindFirstOf("PalPlayerCharacter")
+            player = Role.anyPlayerCharacter()
         end
         if player and player:IsValid() then
             local p = player:K2_GetActorLocation()

@@ -89,7 +89,7 @@ function RecipeCheck.run()
     end
 
     local mgr = nil
-    pcall(function() mgr = FindFirstOf("PalItemIDManager") end)
+    pcall(function() mgr = require("objtrack").first("PalItemIDManager") end)
     if not (mgr and mgr:IsValid()) then
         Log("[WARN] recipe check: no item manager - recipes unchecked")
         return

@@ -1,6 +1,7 @@
 -- Palvolve structural slot rewards: a fourth
 -- active move selected deterministically from the Pal's learned move pool.
 
+local ObjTrack = require("objtrack")
 local Config = require("config")
 local Elements = require("elements")
 local I18n = require("i18n")
@@ -233,7 +234,7 @@ function PalSlots.restore(param, expected, playerCtx)
 end
 
 local function getWazaDatabaseUnsafe(worldCtx)
-    local util = StaticFindObject("/Script/Pal.Default__PalUtility")
+    local util = ObjTrack.static("/Script/Pal.Default__PalUtility")
     if not (util and util:IsValid() and worldCtx and worldCtx:IsValid()) then return nil end
     local db = util:GetWazaDatabase(worldCtx)
     if db and db:IsValid() then return db end

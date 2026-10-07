@@ -2936,7 +2936,7 @@ function Evolution.init()
     local stablePolls = 0
     local function tryHook()
         if hookRegistered then return true end
-        local player = FindFirstOf("PalPlayerCharacter")
+        local player = Role.anyPlayerCharacter()
         if not (player and player:IsValid()) then
             stablePolls = 0
             return false
@@ -2949,7 +2949,7 @@ function Evolution.init()
                 pcall(function()
                     -- no player pawn = a world is loading or being torn down;
                     -- never touch game state from the load path
-                    local pc = FindFirstOf("PalPlayerCharacter")
+                    local pc = Role.anyPlayerCharacter()
                     if not (pc and pc:IsValid()) then return end
                     -- Before the actor is touched, not after. Without a uid
                     -- isOwnedBy falls through to the any-owner check, which

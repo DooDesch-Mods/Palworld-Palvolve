@@ -41,6 +41,7 @@
 -- retry poll for a class that never loads is the shape that "wuerfelt bis zum
 -- Tod" in UE4SS-LESSONS.md.
 
+local ObjTrack = require("objtrack")
 local Config = require("config")
 local Role = require("role")
 local PalPassives = require("palpassives")
@@ -51,6 +52,7 @@ local MoveSlot4 = {}
 
 local MOD_NAME = "Palvolve"
 local SCREEN_CLASS = "WBP_MainMenu_Pal_00_C"
+local SCREEN_CLASS_PATH = "/Game/Pal/Blueprint/UI/UserInterface/MainMenu/Pal/WBP_MainMenu_Pal_00." .. SCREEN_CLASS
 local SCREEN_PATH =
     "/Game/Pal/Blueprint/UI/UserInterface/MainMenu/Pal/WBP_MainMenu_Pal_00.WBP_MainMenu_Pal_00_C:"
 local UPDATE_FN = SCREEN_PATH .. "UpdateActiveSkill_Binded"
@@ -93,7 +95,7 @@ local function warnOnce(message)
 end
 
 local function canvasSlotOf(widget)
-    local lib = StaticFindObject("/Script/UMG.Default__WidgetLayoutLibrary")
+    local lib = ObjTrack.static("/Script/UMG.Default__WidgetLayoutLibrary")
     if not (lib and lib:IsValid()) then return nil end
     local slot = nil
     pcall(function() slot = lib:SlotAsCanvasSlot(widget) end)
@@ -180,7 +182,7 @@ local function ensureExtra(screen)
         return nil
     end
 
-    local lib = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+    local lib = ObjTrack.static("/Script/UMG.Default__WidgetBlueprintLibrary")
     if not (lib and lib:IsValid()) then
         Log("[WARN] WidgetBlueprintLibrary is not there, so no fourth slot was built")
         return nil
@@ -444,15 +446,16 @@ function MoveSlot4.init()
     -- The notify only raises a flag; the loop does the work. Registering a hook
     -- inside the notify itself is the shape that has aborted the process here
     -- before, and the loop also gives an idle guard for free.
+    --
+    -- Asked for the status screen's own class: listening for every UserWidget
+    -- would run Lua once per widget the game builds, for the whole session.
+    -- Returning true takes the notification out again once the hooks are in.
     local pending = false
-    local ok, err = pcall(function()
-        NotifyOnNewObject("/Script/UMG.UserWidget", function(object)
-            if hooked or pending then return end
-            local n = ""
-            pcall(function() n = tostring(object:GetClass():GetFName():ToString()) end)
-            if n == SCREEN_CLASS then pending = true end
-        end)
-    end)
+    local function onScreenBuilt()
+        if hooked then return true end
+        pending = true
+    end
+    local ok, err = pcall(NotifyOnNewObject, SCREEN_CLASS_PATH, onScreenBuilt)
     if not ok then
         Log("[WARN] could not watch for the status screen, so the fourth move stays hidden: "
             .. tostring(err))

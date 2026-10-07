@@ -10,6 +10,7 @@
 -- marshaling works, otherwise from the baked drops_static.lua.
 -- Per-pair `materials` in the config override the derivation entirely.
 
+local ObjTrack = require("objtrack")
 local Config = require("config")
 local Elements = require("elements")
 local I18n = require("i18n")
@@ -113,7 +114,7 @@ local function tryConsumeItems(playerCtx, staticItemId, need)
             tostring(staticItemId), need, before))
         return false, 0
     end
-    local cdo = StaticFindObject("/Script/Pal.Default__PalIncidentBase")
+    local cdo = ObjTrack.static("/Script/Pal.Default__PalIncidentBase")
     if not (cdo and cdo:IsValid()) then
         Log(string.format("[ERROR] consume not attempted for %s x%d: PalIncidentBase unavailable",
             tostring(staticItemId), need))
@@ -207,7 +208,7 @@ local function runtimeDropRow(charId, level, worldCtx)
     if runtimeBroken then return nil end
     local drops = nil
     pcall(function()
-        local util = StaticFindObject("/Script/Pal.Default__PalUtility")
+        local util = ObjTrack.static("/Script/Pal.Default__PalUtility")
         if not (util and util:IsValid() and worldCtx and worldCtx:IsValid()) then return end
         local db = util:GetDatabaseCharacterParameter(worldCtx)
         if not (db and db:IsValid()) then return end

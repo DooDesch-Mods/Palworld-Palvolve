@@ -22,6 +22,8 @@
 -- This module must not require config.lua because config.lua requires this
 -- module for its sanitizer.
 
+local ObjTrack = require("objtrack")
+local Role = require("role")
 local I18n = require("i18n")
 local ConditionFeed = require("conditionfeed")
 local FaintWatch = require("faintwatch")
@@ -121,7 +123,7 @@ local FOG_MIN = 0.1
 -- ---------------------------------------------------------------- ue helpers
 
 local function palUtility()
-    local u = StaticFindObject("/Script/Pal.Default__PalUtility")
+    local u = ObjTrack.static("/Script/Pal.Default__PalUtility")
     if u and u:IsValid() then return u end
     return nil
 end
@@ -533,7 +535,7 @@ end
 -- does not offer them.
 
 local function weatherFx(ctx)
-    local sky = FindFirstOf("PalSkyCreator")
+    local sky = ObjTrack.first("PalSkyCreator")
     if not (sky and sky:IsValid()) then error("no sky actor") end
     return sky.WeatherSettings.WeatherFXSettings, sky
 end
@@ -1019,7 +1021,7 @@ end
 local function condenserRankEval(ctx, value)
     local need = tonumber(value)
     if not need then return false end
-    local setting = StaticFindObject("/Script/Pal.Default__PalGameSetting")
+    local setting = ObjTrack.static("/Script/Pal.Default__PalGameSetting")
     if not (setting and setting:IsValid()) then return nil end
     local ceiling = tonumber(setting.CharacterMaxRank)
     if not ceiling then return nil end
@@ -1196,8 +1198,8 @@ end
 local function palLabel(id)
     local name = nil
     pcall(function()
-        local mdt = StaticFindObject("/Script/Pal.Default__PalMasterDataTablesUtility")
-        local ctx = FindFirstOf("PalPlayerCharacter")
+        local mdt = ObjTrack.static("/Script/Pal.Default__PalMasterDataTablesUtility")
+        local ctx = Role.anyPlayerCharacter()
         if not (mdt and mdt:IsValid() and ctx and ctx:IsValid()) then return end
         -- EPalLocalizeTextCategory::PalMonsterName = 4
         local txt = mdt:GetLocalizedText(ctx, 4, FName("PAL_NAME_" .. id))
@@ -1211,8 +1213,8 @@ end
 
 
 local function localizedSkillTextUnsafe(textId)
-    local mdt = StaticFindObject("/Script/Pal.Default__PalMasterDataTablesUtility")
-    local ctx = FindFirstOf("PalPlayerCharacter")
+    local mdt = ObjTrack.static("/Script/Pal.Default__PalMasterDataTablesUtility")
+    local ctx = Role.anyPlayerCharacter()
     if not (mdt and mdt:IsValid() and ctx and ctx:IsValid()) then return nil end
     -- EPalLocalizeTextCategory::SkillName = 16
     local txt = mdt:GetLocalizedText(ctx, 16, FName(textId))
@@ -1238,8 +1240,8 @@ local WORK_NAME_FALLBACKS = {
 }
 
 local function localizedWorkNameUnsafe(work)
-    local ui = StaticFindObject("/Script/Pal.Default__PalUIUtility")
-    local ctx = FindFirstOf("PalPlayerCharacter")
+    local ui = ObjTrack.static("/Script/Pal.Default__PalUIUtility")
+    local ctx = Role.anyPlayerCharacter()
     if not (ui and ui:IsValid() and ctx and ctx:IsValid()) then return nil end
     local out = {}
     ui:GetWorkSuitabilityName(ctx, WORK_SUITABILITIES[work], out)
@@ -1266,8 +1268,8 @@ local function workLabel(work)
 end
 
 local function localizedTowerNameUnsafe(boss)
-    local mdt = StaticFindObject("/Script/Pal.Default__PalMasterDataTablesUtility")
-    local ctx = FindFirstOf("PalPlayerCharacter")
+    local mdt = ObjTrack.static("/Script/Pal.Default__PalMasterDataTablesUtility")
+    local ctx = Role.anyPlayerCharacter()
     if not (mdt and mdt:IsValid() and ctx and ctx:IsValid()) then return nil end
     -- the game hides the whale's name, its arena name stands in
     local key = boss == "KingWhaleBoss" and "KingWhaleRoom" or boss

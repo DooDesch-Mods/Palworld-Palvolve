@@ -5,6 +5,8 @@
 -- reports what it did: a sound that never plays looks exactly like one that
 -- played quietly.
 
+local ObjTrack = require("objtrack")
+
 local Sound = {}
 
 -- Events that more than one sequence plays.
@@ -24,7 +26,7 @@ end
 local statics = nil
 local function ak()
     if not (statics and statics:IsValid()) then
-        statics = StaticFindObject("/Script/AkAudio.Default__AkGameplayStatics")
+        statics = ObjTrack.static("/Script/AkAudio.Default__AkGameplayStatics")
     end
     return statics and statics:IsValid() and statics or nil
 end
@@ -33,14 +35,14 @@ local events = {}
 local function event(path)
     local ev = events[path]
     if ev and ev:IsValid() then return ev end
-    ev = StaticFindObject(path)
+    ev = ObjTrack.static(path)
     if not (ev and ev:IsValid()) then
         local okLoad, loaded = pcall(LoadAsset, path)
         if not okLoad then
             Log("[WARN] sound did not load: " .. path .. ": " .. tostring(loaded))
             return nil
         end
-        ev = StaticFindObject(path)
+        ev = ObjTrack.static(path)
     end
     if not (ev and ev:IsValid()) then
         Log("[WARN] sound missing: " .. path)

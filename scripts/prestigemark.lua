@@ -25,6 +25,7 @@
 -- as benchfilter.lua - a single drain loop rather than a callback per Pal,
 -- because per-call closures feed UE4SS' callback collector.
 
+local ObjTrack = require("objtrack")
 local Role = require("role")
 local PalPassives = require("palpassives")
 local Config = require("config")
@@ -134,6 +135,8 @@ local function glowNameFor(stage)
 end
 
 local MAX_TRIES = 20
+-- How long one tick may spend on queued Pals before the rest waits.
+local DRAIN_BUDGET_S = 0.003
 
 local function Log(msg)
     print(string.format("[Palvolve] %s\n", msg))
@@ -209,7 +212,7 @@ local NIAGARA_LIB = "/Script/Niagara.Default__NiagaraFunctionLibrary"
 --- at the world origin: attached, reported as success, kilometres away. Two
 --- assets were blamed for that before the argument was.
 local function spawnAttached(system, mesh, mid, half)
-    local lib = StaticFindObject(NIAGARA_LIB)
+    local lib = ObjTrack.static(NIAGARA_LIB)
     if not isLive(lib) then return nil end
     local locationType = mid and 0 or 2
     local offset = mid and { X = 0, Y = 0, Z = half } or { X = 0, Y = 0, Z = 0 }
@@ -225,7 +228,7 @@ end
 
 local PAL_UTILITY = "/Script/Pal.Default__PalUtility"
 
-local function palUtilityUnsafe() return StaticFindObject(PAL_UTILITY) end
+local function palUtilityUnsafe() return ObjTrack.static(PAL_UTILITY) end
 local function holderOfUnsafe(util, actor) return util:GetOtomoHolderByOtomoPal(actor) end
 local function spawnedOtomoUnsafe(holder) return holder:TryGetSpawnedOtomo() end
 
@@ -391,10 +394,10 @@ local function attachOne(actor, mesh, name)
     local path = type(choice) == "table" and choice.path or choice
     local mid = type(choice) == "table" and choice.mid == true
 
-    local system = StaticFindObject(path)
+    local system = ObjTrack.static(path)
     if not isLive(system) then
         pcall(LoadAsset, path)
-        system = StaticFindObject(path)
+        system = ObjTrack.static(path)
     end
     if not isLive(system) then
         trace(string.format("'%s' is missing in this build", name))
@@ -476,12 +479,77 @@ end
 --- shock status included: all 186 of those interfaces live on the asset, none on
 --- an instance.
 ---
---- GetAttachChildren cannot be read from Lua here, it returns a TArray by value,
---- so the search runs the other way round: over the AkComponents, asking each
---- for its parent.
+--- GetAttachChildren cannot be called from Lua here, it returns a TArray by
+--- value. The AttachChildren property behind it can be read, so each of our
+--- systems is asked for what hangs off it. Only where that read fails does the
+--- search run the other way round, over every AkComponent in the game, asking
+--- each for its parent - and that walks the whole object list, about 30 ms a
+--- time, so it is rationed below.
 local function readAttachParent(comp) return comp:GetAttachParent() end
 local function muteComp(comp) comp:SetOutputBusVolume(0.0) end
+
+local muteWarned = false
+--- Mutes one sound component. False when the call failed.
+local function muteOne(comp)
+    local ok, err = pcall(muteComp, comp)
+    if ok then return true end
+    if not muteWarned then
+        muteWarned = true
+        Log("[WARN] prestige marker: a marker sound could not be muted: " .. tostring(err))
+    end
+    return false
+end
 local function allAkComponents() return FindAllOf("AkComponent") or {} end
+
+-- How many passes of the caretaker loop (500 ms each) a marker is asked for its
+-- sound on every pass. The engine creates the sound component when the system
+-- first plays, which for a Pal out of sight can be much later.
+local HUSH_PASSES = 20
+-- After that a marker is asked on every so many passes, as long as asking is a
+-- read off its own systems. Where it is a walk of the object list it stops.
+local HUSH_SLOW_EVERY = 10
+-- The passes on which the fallback may walk the object list.
+local HUSH_SCAN_PASSES = { [2] = true, [6] = true, [HUSH_PASSES] = true }
+
+local AK_COMPONENT = "/Script/AkAudio.AkComponent"
+local akClass = nil
+local childWalk = nil
+-- nil until the first read, then whether AttachChildren can be read at all
+local childrenReadable = nil
+
+local function collectAkChild(_, v)
+    local child = v:get()
+    if isLive(child) and child:IsA(akClass) then childWalk[#childWalk + 1] = child end
+end
+
+local function akChildrenUnsafe(comp)
+    if not (akClass and akClass:IsValid()) then akClass = ObjTrack.static(AK_COMPONENT) end
+    if not (akClass and akClass:IsValid()) then error("class " .. AK_COMPONENT .. " not found") end
+    childWalk = {}
+    comp.AttachChildren:ForEach(collectAkChild)
+    local found = childWalk
+    childWalk = nil
+    return found
+end
+
+--- Mutes the sound components hanging off one marker's systems. Returns how
+--- many, or nil and the reason when the attached components cannot be read.
+local function hushByChildren(entry)
+    local hushed = 0
+    for _, comp in ipairs(entry.comps or {}) do
+        if isLive(comp) then
+            local ok, kids = pcall(akChildrenUnsafe, comp)
+            if not ok then
+                childWalk = nil
+                return nil, kids
+            end
+            for _, ak in ipairs(kids) do
+                if muteOne(ak) then hushed = hushed + 1 end
+            end
+        end
+    end
+    return hushed
+end
 
 local function hushMarkerSounds(entries)
     local mine, any = {}, false
@@ -506,7 +574,7 @@ local function hushMarkerSounds(entries)
         if isLive(ak) then
             local okParent, parent = pcall(readAttachParent, ak)
             if okParent and isLive(parent) and mine[parent:GetFullName()] then
-                if pcall(muteComp, ak) then hushed = hushed + 1 end
+                if muteOne(ak) then hushed = hushed + 1 end
             end
         end
     end
@@ -597,7 +665,10 @@ function PrestigeMark.reconcile(actor)
         if alreadyMarked(actor) then return end
         if spawnGlow(actor, stage) then
             local key = keyOf(actor)
-            if key and marked[key] then marked[key].hushed = nil end
+            if key and marked[key] then
+                marked[key].hushed = nil
+                marked[key].hushPasses = nil
+            end
             Log(string.format("prestige marker: %s shimmer on, stage %d", id, stage))
         else
             Log(string.format("prestige marker: %s stage %d but the shimmer could not be attached", id, stage))
@@ -763,7 +834,18 @@ function PrestigeMark.init()
             -- dropped a whole batch, and during a world-load stall that is every
             -- Pal in the base: the queue filled, nothing was ever drawn, and the
             -- only symptom was a Pal with no shimmer.
-            for _, entry in ipairs(batch) do
+            -- A world streaming in queues every Pal of a base at once. The
+            -- batch stops when its time is up and the rest waits for the next
+            -- tick untouched, so one frame never pays for all of them.
+            -- What was not reached goes ahead of what is tried again, so
+            -- Pals that keep failing cannot hold the others back.
+            local started = os.clock()
+            local again = {}
+            for i, entry in ipairs(batch) do
+                if os.clock() - started >= DRAIN_BUDGET_S then
+                    for j = i, #batch do pending[#pending + 1] = batch[j] end
+                    break
+                end
                 -- pcall(namedFn, arg), not a closure per entry: this runs once
                 -- per queued Pal per tick, which on world load is the busiest
                 -- allocation site in the file.
@@ -771,10 +853,11 @@ function PrestigeMark.init()
                 if not (ok and settled) then
                     entry.tries = entry.tries + 1
                     if entry.tries < MAX_TRIES then
-                        pending[#pending + 1] = entry
+                        again[#again + 1] = entry
                     end
                 end
             end
+            for _, entry in ipairs(again) do pending[#pending + 1] = entry end
 
             -- A permanent marker needs a permanent caretaker. Object
             -- notification only ever fires for a NEW Pal, so nothing was
@@ -823,6 +906,7 @@ function PrestigeMark.init()
                 if ok and back then
                     entry.reviveFails = nil
                     entry.hushed = nil
+                    entry.hushPasses = nil
                     Log(string.format("prestige marker: marker back on, stage %d", entry.stage))
                 else
                     entry.reviveFails = (entry.reviveFails or 0) + 1
@@ -837,20 +921,59 @@ function PrestigeMark.init()
 
             -- The engine creates the sound component when the system first
             -- plays, which is after the attach, so this cannot run once at
-            -- attach time. It runs here until it has silenced a Pal, and the
-            -- flag keeps it from scanning every audio component twice a second
-            -- for the rest of the session.
-            local unhushed = {}
+            -- attach time. Each marker is asked on its first HUSH_PASSES
+            -- passes and on every HUSH_SLOW_EVERY-th one after that.
+            local toScan = nil
             for _, entry in pairs(marked) do
                 if entry.comps and not entry.hushed and isLive(entry.actor) then
-                    unhushed[#unhushed + 1] = entry
+                    entry.hushPasses = (entry.hushPasses or 0) + 1
+                    local due = entry.hushPasses <= HUSH_PASSES
+                        or entry.hushPasses % HUSH_SLOW_EVERY == 0
+                    local hushed = nil
+                    if due and childrenReadable ~= false then
+                        local why
+                        hushed, why = hushByChildren(entry)
+                        if hushed == nil then
+                            childrenReadable = false
+                            Log("[WARN] prestige marker: attached components unreadable ("
+                                .. tostring(why) .. "), searching the audio components instead")
+                        elseif childrenReadable == nil then
+                            childrenReadable = true
+                            trace("marker sounds are read off the attached components")
+                        end
+                    end
+                    if hushed == nil then
+                        if HUSH_SCAN_PASSES[entry.hushPasses] then
+                            toScan = toScan or {}
+                            toScan[#toScan + 1] = entry
+                        end
+                    elseif hushed > 0 then
+                        entry.hushed = true
+                        Log(string.format("prestige marker: silenced %d marker sound(s)", hushed))
+                    end
                 end
             end
-            if #unhushed > 0 then
-                local hushed = hushMarkerSounds(unhushed)
+            if toScan then
+                local hushed = hushMarkerSounds(toScan)
                 if hushed > 0 then
-                    for _, entry in ipairs(unhushed) do entry.hushed = true end
-                    Log(string.format("prestige marker: silenced %d marker sound(s)", hushed))
+                    for _, entry in ipairs(toScan) do entry.hushed = true end
+                    Log(string.format("prestige marker: silenced %d marker sound(s) by search", hushed))
+                end
+            end
+            for _, entry in pairs(marked) do
+                if entry.comps and not entry.hushed and (entry.hushPasses or 0) >= HUSH_PASSES then
+                    if childrenReadable == true then
+                        if entry.hushPasses == HUSH_PASSES then
+                            Log(string.format(
+                                "[INFO] prestige marker: no marker sound within %d passes, asked every %d passes from here on",
+                                HUSH_PASSES, HUSH_SLOW_EVERY))
+                        end
+                    else
+                        entry.hushed = true
+                        Log(string.format(
+                            "[INFO] prestige marker: no marker sound within %d passes, not asked again",
+                            HUSH_PASSES))
+                    end
                 end
             end
     end

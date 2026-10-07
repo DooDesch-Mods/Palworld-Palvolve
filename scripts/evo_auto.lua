@@ -1,6 +1,7 @@
 -- Palvolve auto-evolve watcher: scans every player's summoned Pal and starts an
 -- evolution once exactly one path is ready.
 
+local ObjTrack = require("objtrack")
 local Conditions = require("conditions")
 local Config = require("config")
 local Costs = require("costs")
@@ -53,7 +54,7 @@ local function scanAutoControllerUnsafe(pc)
     local playerCtx = Role.playerCtxFor(pc)
     if not playerCtx then return AUTO_SLOW_S, false end
     if not (EvoUtil.otomoHolderClass and EvoUtil.otomoHolderClass:IsValid()) then
-        EvoUtil.otomoHolderClass = StaticFindObject("/Script/Pal.PalOtomoHolderComponentBase")
+        EvoUtil.otomoHolderClass = ObjTrack.static("/Script/Pal.PalOtomoHolderComponentBase")
     end
     if not EvoUtil.otomoHolderClass then return AUTO_SLOW_S, false end
     local holder = pc:GetComponentByClass(EvoUtil.otomoHolderClass)
@@ -179,7 +180,7 @@ local function runAutoWatcherUnsafe()
         EvoAuto.autoWatchNextAt = os.clock() + nextDelay
         return
     end
-    local controllers = FindAllOf("PalPlayerController") or {}
+    local controllers = Role.controllers()
     for _, pc in ipairs(controllers) do
         local delay, started = scanAutoController(pc)
         nextDelay = math.min(nextDelay, delay)

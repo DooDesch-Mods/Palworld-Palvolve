@@ -17,6 +17,7 @@
 -- / :IsServer), a world-level property that is already correct when the join hook
 -- fires - unlike an actor's HasAuthority, which is not settled at that instant and
 -- previously mislabelled single-player as a connected client.
+local ObjTrack = require("objtrack")
 local Config = require("config")
 local Role = require("role")
 local NetChannel = require("netchannel")
@@ -108,7 +109,7 @@ local function toText(s)
     if ok and t then return t end
     local converted = nil
     pcall(function()
-        local ktl = StaticFindObject("/Script/Engine.Default__KismetTextLibrary")
+        local ktl = ObjTrack.static("/Script/Engine.Default__KismetTextLibrary")
         if ktl and ktl:IsValid() then converted = ktl:Conv_StringToText(s) end
     end)
     return converted
@@ -126,7 +127,7 @@ local function showLocalMessage(text)
         local ctx = Role.localPlayerCtx()
         local pc = ctx and ctx.pc
         if not (pc and pc:IsValid()) then return end
-        local util = StaticFindObject("/Script/Pal.Default__PalUtility")
+        local util = ObjTrack.static("/Script/Pal.Default__PalUtility")
         local ftext = toText(text)
         if not (util and ftext) then return end
         local shown = false
@@ -150,7 +151,7 @@ end
 -- ------------------------------------------------------------- classification
 
 local function kismet()
-    local k = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+    local k = ObjTrack.static("/Script/Engine.Default__KismetSystemLibrary")
     if k and k:IsValid() then return k end
     return nil
 end

@@ -13,6 +13,7 @@
 -- Rewriting on every launch also repairs the file after a Workshop update
 -- replaced the PalSchema folder with the shipped default.
 
+local Role = require("role")
 local Config = require("config")
 local Conditions = require("conditions")
 local Costs = require("costs")
@@ -374,7 +375,7 @@ function GuidePages.onEnterWorld(worldCtx)
         end
         local ctx = worldCtx
         if not (ctx and ctx:IsValid()) then
-            pcall(function() ctx = FindFirstOf("PalPlayerCharacter") end)
+            pcall(function() ctx = Role.anyPlayerCharacter() end)
         end
         local okBuild, text, reason = pcall(GuidePages.build, nameResolver, ctx)
         if not okBuild then

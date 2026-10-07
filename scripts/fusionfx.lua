@@ -30,6 +30,7 @@
 -- (UE4SS-LESSONS.md section 1). Every step checks the actors it touches, so a
 -- player leaving mid-scene ends it instead of faulting natively.
 
+local ObjTrack = require("objtrack")
 local Elements = require("elements")
 local Recipes = require("finale_recipes")
 local Finale = require("finale")
@@ -112,15 +113,15 @@ local WHITE = { R = 1, G = 1, B = 1, A = 1 }
 
 local niagaraClass = nil
 local function loadSystem(path)
-    local obj = StaticFindObject(path)
+    local obj = ObjTrack.static(path)
     if not (obj and obj:IsValid()) then
         local okLoad, loadErr = pcall(LoadAsset, path)
         if not okLoad then Log("[WARN] effect asset did not load: " .. tostring(path) .. ": " .. tostring(loadErr)) end
-        obj = StaticFindObject(path)
+        obj = ObjTrack.static(path)
     end
     if not (obj and obj:IsValid()) then return nil end
     if not (niagaraClass and niagaraClass:IsValid()) then
-        niagaraClass = StaticFindObject("/Script/Niagara.NiagaraSystem")
+        niagaraClass = ObjTrack.static("/Script/Niagara.NiagaraSystem")
     end
     if niagaraClass and obj:IsA(niagaraClass) then return obj end
     return nil
@@ -132,7 +133,7 @@ local function spawnAt(worldCtx, path, x, y, z, scale)
     if run and run.visuals == false then return nil end
     trace("spawn " .. tostring(path))
     local ns = loadSystem(path)
-    local lib = StaticFindObject("/Script/Niagara.Default__NiagaraFunctionLibrary")
+    local lib = ObjTrack.static("/Script/Niagara.Default__NiagaraFunctionLibrary")
     if not (ns and lib and lib:IsValid() and worldCtx and worldCtx:IsValid()) then
         Log("[WARN] effect not spawned: " .. tostring(path))
         return nil

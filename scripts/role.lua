@@ -5,6 +5,8 @@
 -- that acts on "the player" must go through a playerCtx instead of
 -- FindFirstOf, because on a host with connected clients FindFirstOf
 -- returns an arbitrary controller.
+local ObjTrack = require("objtrack")
+
 local Role = {}
 
 local function Log(msg)
@@ -150,13 +152,38 @@ function Role.isDedicated()
     return isDedicatedCached
 end
 
+-- Every player controller and player character in this process, listed as the
+-- engine builds them. FindAllOf and FindFirstOf walk every object in the game,
+-- about 30 ms each, which no timer or hook can afford.
+local controllers = ObjTrack.follow("/Script/Pal.PalPlayerController", "PalPlayerController")
+local characters = ObjTrack.follow("/Script/Pal.PalPlayerCharacter", "PalPlayerCharacter")
+
+--- Every live player controller: the local one on a client, one per connected
+--- player on a host or a dedicated server. Read it, do not change it.
+function Role.controllers()
+    return controllers:list()
+end
+
+--- Tells the list about a controller a hook was handed. A joining player's
+--- controller that the list never heard of switches the list to searching.
+function Role.sawController(pc)
+    controllers:witness(pc)
+end
+
+local warnedOnce = {}
+local function warnOnce(key, msg)
+    if warnedOnce[key] then return end
+    warnedOnce[key] = true
+    Log("[WARN] " .. msg)
+end
+
 -- The controller of the player sitting at THIS machine (nil on dedicated).
--- FindAllOf + IsLocalPlayerController instead of FindFirstOf: on a listen
--- host with guests every connected player has a controller instance in
--- this process.
--- FindAllOf walks every object in the game, about 27 ms, and the wheel asks for
--- the local controller several times per opening. The one found is kept and
--- only searched again once it stops being valid or local (a world change).
+-- Every controller is asked IsLocalPlayerController rather than the first one
+-- taken: on a listen host with guests every connected player has a controller
+-- instance in this process.
+-- The wheel asks for the local controller several times per opening. The one
+-- found is kept and only looked for again once it stops being valid or local
+-- (a world change).
 local cachedLocalPc = nil
 
 local function stillLocal(pc)
@@ -168,21 +195,49 @@ function Role.getLocalPlayerController()
     if cachedLocalPc then
         local ok, yes = pcall(stillLocal, cachedLocalPc)
         if ok and yes then return cachedLocalPc end
+        if not ok then warnOnce("kept", "the kept local controller would not answer: " .. tostring(yes)) end
         cachedLocalPc = nil
     end
     local found = nil
-    pcall(function()
-        local all = FindAllOf("PalPlayerController") or {}
-        for _, pc in ipairs(all) do
-            local ok, isLocal = pcall(function() return pc:IsLocalPlayerController() end)
-            if ok and isLocal and pc:IsValid() then
-                found = pc
-                break
-            end
+    for _, pc in ipairs(controllers:list()) do
+        local ok, isLocal = pcall(stillLocal, pc)
+        if not ok then
+            warnOnce("listed", "a listed controller would not say whether it is local: " .. tostring(isLocal))
+        elseif isLocal then
+            found = pc
+            break
         end
-    end)
+    end
     cachedLocalPc = found
     return found
+end
+
+local playerCharacterClass = nil
+
+local function localCharacterUnsafe(pc)
+    local pawn = pc.Pawn
+    if not (pawn and pawn:IsValid()) then return nil end
+    if not (playerCharacterClass and playerCharacterClass:IsValid()) then
+        playerCharacterClass = ObjTrack.static("/Script/Pal.PalPlayerCharacter")
+    end
+    if not (playerCharacterClass and playerCharacterClass:IsValid()) then return nil end
+    if pawn:IsA(playerCharacterClass) then return pawn end
+    return nil
+end
+
+--- A player character of this world, or nil while no world with a player is up:
+--- the local player's where this machine has one, otherwise any player's (a
+--- dedicated server has no local one). This is what FindFirstOf("PalPlayerCharacter")
+--- was asked for all over the mod, as a world context and as the sign that a
+--- world has finished loading.
+function Role.anyPlayerCharacter()
+    local pc = Role.getLocalPlayerController()
+    if pc then
+        local ok, pawn = pcall(localCharacterUnsafe, pc)
+        if ok and pawn then return pawn end
+        if not ok then warnOnce("pawn", "the local controller's pawn could not be read: " .. tostring(pawn)) end
+    end
+    return characters:list()[1]
 end
 
 -- True when this process owns the world state (standalone, listen host,
@@ -313,8 +368,8 @@ function Role.chatRaw(playerCtx, msg)
     local issued = false
     if playerCtx.playerUId and Role.hasWorldAuthority() and not playerCtx.isLocal then
         local okTargeted, targetedErr = pcall(function()
-            local util = StaticFindObject("/Script/Pal.Default__PalUtility")
-            local world = FindFirstOf("World")
+            local util = ObjTrack.static("/Script/Pal.Default__PalUtility")
+            local world = ObjTrack.first("World")
             if not (util and util:IsValid()) then error("PalUtility is unavailable") end
             if not (world and world:IsValid()) then error("world context is unavailable") end
             local g = playerCtx.playerUId

@@ -9,6 +9,8 @@
 -- built on the AUTHORITY for a remote requester (co-op reject reasons) use
 -- the host's language - documented behavior.
 
+local ObjTrack = require("objtrack")
+local Role = require("role")
 local Catalog = require("i18n_static")
 
 local I18n = {}
@@ -48,7 +50,7 @@ function I18n.lang()
     if cachedLang then return cachedLang end
     local code = nil
     pcall(function()
-        local lib = StaticFindObject("/Script/Engine.Default__KismetInternationalizationLibrary")
+        local lib = ObjTrack.static("/Script/Engine.Default__KismetInternationalizationLibrary")
         if lib and lib:IsValid() then
             local s = lib:GetCurrentLanguage()
             if type(s) == "string" then
@@ -98,8 +100,8 @@ function I18n.itemName(id, fallback)
     if cached then return cached, true end
     local name = nil
     pcall(function()
-        local mdt = StaticFindObject("/Script/Pal.Default__PalMasterDataTablesUtility")
-        local ctx = FindFirstOf("PalPlayerCharacter")
+        local mdt = ObjTrack.static("/Script/Pal.Default__PalMasterDataTablesUtility")
+        local ctx = Role.anyPlayerCharacter()
         if not (mdt and mdt:IsValid() and ctx and ctx:IsValid()) then return end
         -- EPalLocalizeTextCategory::ItemName = 11
         local txt = mdt:GetLocalizedText(ctx, 11, FName("ITEM_NAME_" .. id))
@@ -126,8 +128,8 @@ function I18n.passiveName(id)
     if passiveNameCache[id] then return passiveNameCache[id] end
     local name = nil
     local ok, err = pcall(function()
-        local mdt = StaticFindObject("/Script/Pal.Default__PalMasterDataTablesUtility")
-        local ctx = FindFirstOf("PalPlayerCharacter")
+        local mdt = ObjTrack.static("/Script/Pal.Default__PalMasterDataTablesUtility")
+        local ctx = Role.anyPlayerCharacter()
         if not (mdt and mdt:IsValid() and ctx and ctx:IsValid()) then return end
         local s = mdt:GetLocalizedText(ctx, 16, FName("PASSIVE_" .. id)):ToString()
         if s and s ~= "" and s:sub(1, 8) ~= "PASSIVE_" then name = s end

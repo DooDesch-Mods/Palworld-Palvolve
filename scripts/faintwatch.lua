@@ -9,18 +9,15 @@
 -- by the interval. The poll only starts once a pair asks for faintedAgo; a
 -- config without it costs nothing.
 
+local ObjTrack = require("objtrack")
 local GameLoop = require("gameloop")
+local Role = require("role")
 
 local FaintWatch = {}
 
 local POLL_MS = 3000
--- FindAllOf walks every object in the game, so the controller list is only
--- rebuilt every few polls. A player who just joined waits at most this long.
-local CONTROLLER_REFRESH_POLLS = 10
 
 local lastFaintAt = {}
-local controllers = {}
-local pollsSinceRefresh = CONTROLLER_REFRESH_POLLS
 local holderClass = nil
 local started = false
 local lastError = nil
@@ -58,7 +55,7 @@ end
 
 local function holderOfUnsafe(pc)
     if not (holderClass and holderClass:IsValid()) then
-        holderClass = StaticFindObject("/Script/Pal.PalOtomoHolderComponentBase")
+        holderClass = ObjTrack.static("/Script/Pal.PalOtomoHolderComponentBase")
     end
     if not (holderClass and holderClass:IsValid()) then error("holder class not found") end
     local holder = pc:GetComponentByClass(holderClass)
@@ -86,14 +83,11 @@ local function scanControllerUnsafe(pc, now)
     end
 end
 
+-- The controllers come from the list role.lua keeps as players join, so a poll
+-- never walks the object list and a player who just joined is seen at once.
 local function pollUnsafe()
-    pollsSinceRefresh = pollsSinceRefresh + 1
-    if pollsSinceRefresh >= CONTROLLER_REFRESH_POLLS then
-        pollsSinceRefresh = 0
-        controllers = FindAllOf("PalPlayerController") or {}
-    end
     local now = os.time()
-    for _, pc in ipairs(controllers) do
+    for _, pc in ipairs(Role.controllers()) do
         local ok, err = pcall(scanControllerUnsafe, pc, now)
         if not ok then warnOnce("party scan failed: " .. tostring(err)) end
     end

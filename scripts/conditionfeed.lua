@@ -4,6 +4,7 @@
 -- An attempted feed is never enough: both the source stack and fullness must
 -- move before the food becomes condition truth.
 
+local ObjTrack = require("objtrack")
 local Role = require("role")
 local GameLoop = require("gameloop")
 local ConditionFeed = {}
@@ -108,7 +109,7 @@ local function fullness(param)
 end
 
 local function palUtilityUnsafe()
-    return StaticFindObject("/Script/Pal.Default__PalUtility")
+    return ObjTrack.static("/Script/Pal.Default__PalUtility")
 end
 
 local function palUtility()
@@ -155,7 +156,7 @@ local worldContext = nil
 
 local function worldContextUnsafe()
     if objectIsValidUnsafe(worldContext) then return worldContext end
-    worldContext = FindFirstOf("PalPlayerCharacter")
+    worldContext = Role.anyPlayerCharacter()
     if objectIsValidUnsafe(worldContext) then return worldContext end
     worldContext = nil
     return nil
@@ -405,8 +406,10 @@ local function registerBlueprintUnsafe()
     RegisterHook(HAND_FEED_FN, onHandFeedBegin)
 end
 
+-- Asked every ARM_POLL_MS for the whole session, so it reads the list role.lua
+-- keeps instead of walking the object list.
 local function localPlayerPresentUnsafe()
-    return objectIsValidUnsafe(FindFirstOf("PalPlayerCharacter"))
+    return objectIsValidUnsafe(Role.anyPlayerCharacter())
 end
 
 --- True while a local player character exists, which is this module's proxy for

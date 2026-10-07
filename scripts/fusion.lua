@@ -14,6 +14,7 @@
 -- write. The split restores it exactly. A game that closes mid-fusion restores
 -- both Pals from the file on the next load, before anything else can use them.
 
+local ObjTrack = require("objtrack")
 local Config = require("config")
 local Role = require("role")
 local GameLoop = require("gameloop")
@@ -120,7 +121,7 @@ end
 
 local function totalExp(level)
     local db = nil
-    pcall(function() db = FindFirstOf("BP_PalGameInstance_C").ExpDatabase end)
+    pcall(function() db = ObjTrack.first("BP_PalGameInstance_C").ExpDatabase end)
     if not (db and db:IsValid()) then return nil end
     local ok, v = pcall(function() return db:GetTotalExp(level, false) end)
     return ok and tonumber(v) or nil

@@ -45,7 +45,7 @@ local function senderCtxForUid(uid)
     local want = guidStr(uid)
     local found = nil
     pcall(function()
-        for _, pc in ipairs(FindAllOf("PalPlayerController") or {}) do
+        for _, pc in ipairs(Role.controllers()) do
             if pc and pc:IsValid() then
                 local ctx = Role.playerCtxFor(pc)
                 if ctx and ctx.playerUId and guidStr(ctx.playerUId) == want then

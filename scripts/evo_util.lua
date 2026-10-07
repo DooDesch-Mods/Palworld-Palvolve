@@ -2,6 +2,7 @@
 -- holder, individual keys, Alpha ids and condition bookkeeping. Split out of
 -- evolution.lua; every function here is used by more than one part of it.
 
+local ObjTrack = require("objtrack")
 local Conditions = require("conditions")
 local Config = require("config")
 local I18n = require("i18n")
@@ -31,7 +32,7 @@ local function staticCapsuleHalf(actor)
     return h
 end
 local function palUtility()
-    local u = StaticFindObject("/Script/Pal.Default__PalUtility")
+    local u = ObjTrack.static("/Script/Pal.Default__PalUtility")
     if u and u:IsValid() then return u end
     return nil
 end
@@ -104,7 +105,7 @@ local function findHolderFor(playerCtx, actor)
         local pc = playerCtx and playerCtx.pc
         if pc and pc:IsValid() then
             if not (EvoUtil.otomoHolderClass and EvoUtil.otomoHolderClass:IsValid()) then
-                EvoUtil.otomoHolderClass = StaticFindObject("/Script/Pal.PalOtomoHolderComponentBase")
+                EvoUtil.otomoHolderClass = ObjTrack.static("/Script/Pal.PalOtomoHolderComponentBase")
             end
             if EvoUtil.otomoHolderClass then
                 local h = pc:GetComponentByClass(EvoUtil.otomoHolderClass)
@@ -137,7 +138,7 @@ local function findManager(ctx)
         if util then mgr = util:GetCharacterManager(ctx) end
     end)
     if mgr and mgr:IsValid() then return mgr end
-    pcall(function() mgr = FindFirstOf("PalCharacterManager") end)
+    pcall(function() mgr = ObjTrack.first("PalCharacterManager") end)
     if mgr and mgr:IsValid() then return mgr end
     return nil
 end

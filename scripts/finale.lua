@@ -7,6 +7,7 @@
 -- (candidate chain -> hit burst -> NS_Return -> at worst the legacy climax
 -- in fx.lua), never breaks the evolution sequence.
 
+local ObjTrack = require("objtrack")
 local Config = require("config")
 local Recipes = require("finale_recipes")
 local PrestigeRecipes = require("prestige_recipes")
@@ -47,12 +48,12 @@ local missing = {}
 -- corrupt scheduled refs ("Ref was not function").
 local niagaraSystemClass = nil
 local function findSystemRaw(path)
-    local obj = StaticFindObject(path)
+    local obj = ObjTrack.static(path)
     if not (obj and obj:IsValid()) then return nil end
     -- reject redirectors/partially loaded/wrong-class objects before
     -- anything native treats them as a NiagaraSystem
     if not (niagaraSystemClass and niagaraSystemClass:IsValid()) then
-        niagaraSystemClass = StaticFindObject("/Script/Niagara.NiagaraSystem")
+        niagaraSystemClass = ObjTrack.static("/Script/Niagara.NiagaraSystem")
     end
     if niagaraSystemClass and niagaraSystemClass:IsValid()
         and obj.IsA and obj:IsA(niagaraSystemClass) then
@@ -397,7 +398,7 @@ end
 -- per-spawn closures.
 local function doSpawn(worldCtx, ev)
     local ns = loadSystem(ev.path)
-    local lib = StaticFindObject("/Script/Niagara.Default__NiagaraFunctionLibrary")
+    local lib = ObjTrack.static("/Script/Niagara.Default__NiagaraFunctionLibrary")
     if not (ns and lib and lib:IsValid() and worldCtx and worldCtx:IsValid()) then
         return nil
     end
