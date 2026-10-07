@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.1] - 2026-10-07
+
+### Fixed
+
+- **Palvolve no longer makes the game stutter.** The game froze for a moment about twice a second, even while you stood still with no menu open. Thanks to lupiv and Acacia for the reports.
+- **Prestiged Pals no longer add to the stutter.** Every Pal with a Prestige rank slowed the game a little twice a second, and the game hitched when its shimmer appeared.
+- **The Pal portraits for the Palpedia now load one at a time while you play.**
+
 ## [2.1.0] - 2026-09-27
 
 ### Added
