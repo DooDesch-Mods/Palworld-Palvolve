@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.2] - 2026-10-10
+
+### Fixed
+
+- **An altar fusion that stops partway no longer leaves the camera circling the two Pals forever.** The scene now continues after about three seconds and finishes the fusion. If it cannot, it ends and you get the camera, both Pals and the cost back. Thanks to lupiv for the report and the log.
+- **The log shows where a fusion scene stopped.** If a fusion still goes wrong for you, send your UE4SS.log.
+
 ## [2.1.1] - 2026-10-07
 
 ### Fixed
