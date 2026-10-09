@@ -3621,7 +3621,7 @@ Evolution.fusionApi = {
     alphaTargetId = EvoUtil.alphaTargetId,
     --- The transform-safe freeze the MP reveal uses: movement tick, AI and
     --- queued actions stop, the transform stays writable from Lua.
-    freeze = function(actor, frozen) EvoPresent.setRevealFrozen(actor, frozen) end,
+    freeze = function(actor, frozen) return EvoPresent.setRevealFrozen(actor, frozen) end,
     --- Writes the species to both save halves and reads it back.
     --- Returns nil on success, or the reason it did not land.
     writeSpecies = function(param, id)

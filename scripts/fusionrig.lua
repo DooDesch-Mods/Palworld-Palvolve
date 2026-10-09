@@ -24,9 +24,27 @@ local ATTACH_KEEP_WORLD = 1 -- EAttachmentRule::KeepWorld
 local DETACH_KEEP_WORLD = 1 -- EDetachmentRule::KeepWorld
 local MOVE = 0 -- EMoveComponentAction::Move
 
+local function isValid(o) return o ~= nil and o:IsValid() end
+local validityErrors = {}
 local function live(o)
-    local ok, v = pcall(function() return o ~= nil and o:IsValid() end)
-    return ok and v == true
+    local ok, v = pcall(isValid, o)
+    if not ok then
+        local cause, now = tostring(v), os.time()
+        local prior = validityErrors[o]
+        if not prior or prior.cause ~= cause then prior = { cause = cause, count = 0, notice = 0 } end
+        prior.count = prior.count + 1
+        if now >= prior.notice then
+            prior.notice = now + 30
+            Log("[WARN] object validity unreadable (" .. prior.count .. " attempts): " .. cause)
+        end
+        validityErrors[o] = prior
+        return false, false
+    end
+    if o and validityErrors[o] then
+        Log("object validity recovered after " .. validityErrors[o].count .. " failed attempts")
+        validityErrors[o] = nil
+    end
+    return v == true, true
 end
 FusionRig.live = live
 
@@ -87,7 +105,10 @@ function FusionRig.attach(actor, parent)
 end
 
 function FusionRig.detach(actor)
-    if live(actor) then actor:K2_DetachFromActor(DETACH_KEEP_WORLD, DETACH_KEEP_WORLD, DETACH_KEEP_WORLD) end
+    local alive, known = live(actor)
+    if not known then return false end -- leave the release pending until validity is readable
+    if alive then actor:K2_DetachFromActor(DETACH_KEEP_WORLD, DETACH_KEEP_WORLD, DETACH_KEEP_WORLD) end
+    return true
 end
 
 -- One latent action per component: a new move on the same component replaces
@@ -111,14 +132,33 @@ function FusionRig.moveTo(actor, rel, yaw, pitch, secs, easeIn, easeOut)
     return true
 end
 
+local destroyErrors = {}
 --- Removes a holder actor the rig spawned.
 function FusionRig.destroy(actor)
-    if not live(actor) then return end
+    local alive, known = live(actor)
+    if not known then return false end -- validity failed, keep it for recovery
+    if not alive then return true end -- already gone
     local key = actor:GetFullName()
-    if FusionRig._spinners then FusionRig._spinners[key] = nil end
-    uuids[key] = nil
     local ok, err = pcall(function() actor:K2_DestroyActor() end)
-    if not ok then Log("[WARN] rig actor not removed: " .. tostring(err)) end
+    if ok then
+        if FusionRig._spinners then FusionRig._spinners[key] = nil end
+        uuids[key] = nil
+        if destroyErrors[key] then
+            Log("rig actor removal recovered after " .. destroyErrors[key].count .. " failed attempts")
+            destroyErrors[key] = nil
+        end
+    else
+        local cause, now = tostring(err), os.time()
+        local prior = destroyErrors[key]
+        if not prior or prior.cause ~= cause then prior = { cause = cause, count = 0, notice = 0 } end
+        prior.count = prior.count + 1
+        if now >= prior.notice then
+            prior.notice = now + 30
+            Log("[ERROR] rig actor not removed (" .. prior.count .. " attempts): " .. cause)
+        end
+        destroyErrors[key] = prior
+    end
+    return ok
 end
 
 return FusionRig

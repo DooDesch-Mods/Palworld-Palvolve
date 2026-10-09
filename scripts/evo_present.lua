@@ -186,31 +186,80 @@ local function refreshPartyHud(holder)
     local ok, err = pcall(function() holder:SetSelectOtomoID(holder:GetSelectedOtomoID()) end)
     if not ok then Log("[WARN] party panel refresh failed: " .. tostring(err)) end
 end
+local function revealController(actor)
+    local ctrl = actor:GetController()
+    if ctrl and ctrl:IsValid() then return ctrl end
+    return nil -- a phantom can have no AI controller
+end
+local function revealMovement(actor)
+    local move = actor.CharacterMovement
+    if not (move and move:IsValid()) then error("no live movement component") end
+    return move
+end
+local function revealMoveFlag(move, frozen) move:SetMoveDisableFlag(REVEAL_FLAG, frozen) end
+local function revealTickFlag(move, frozen) move:SetComponentTickSuppressFlag(REVEAL_FLAG, frozen) end
+local function revealStopMovement(move) move:StopMovementImmediately() end
+local function revealAI(ctrl, active) ctrl:SetActiveAI(active) end
+local function revealStopAI(ctrl) ctrl:StopMovement() end
+-- The freeze runs for every Pal of every reveal. One line per cause in 30 s
+-- keeps a call that fails each time from filling the log.
+local revealNotice = {}
+local function revealNoticeDue(name)
+    local now = os.time()
+    if now < (revealNotice[name] or 0) then return false end
+    revealNotice[name] = now + 30
+    return true
+end
+local function revealCancelActions(actor)
+    local actions = actor.ActionComponent
+    if actions and actions:IsValid() then
+        actions:CancelAllAction()
+    elseif revealNoticeDue("no action component") then
+        Log("[WARN] reveal actions not cancelled: no action component")
+    end
+end
+
+local function revealCall(name, fn, ...)
+    local ok, result = pcall(fn, ...)
+    if ok then return result, true end
+    if revealNoticeDue(name) then Log("[ERROR] reveal " .. name .. " failed: " .. tostring(result)) end
+    return nil, false
+end
+
+local function revealApply(name, fn, ...)
+    local _, ok = revealCall(name, fn, ...)
+    return ok
+end
+
 local function setRevealFrozen(actor, frozen)
-    if not (actor and actor:IsValid()) then return end
-    local ctrl, move = nil, nil
-    pcall(function() ctrl = actor:GetController() end)
-    pcall(function() move = actor.CharacterMovement end)
+    if not (actor and actor:IsValid()) then
+        Log("reveal freeze skipped: the actor is gone")
+        return true
+    end
+    local ctrl, okCtrl = revealCall("controller read", revealController, actor)
+    local move, okMove = revealCall("movement read", revealMovement, actor)
+    local allOk = okCtrl and okMove
     if frozen then
-        if move and move:IsValid() then
-            pcall(function() move:SetMoveDisableFlag(REVEAL_FLAG, true) end)
-            pcall(function() move:SetComponentTickSuppressFlag(REVEAL_FLAG, true) end)
-            pcall(function() move:StopMovementImmediately() end)
+        if move then
+            allOk = revealApply("movement disable", revealMoveFlag, move, true) and allOk
+            allOk = revealApply("tick suppress", revealTickFlag, move, true) and allOk
+            allOk = revealApply("movement stop", revealStopMovement, move) and allOk
         end
-        if ctrl and ctrl:IsValid() then
-            pcall(function() ctrl:SetActiveAI(false) end)
-            pcall(function() ctrl:StopMovement() end)
+        if ctrl then
+            allOk = revealApply("AI disable", revealAI, ctrl, false) and allOk
+            allOk = revealApply("AI stop", revealStopAI, ctrl) and allOk
         end
-        pcall(function() actor.ActionComponent:CancelAllAction() end)
+        allOk = revealApply("action cancel", revealCancelActions, actor) and allOk
     else
-        if move and move:IsValid() then
-            pcall(function() move:SetComponentTickSuppressFlag(REVEAL_FLAG, false) end)
-            pcall(function() move:SetMoveDisableFlag(REVEAL_FLAG, false) end)
+        if move then
+            allOk = revealApply("tick release", revealTickFlag, move, false) and allOk
+            allOk = revealApply("movement release", revealMoveFlag, move, false) and allOk
         end
-        if ctrl and ctrl:IsValid() then
-            pcall(function() ctrl:SetActiveAI(true) end)
+        if ctrl then
+            allOk = revealApply("AI release", revealAI, ctrl, true) and allOk
         end
     end
+    return allOk
 end
 -- true when the pal's AI is still (or again) active - the re-assert guard
 local function isAiActive(actor)

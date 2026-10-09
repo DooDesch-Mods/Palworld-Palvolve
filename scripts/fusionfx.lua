@@ -52,7 +52,11 @@ end
 local traceFile = nil
 local function trace(msg)
     local okCfg, cfg = pcall(require, "config")
-    if not (okCfg and cfg.devMode) then return end
+    if not okCfg then
+        Log("[WARN] scene trace off: config unreadable: " .. tostring(cfg))
+        return
+    end
+    if not cfg.devMode then return end -- tracing is disabled
     if not traceFile then
         local dir = cfg.stateDir and cfg.stateDir()
         if not dir then
@@ -71,6 +75,11 @@ end
 FusionFx._trace = trace
 
 local TICK_MS = 33
+-- The driver counts as stopped when no tick came for TICK_DEAD_S and the gap
+-- is still there TICK_CONFIRM_S later.
+local TICK_DEAD_S, TICK_CONFIRM_S = 2, 1
+-- How often one scene starts a new driver before it ends instead.
+local DRIVER_RESTARTS = 10
 -- scene time (s) at which each beat starts
 local T_GATHER, T_GLIDE, T_SWIRL, T_COMPRESS, T_SILENCE, T_BURST = 1.5, 3.0, 4.0, 9.0, 10.0, 10.4
 local RISE_S = T_GLIDE - T_GATHER
@@ -206,8 +215,14 @@ local function meshSize(actor)
     return half, half
 end
 
-local function meshName(actor)
+--- The model's name, or nil when it cannot be read. r is the scene that asks;
+--- a scene logs the failure once, however often it asks.
+local function meshName(actor, r)
     local ok, n = pcall(function() return actor.Mesh.SkeletalMesh:GetFullName() end)
+    if not ok and not r.meshWarned then
+        r.meshWarned = true
+        Log("[WARN] model name unreadable: " .. tostring(n))
+    end
     return ok and n or nil
 end
 
@@ -224,23 +239,31 @@ local function collectMontage(k, v)
     if k:get() == montageWalk.key then montageWalk.found = v:get() end
 end
 
---- Plays the Pal's own encounter roar. False when it has none.
+--- Plays the Pal's own encounter roar. False with the reason when it does not
+--- play; a third value of true marks a Pal that has no roar.
 local function roar(actor)
+    if not valid(actor) then return false, "the Pal is gone" end
+    local mesh = actor.Mesh
+    if not valid(mesh) then return false, "the mesh is missing" end
+    local anim = mesh:GetAnimInstance()
+    if not valid(anim) then return false, "the mesh has no animation instance" end
     montageWalk.key, montageWalk.found = ENCOUNT, nil
     actor.StaticCharacterParameterComponent.ActionMontageMap:ForEach(collectMontage)
     local m = montageWalk.found
     montageWalk.found = nil
-    if not (m and m:IsValid()) then return false end
-    local len = actor.Mesh:GetAnimInstance():Montage_Play(m, 1.0, 0, 0.0, true)
+    if not (m and m:IsValid()) then return false, "no encounter montage", true end
+    local len = anim:Montage_Play(m, 1.0, 0, 0.0, true)
     return (len or 0) > 0
 end
 
 local function roarLogged(actor, label)
-    local ok, played = pcall(roar, actor)
+    local ok, played, why, noRoar = pcall(roar, actor)
     if not ok then
         Log("[WARN] roar of " .. label .. " failed: " .. tostring(played))
-    elseif not played then
+    elseif noRoar then
         Log(label .. " has no encounter roar")
+    elseif not played then
+        Log("[WARN] roar of " .. label .. " skipped: " .. (why or "the montage did not play"))
     end
 end
 
@@ -458,7 +481,7 @@ local function stepReveal(r, t)
             local okHide, hideErr = pcall(function() r.c:SetActorHiddenInGame(true) end)
             if not okHide then Log("[WARN] fused Pal not hidden while it takes its form: " .. tostring(hideErr)) end
         end
-        local changed = meshName(r.c) ~= r.meshA
+        local changed = meshName(r.c, r) ~= r.meshA
         if not changed and t - r.foundAt < MESH_WAIT_S then return end
         if not changed then Log("[WARN] the fused Pal still wears the old model, it is shown anyway") end
         Log(string.format("fused Pal takes its form after %.2f s", t - r.foundAt))
@@ -546,38 +569,116 @@ local function pinBodies(r)
     pinBody(r.c)
 end
 
---- Puts an actor back to normal size and lets it move again.
-local function releaseActor(r, actor, unhide)
-    if not valid(actor) then return end
-    Rig.detach(actor)
-    local okScale, scaleErr = pcall(scaleTo, actor, 1)
-    if not okScale then Log("[WARN] scale not reset: " .. tostring(scaleErr)) end
-    if unhide then
-        local okShow, showErr = pcall(function() actor:SetActorHiddenInGame(false) end)
-        if not okShow then Log("[WARN] Pal not shown again: " .. tostring(showErr)) end
+-- Releases that a scene's end could not finish. The watchdog retries them.
+local pendingRelease = {}
+-- A release that keeps failing is retried this long. Past it the Pal is left
+-- as it is, because a pending release keeps the next scene from starting.
+local RELEASE_RETRY_S = 10
+local RELEASE_STEPS = { "detach", "scale", "show", "unfreeze" }
+local function showActor(actor) actor:SetActorHiddenInGame(false) end
+
+--- Drops a release whose retry time is over. True when it was dropped.
+local function releaseExpired(job)
+    if os.time() <= job.giveUpAt then return false end
+    local open = {}
+    for _, name in ipairs(RELEASE_STEPS) do
+        if not job.done[name] then open[#open + 1] = name end
     end
-    local okFreeze, freezeErr = pcall(r.freeze, actor, false)
-    if not okFreeze then Log("[WARN] actor not unfrozen: " .. tostring(freezeErr)) end
+    Log(string.format("[ERROR] release of %s given up after %d s, not done: %s", job.label, RELEASE_RETRY_S,
+        #open > 0 and table.concat(open, ", ") or "the validity check"))
+    pendingRelease[job] = nil
+    return true
+end
+
+local function releaseFailure(job, name, cause)
+    local prior, now = job.errors[name], os.time()
+    if not prior or prior.cause ~= cause then prior = { cause = cause, count = 0, notice = 0 } end
+    prior.count = prior.count + 1
+    if now >= prior.notice then
+        prior.notice = now + 30
+        Log(string.format("[ERROR] release %s %s failed (%d attempts): %s", job.label, name, prior.count, cause))
+    end
+    job.errors[name] = prior
+end
+
+local function releaseStep(job, name, fn, ...)
+    if job.done[name] then return end -- this action already succeeded
+    local ok, result = pcall(fn, ...)
+    if ok and result ~= false then
+        job.done[name] = true
+        return
+    end
+    releaseFailure(job, name, ok and "the helper reported failure" or tostring(result))
+end
+
+--- Puts an actor back to normal size and lets it move again.
+local function releaseActor(job)
+    local ok, live = pcall(valid, job.actor)
+    if not ok then
+        releaseFailure(job, "validity", tostring(live))
+        releaseExpired(job)
+        return
+    end
+    if not live then
+        Log("release of " .. job.label .. " skipped: the actor is gone")
+        pendingRelease[job] = nil
+        return
+    end
+    releaseStep(job, "detach", Rig.detach, job.actor)
+    releaseStep(job, "scale", scaleTo, job.actor, 1)
+    releaseStep(job, "show", showActor, job.actor)
+    releaseStep(job, "unfreeze", job.freeze, job.actor, false)
+    if job.done.detach and job.done.scale and job.done.show and job.done.unfreeze then
+        pendingRelease[job] = nil
+        if next(job.errors) then Log("release of " .. job.label .. " recovered") end
+    else
+        releaseExpired(job)
+    end
+end
+
+local function cleanup(name, fn, ...)
+    local ok, err = pcall(fn, ...)
+    if not ok then Log("[ERROR] scene cleanup " .. name .. " failed: " .. tostring(err)) end
+end
+
+local function queueRelease(r, actor, label, unhide)
+    local job = { actor = actor, label = label, freeze = r.freeze, done = { show = not unhide }, errors = {},
+        giveUpAt = os.time() + RELEASE_RETRY_S }
+    pendingRelease[job] = true
+    cleanup("release " .. label, releaseActor, job)
+end
+
+local function reportRoom(r)
+    if r.minRoom then Log(string.format("closest a circling body came to a pillar: %.0f cm", r.minRoom)) end
 end
 
 local function finishRun(reason)
-    if not run then return end
+    if not run then
+        Log("scene end skipped (" .. tostring(reason) .. "): no scene is playing")
+        return
+    end
     local r = run
     run = nil
-    -- before the burst the two Pals are still themselves: they go back as they were
-    local keepA = not r.burst
-    releaseActor(r, r.a, keepA and r.hidden)
-    releaseActor(r, r.b, keepA and r.hidden)
-    releaseActor(r, r.c, false)
-    killEffects(r)
+    Log(string.format("scene ending: %s; ticks %d, last step %s, burst %s",
+        reason, r.ticks or 0, r.step or "starting", tostring(r.burst == true)))
+    -- Every action is independent: a failed detach or effect must not prevent
+    -- the view returning, the other bodies releasing, or the caller settling cost.
+    if r.driver then cleanup("driver stop", GameLoop.stop, r.driver) end
+    -- only a scene with a picture has a camera to give back
+    if r.visuals then cleanup("camera return", FusionCam.stop, reason) end
+    -- After the burst A and B can be pooled bodies; the caller restores their
+    -- visibility on a failed commit. C may still be hidden while its mesh loads.
+    queueRelease(r, r.a, "A", not r.burst and r.hidden)
+    queueRelease(r, r.b, "B", not r.burst and r.hidden)
+    if r.c then queueRelease(r, r.c, "C", true) end
+    cleanup("effects", killEffects, r)
     if r.finale and not r.finaleOut then
         local okOut, outErr = pcall(Finale.stopAll, r.finale.f)
         if not okOut then Log("[WARN] finale lights not put out at the end: " .. tostring(outErr)) end
     end
-    Rig.destroy(r.pivot)
-    local okCam, camErr = pcall(FusionCam.stop, reason)
-    if not okCam then Log("[ERROR] camera not handed back: " .. tostring(camErr)) end
-    if r.minRoom then Log(string.format("closest a circling body came to a pillar: %.0f cm", r.minRoom)) end
+    if r.pivot then cleanup("sound stop", Sound.stopOn, r.pivot) end
+    cleanup("pivot removal", Rig.destroy, r.pivot)
+    cleanup("pillar distance report", reportRoom, r)
     Log("scene ended: " .. reason)
     if r.onDone then
         local ok, err = pcall(r.onDone, reason)
@@ -602,12 +703,23 @@ local function tickGameThread()
     while run == r and ok and r.cue <= #CUES and t >= CUES[r.cue].t do
         local cue = CUES[r.cue]
         r.cue = r.cue + 1
+        r.step = cue.name
         trace("beat " .. cue.name .. " camera " .. FusionCam.where())
         -- without a picture only the beats that change the world run
-        if r.visuals or cue.logic then ok, err = pcall(cue.fn, r) end
-        if not ok then err = cue.name .. ": " .. tostring(err) end
+        if r.visuals or cue.logic then
+            Log(string.format("beat %s started at %.2f s", cue.name, t))
+            ok, err = pcall(cue.fn, r)
+            if ok then
+                Log("beat " .. cue.name .. " completed")
+            else
+                err = cue.name .. ": " .. tostring(err)
+            end
+        end
     end
-    if run ~= r then return end
+    if run ~= r then
+        if not ok then Log("[ERROR] scene step failed after the scene ended: " .. tostring(err)) end
+        return
+    end
     if ok and not r.burst then
         if r.visuals then ok, err = pcall(stepFlow, r, t) end
     elseif ok and r.c then
@@ -629,7 +741,10 @@ local function tickGameThread()
             return
         end
     end
-    if run ~= r then return end
+    if run ~= r then
+        if not ok then Log("[ERROR] scene step failed after the scene ended: " .. tostring(err)) end
+        return
+    end
     if not r.logic then pinBodies(r) end
     if r.finale and not r.finaleOut then
         local okPump, pumpErr = pcall(Finale.pump, r.finale.ctx, r.finale.f, os.clock() - r.finale.startedAt)
@@ -642,19 +757,92 @@ local function tickGameThread()
     end
 end
 
--- One driver at a time: a scene started right after another one ended would
--- otherwise get the old driver's ticks on top of its own.
-local driving = false
-
-local function tick()
-    if not run then
-        driving = false
+local function tick(r)
+    if run ~= r then
+        Log("scene driver stopped: its scene has ended")
         return true
     end
-    tickGameThread()
-    return false
+    r.ticks = r.ticks + 1
+    r.lastTick = os.clock()
+    local ok, err = pcall(tickGameThread)
+    if not ok then
+        Log("[ERROR] scene tick failed at " .. tostring(r.step) .. ": " .. tostring(err))
+        finishRun("tick failed")
+    end
+    return run ~= r
 end
-FusionFx._tick = tick -- held by the module so the scheduled callback is never collected
+
+--- Starts a new driver for a scene whose ticks stopped. The scene clock runs
+--- on wall time, so the next tick plays every beat that came due meanwhile.
+--- False when no driver could be started.
+local function restartDriver(r, gap)
+    r.restarts = (r.restarts or 0) + 1
+    Log(string.format("[WARN] scene ticks stopped for %.1f s at step %s, replacing driver %s (restart %d of %d)",
+        gap, r.step or "starting", tostring(r.driver), r.restarts, DRIVER_RESTARTS))
+    -- a stopped driver can still be registered: cancelled, it never ticks beside the new one
+    if r.driver then cleanup("stopped driver removal", GameLoop.stop, r.driver) end
+    r.lastTick, r.silentAt = os.clock(), nil
+    r.driver = GameLoop.start(TICK_MS, r.tick, "fusion scene")
+    if not r.driver then return false end
+    if run ~= r then
+        cleanup("driver stop after inline tick", GameLoop.stop, r.driver)
+        return true
+    end
+    Log("scene driver restarted: " .. tostring(r.driver))
+    return true
+end
+
+--- Called by the independent mod heartbeat and by requests. It replaces a
+--- driver that stopped ticking, and wall time bounds a run whose scene clock
+--- or driver stops advancing.
+function FusionFx.watchdog()
+    cleanup("pending camera", FusionCam.watchdog)
+    for job in pairs(pendingRelease) do cleanup("pending release " .. job.label, releaseActor, job) end
+    local r = run
+    if not r then return end -- no scene to supervise
+    local now, clock = os.time(), os.clock()
+    local age, gap = now - r.startedWall, clock - (r.lastTick or clock)
+    -- A stall of the whole game thread holds this call back as long as the
+    -- scene's tick, and this call can be the first to run after it. The driver
+    -- only counts as stopped when the gap is still there on a later call.
+    if gap > TICK_DEAD_S then
+        r.silentAt = r.silentAt or clock
+    else
+        r.silentAt = nil
+    end
+    local ticksGone = r.silentAt ~= nil and clock - r.silentAt >= TICK_CONFIRM_S
+    local late = age > math.ceil(r.deadline)
+    if ticksGone and not late and (r.restarts or 0) < DRIVER_RESTARTS and restartDriver(r, gap) then return end
+    if ticksGone or late then
+        Log(string.format("[ERROR] scene watchdog: wall age %d/%d s, tick gap %.1f/%d s, clock %.2f s, ticks %d, step %s, driver %s",
+            age, math.ceil(r.deadline), gap, TICK_DEAD_S, clock - r.startedAt,
+            r.ticks, r.step or "starting", tostring(r.driver)))
+        finishRun(ticksGone and "scene ticks stopped" or "timed out")
+    elseif now >= r.nextNotice then
+        r.nextNotice = now + 5
+        Log(string.format("scene heartbeat: wall %d s, clock %.2f s, ticks %d, step %s, tick gap %.1f s",
+            age, clock - r.startedAt, r.ticks, r.step or "starting", gap))
+    end
+end
+
+local function startDriver(r)
+    r.startedAt, r.startedWall = r.startedAt or os.clock(), r.startedWall or os.time()
+    r.lastTick, r.ticks, r.nextNotice = os.clock(), 0, r.startedWall + 5
+    -- A late callback belongs to this run, never to a subsequent scene. GameLoop
+    -- holds it in its module table for the scheduler's whole lifetime.
+    r.tick = function() return tick(r) end
+    r.driver = GameLoop.start(TICK_MS, r.tick, "fusion scene")
+    if not r.driver then
+        finishRun("scene driver did not start")
+        return false
+    end
+    if run ~= r then
+        cleanup("driver stop after inline tick", GameLoop.stop, r.driver)
+        return false
+    end
+    Log("scene driver started: " .. tostring(r.driver))
+    return true
+end
 
 --- Where the circle goes: out in front of the gate, far enough that a body of
 --- half-width b on radius r0 keeps GATE_MARGIN to the nearest pillar corner.
@@ -675,7 +863,15 @@ end
 --- front), gate {back, side, halfInner, depthHalf, top} (the altar's arch, in
 --- cm from the centre at pedestal height).
 function FusionFx.play(opts)
-    if run then return false, "a fusion scene is already playing" end
+    FusionFx.watchdog()
+    if next(pendingRelease) then
+        Log("[WARN] scene start skipped: a previous scene still has a failed Pal release")
+        return false, "a previous scene still has a failed Pal release"
+    end
+    if run then
+        Log("scene start skipped: a fusion scene is already playing")
+        return false, "a fusion scene is already playing"
+    end
     local front = opts.landYaw or 0
     local r = {
         visuals = opts.visuals ~= false, logic = opts.logic ~= false,
@@ -702,7 +898,7 @@ function FusionFx.play(opts)
     r.out = orbitOut(r.gate, r.r0, b)
     r.bodyW = b
     r.lift = 150 + hMax * r.sc
-    r.meshA = meshName(opts.a)
+    r.meshA = meshName(opts.a, r)
     r.ox, r.oy, r.oz = at(r, r.out, 0, r.lift)
     r.camK = math.max(1, math.min(2, (r.r0 + b) / 300))
     r.deadline = T_BURST + FIND_TIMEOUT_S + REVEAL_S + 3 + HOLD_S + 20
@@ -710,11 +906,7 @@ function FusionFx.play(opts)
     if not r.visuals then
         -- the logic alone: the Pals stay where they stand until the burst
         run = r
-        r.startedAt = os.clock()
-        if not driving then
-            driving = true
-            GameLoop.start(TICK_MS, FusionFx._tick, "fusion scene")
-        end
+        if not startDriver(r) then return false, "scene driver did not start" end
         Log(string.format("scene started without a picture (%s + %s)", r.elemA, r.elemB))
         return true
     end
@@ -729,23 +921,20 @@ function FusionFx.play(opts)
         local okAttach, attachErr = pcall(Rig.attach, a, pivot)
         if not okAttach then
             Log("[ERROR] Pal not attached to the scene: " .. tostring(attachErr))
-            Rig.detach(opts.a)
-            Rig.detach(opts.b)
-            Rig.destroy(pivot)
+            run = r
+            finishRun("attach failed")
             return false, "attach failed"
         end
     end
     run = r
-    r.startedAt = os.clock()
+    r.startedAt, r.startedWall = os.clock(), os.time()
+    r.lastTick, r.ticks, r.nextNotice = os.clock(), 0, r.startedWall + 5
     local okCam, filming = pcall(FusionCam.start, { worldCtx = opts.worldCtx,
         center = { x = r.ox, y = r.oy, z = r.oz }, frontYaw = front,
         shot = { yaw = 35, dist = 1500 * r.camK, up = 120, fov = 80 } })
     if not okCam then Log("[WARN] camera did not start: " .. tostring(filming)) end
     FusionCam.shot({ yaw = 28, dist = 1350 * r.camK, up = 150, fov = 80 }, T_GATHER)
-    if not driving then
-        driving = true
-        GameLoop.start(TICK_MS, FusionFx._tick, "fusion scene")
-    end
+    if not startDriver(r) then return false, "scene driver did not start" end
     Log(string.format("scene started (%s + %s), circle %.0f out, radius %.0f, scale %.2f%s%s", r.elemA, r.elemB,
         r.out, r.r0, r.sc, (okCam and filming) and ", filmed" or "", r.logic and "" or ", picture only"))
     return true
@@ -884,8 +1073,11 @@ function FusionFx.abort(reason)
     finishRun(reason or "aborted")
 end
 
+--- True while a scene plays, and while a Pal of the last one still waits for
+--- its release: a new scene would be refused then.
 function FusionFx.playing()
-    return run ~= nil
+    FusionFx.watchdog()
+    return run ~= nil or next(pendingRelease) ~= nil
 end
 
 --- Length up to the burst plus a typical reveal, for callers that budget a watchdog.

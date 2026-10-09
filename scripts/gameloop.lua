@@ -24,9 +24,24 @@ local function stopEntry(entry)
     entry.done = true
     if entry.handle ~= nil then
         local ok, err = pcall(CancelDelayedAction, entry.handle)
-        if not ok then Log("[WARN] " .. entry.name .. " not cancelled: " .. tostring(err)) end
+        if not ok then
+            -- The scheduler may still call it: keep the inert callback alive.
+            Log("[ERROR] " .. entry.name .. " not cancelled: " .. tostring(err))
+            return false
+        end
         loops[entry.handle] = nil
     end
+    return true
+end
+
+--- Stops a loop from outside its callback. A failed cancellation stays inert.
+function GameLoop.stop(handle)
+    local entry = loops[handle]
+    if not entry then
+        Log("[INFO] loop stop skipped: handle " .. tostring(handle) .. " is already absent")
+        return true
+    end
+    return stopEntry(entry)
 end
 
 --- Calls fn on the game thread every ms milliseconds until it returns true.
@@ -40,7 +55,7 @@ function GameLoop.start(ms, fn, name)
             Log("[ERROR] " .. entry.name .. " failed and stops: " .. tostring(stop))
             stop = true
         end
-        if stop then stopEntry(entry) end
+        if stop and not entry.done then stopEntry(entry) end
     end
     local ok, handle = pcall(LoopInGameThreadWithDelay, ms, entry.tick)
     if not ok or handle == nil then

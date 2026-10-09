@@ -27,14 +27,25 @@ end
 
 local RANGE = 4000          -- viewers farther from the altar keep their own camera
 local BLEND_IN_S, BLEND_OUT_S = 1.2, 1.0
+-- A view return or rig removal that keeps failing is retried this long after
+-- the blend, then left alone.
+local RETURN_RETRY_S = 10
 local EASE_IN_OUT = 4       -- EViewTargetBlendFunction::VTBlend_EaseInOut
 local LEAD_S = 0.15         -- how far ahead on its path the angle is steered
 local SHAKE_BIG = "/Game/Pal/Blueprint/RaidBoss/BP_CameraShake_RaidBossModeChange.BP_CameraShake_RaidBossModeChange_C"
 local SHAKE_SMALL = "/Game/Pal/Blueprint/Weapon/Explosion/BP_CameraShake_ExplosionBig.BP_CameraShake_ExplosionBig_C"
 
 local rig = nil -- { base, spin, cam, pc, frontYaw, shot, fov }
+local pending = {} -- rigs waiting for the view to return or for their blend to finish
+local destroyRigActor
+local finishCamera
 
 local live = Rig.live
+local function checkedLive(actor, label)
+    local alive, known = live(actor)
+    if known == false then error(label .. " validity is unreadable") end
+    return alive
+end
 
 local function ease(t) return t * t * (3 - 2 * t) end
 local function lerp(a, b, t) return a + (b - a) * t end
@@ -53,6 +64,15 @@ end
 --- Returns true when filming.
 function FusionCam.start(opts)
     if rig then FusionCam.stop("a new scene started") end
+    for r in pairs(pending) do
+        if not r.returned then
+            finishCamera(r)
+            if not r.returned then
+                Log("[WARN] camera start skipped: a previous view return still failed")
+                return false
+            end
+        end
+    end
     local pc = Role.getLocalPlayerController()
     if not live(pc) then
         Log("no local player, the scene plays without a camera")
@@ -87,7 +107,9 @@ function FusionCam.start(opts)
     end)
     if not okBuild then
         Log("[WARN] camera rig not built: " .. tostring(buildErr))
-        for _, a in ipairs({ r.cam, r.spin, r.base }) do Rig.destroy(a) end
+        destroyRigActor(r.cam, "actor")
+        destroyRigActor(r.spin, "spin")
+        destroyRigActor(r.base, "base")
         return false
     end
     rig = r
@@ -209,27 +231,130 @@ function FusionCam.hit(scale, flash, big)
     end
 end
 
+local function stopSpin(r)
+    if checkedLive(r.spin, "camera spin") then Rig.spin(r.spin, 0) end
+end
+
+local function returnView(r, secs)
+    if not checkedLive(r.pc, "player controller") then
+        Log("camera return skipped: the player controller is gone")
+        r.playerGone = true
+        return
+    end
+    local pawn = r.pc:K2_GetPawn()
+    if not checkedLive(pawn, "player pawn") then
+        Log("camera return skipped: the player pawn is gone")
+        r.playerGone = true
+        return
+    end
+    r.pc:SetViewTargetWithBlend(pawn, secs, EASE_IN_OUT, 2.0, false)
+end
+
+local function confirmView(r)
+    if rig and rig ~= r then
+        r.superseded = true
+        return -- a newer scene owns the view, only remove this rig
+    end
+    if r.playerGone or not checkedLive(r.pc, "player controller") then return end -- world teardown has no view to restore
+    local pawn = r.pc:K2_GetPawn()
+    if not checkedLive(pawn, "player pawn") then
+        Log("camera confirmation skipped: the player pawn is gone")
+        return
+    end
+    local view = r.pc:GetViewTarget()
+    if not checkedLive(view, "view target") or view:GetAddress() ~= pawn:GetAddress() then
+        error("the view target is still not the player pawn")
+    end
+end
+
+destroyRigActor = function(actor, label)
+    local ok, removed = pcall(Rig.destroy, actor)
+    if not ok then Log("[ERROR] camera " .. label .. " removal failed: " .. tostring(removed)) end
+    return ok and removed ~= false
+end
+
+local function removeRig(r)
+    local cam = destroyRigActor(r.cam, "actor")
+    local spin = destroyRigActor(r.spin, "spin")
+    local base = destroyRigActor(r.base, "base")
+    if cam and spin and base then
+        pending[r] = nil
+    elseif os.time() > r.giveUpAt then
+        Log("[ERROR] camera removal given up, an actor of it stays in the world")
+        pending[r] = nil
+    end
+end
+
+finishCamera = function(r)
+    if not pending[r] then return end -- already removed by the heartbeat
+    if r.returned and not r.givenUp then
+        local ok, err = pcall(confirmView, r)
+        if not ok then
+            Log("[ERROR] camera return not confirmed: " .. tostring(err))
+            r.returned, r.returnError = false, tostring(err)
+        end
+    end
+    if not r.returned and os.time() > r.giveUpAt then
+        -- the view is left as it is from here on; only the rig is still removed
+        Log("[ERROR] camera return given up after " .. r.returnAttempts .. " attempts: " .. tostring(r.returnError))
+        r.returned, r.givenUp = true, true
+    end
+    if not r.returned then
+        local ok, err = pcall(returnView, r, 0)
+        if ok then ok, err = pcall(confirmView, r) end
+        r.returnAttempts = r.returnAttempts + 1
+        if not ok then
+            if tostring(err) ~= r.returnError or os.time() >= r.nextReturnNotice then
+                r.returnError, r.nextReturnNotice = tostring(err), os.time() + 30
+                Log("[ERROR] camera return still failed after " .. r.returnAttempts .. " attempts: " .. tostring(err))
+            end
+            return
+        end
+        r.returned = true
+        Log("camera return recovered (" .. r.reason .. ")")
+    end
+    if not r.confirmLogged then
+        r.confirmLogged = true
+        local action = r.superseded and "camera removed after a newer scene took the view ("
+            or (r.playerGone and "camera released during teardown (")
+            or (r.givenUp and "camera removed without the view confirmed (" or "camera handed back (")
+        Log(action .. r.reason .. ")")
+    end
+    removeRig(r)
+end
+
 --- Gives the view back to the player's body and removes the camera.
 function FusionCam.stop(reason)
     local r = rig
-    if not r then return end
-    rig = nil
-    if live(r.spin) then Rig.spin(r.spin, 0) end
-    if live(r.pc) then
-        local ok, err = pcall(function() r.pc:SetViewTargetWithBlend(r.pc:K2_GetPawn(), BLEND_OUT_S, EASE_IN_OUT, 2.0, false) end)
-        if not ok then Log("[ERROR] view not given back: " .. tostring(err)) end
+    if not r then
+        Log("camera return skipped: no active rig")
+        return
     end
-    FusionCam._pending = r
+    rig = nil
+    pending[r] = true
+    r.reason, r.returnAttempts = tostring(reason), 1
+    r.removeAt = os.time() + math.ceil(BLEND_OUT_S + 0.3) + 1
+    r.giveUpAt, r.nextReturnNotice = r.removeAt + RETURN_RETRY_S, 0
+    local okSpin, spinErr = pcall(stopSpin, r)
+    if not okSpin then Log("[ERROR] camera spin not stopped: " .. tostring(spinErr)) end
+    local okView, viewErr = pcall(returnView, r, BLEND_OUT_S)
+    r.returned = okView
+    if not okView then
+        r.returnError, r.nextReturnNotice = tostring(viewErr), os.time() + 30
+        Log("[ERROR] view not given back: " .. tostring(viewErr))
+    else
+        Log("camera return requested (" .. tostring(reason) .. ")")
+    end
     -- removed once the blend back is over, so the view never cuts
-    GameLoop.after(math.floor((BLEND_OUT_S + 0.3) * 1000), FusionCam._destroyPending, "camera removal")
-    Log("camera handed back (" .. tostring(reason) .. ")")
+    local handle = GameLoop.after(math.floor((BLEND_OUT_S + 0.3) * 1000), function() finishCamera(r) end, "camera removal")
+    if not handle then Log("[ERROR] camera removal not scheduled; the heartbeat will remove it") end
 end
 
-function FusionCam._destroyPending()
-    local r = FusionCam._pending
-    FusionCam._pending = nil
-    if not r then return end
-    for _, a in ipairs({ r.cam, r.spin, r.base }) do Rig.destroy(a) end
+function FusionCam.watchdog()
+    local now = os.time()
+    for r in pairs(pending) do
+        if not r.returned or now > r.removeAt then finishCamera(r) end
+    end
 end
 
 --- Where the camera is, as text for the scene trace.

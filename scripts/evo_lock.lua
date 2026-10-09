@@ -32,6 +32,13 @@ EvoLock.lastBeat = os.clock()
 EvoLock.lastTimersNotice = -1000
 GameLoop.start(1000, function()
     EvoLock.lastBeat = os.clock()
+    -- The scene's driver can disappear while other timers keep running. This
+    -- beat is independent of that driver and does not load presentation on demand.
+    local scene = package.loaded["fusionfx"]
+    if scene then
+        local ok, err = pcall(scene.watchdog)
+        if not ok then Log("[ERROR] fusion scene watchdog failed: " .. tostring(err)) end
+    end
     return false
 end, "heartbeat")
 -- Deliberately generous: five missed beats, so a loading screen or a frame
