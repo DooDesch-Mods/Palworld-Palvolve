@@ -160,8 +160,9 @@ end
 --- Puts A back exactly as captured. Returns nil, or what did not land.
 local function withoutMarker(list)
     local out = {}
+    -- Recovery snapshots may predate removal of the cosmetic altar marker.
     for _, id in ipairs(list or {}) do
-        if id ~= MARKER_ACTIVE then out[#out + 1] = id end
+        if id ~= MARKER_ACTIVE and id:lower() ~= "palvolve_fused" then out[#out + 1] = id end
     end
     return out
 end

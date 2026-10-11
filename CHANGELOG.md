@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **Permanent fusions no longer add the cosmetic Fused passive.** Existing Pals lose it after the world loads, keeping their other passives and fusion stats. The marker for battle fusions stays in place.
+
 ## [2.1.2] - 2026-10-10
 
 ### Fixed

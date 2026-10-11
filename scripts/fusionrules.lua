@@ -199,7 +199,7 @@ function FusionRules.mergeMarkers(listA, listB, skip)
                 if fromA and lock then locked = true end
             elseif pr then
                 prestige = math.max(prestige, tonumber(pr))
-            elseif fromA and isMarker(id) and id ~= skip then
+            elseif fromA and isMarker(id) and id ~= skip and id:lower() ~= "palvolve_fused" then
                 others[#others + 1] = id
             end
         end

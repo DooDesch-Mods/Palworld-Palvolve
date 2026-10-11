@@ -97,6 +97,11 @@ if Evolution then
     end
 end
 
+do
+    local okCleanup, errCleanup = pcall(function() require("fusedcleanup").init() end)
+    if not okCleanup then Log("[ERROR] Fused marker cleanup failed to load: " .. tostring(errCleanup)) end
+end
+
 -- Server check: a connected client asks the host whether Palvolve runs there and,
 -- if not, disables evolution for the session and tells the player why. The
 -- authority (host/single-player) runs the mod itself, so it never pings.

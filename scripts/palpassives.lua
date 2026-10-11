@@ -251,6 +251,31 @@ local function restoreInitial(param, initial, reason)
     return false, reason
 end
 
+--- Remove the retired altar marker without rewriting the other passive slots.
+function PalPassives.removeFusedMarker(param)
+    local initial, readErr = PalPassives.capture(param)
+    if not initial then return false, readErr end
+    local expected, markers = {}, {}
+    for _, id in ipairs(initial) do
+        if id:lower() == "palvolve_fused" then
+            markers[#markers + 1] = id
+        else
+            expected[#expected + 1] = id
+        end
+    end
+    if #markers == 0 then return true, false end
+
+    for _, id in ipairs(markers) do
+        local removed, removeErr = pcall(removePassive, param, id)
+        if not removed then
+            return restoreInitial(param, initial, "Fused marker removal failed: " .. tostring(removeErr))
+        end
+    end
+    local verified, verifyErr = PalPassives.verify(param, expected)
+    if not verified then return restoreInitial(param, initial, verifyErr) end
+    return true, true
+end
+
 local function grant(param, ladderName)
     local initial, readErr = PalPassives.capture(param)
     if not initial then return false, readErr end

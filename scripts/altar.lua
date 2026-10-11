@@ -35,7 +35,6 @@ local PASSIVE_RANK = require("passive_rank_static")
 local Altar = {}
 
 local ALTAR_ID = "Palvolve_FusionAltar"
-local MARKER_FUSED = "Palvolve_Fused"
 -- carried by both halves of a running battle fusion (fusion.lua)
 local MARKER_ACTIVE = "Palvolve_FusionActive"
 local REACH = 2000 -- units from the altar a player may start a fusion
@@ -508,9 +507,6 @@ function Altar.start(playerCtx, choice, opts)
             function(id) return PASSIVE_RANK[id] end, 4)
     end
     local markers = FusionRules.mergeMarkers(recA.passives, recB.passives, "Palvolve_FusionActive")
-    local seenFused = false
-    for _, id in ipairs(markers) do if id == MARKER_FUSED then seenFused = true end end
-    if not seenFused then markers[#markers + 1] = MARKER_FUSED end
     local gender = (choice and (choice.gender == 1 or choice.gender == 2)) and choice.gender or recA.fields.Gender
     local rare = recA.rare or recB.rare
     local center = modelPos(altar)
