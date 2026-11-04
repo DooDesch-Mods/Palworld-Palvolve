@@ -9,6 +9,8 @@
 
 > 🛟 **Need help or found a bug?** Get support at [support.doodesch.de/palvolve](https://support.doodesch.de/palvolve).
 
+[![Discord](https://mods.doodesch.de/img/badge.svg)](https://mods.doodesch.de)
+
 ## Features
 
 - The default tree starts with **156 transformations**. It has 62 evolution lines like Pengullet to Penking and 87 element adaptations like Pengullet to Pengullet Lux. Seven fun chains include Sweepa to Snugloo.
@@ -231,6 +233,12 @@ Include your Palvolve version, Palworld version and full `UE4SS.log` with a repo
 
 - Tested with Palworld 1.0.3 build 1283 - single player, co-op and dedicated servers.
 - Never use mods on official servers.
+
+## Community
+
+[![DooDesch Mods on Discord](https://mods.doodesch.de/img/card.svg)](https://mods.doodesch.de)
+
+Join the DooDesch Mods Discord: update pings, polls on what comes next, and playtests of new mods.
 
 ## License
 
