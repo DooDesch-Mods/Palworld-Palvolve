@@ -501,7 +501,7 @@ local function muteOne(comp)
 end
 local function allAkComponents() return FindAllOf("AkComponent") or {} end
 
--- How many passes of the caretaker loop (500 ms each) a marker is asked for its
+-- How many passes of the caretaker loop a marker is asked for its
 -- sound on every pass. The engine creates the sound component when the system
 -- first plays, which for a Pal out of sight can be much later.
 local HUSH_PASSES = 20
@@ -898,9 +898,9 @@ function PrestigeMark.init()
                 -- entry so the marker returns when it is summoned again
                 if not isLive(item.entry.actor) then marked[item.key] = nil end
             end
-            -- Bounded, because this runs every 500 ms forever. An asset that
-            -- cannot spawn would otherwise retry and log twice a second for the
-            -- rest of the session.
+            -- Bounded, because this runs at the configured interval forever.
+            -- An asset that cannot spawn would otherwise retry and log on
+            -- every tick for the rest of the session.
             for _, entry in ipairs(revive) do
                 local ok, back = pcall(spawnGlow, entry.actor, entry.stage)
                 if ok and back then
@@ -1004,7 +1004,12 @@ function PrestigeMark.init()
         return false
     end
 
-    GameLoop.start(500, drainTick, "prestige marker")
+    local intervalMs = Config.prestigeMarkerIntervalMs or 500
+    if not GameLoop.start(intervalMs, drainTick, "prestige marker") then
+        Log("[ERROR] prestige marker inactive: its loop did not start, prestiged pals do not shimmer")
+        return false
+    end
+    Log(string.format("[INFO] prestige marker: checks every %d ms", intervalMs))
 
     -- THE Palvolve debug key, and devMode only. One key, re-pointed at whatever
     -- is being tested; it currently cycles the prestige shimmer. Client side and

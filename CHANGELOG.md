@@ -1,10 +1,21 @@
 # Changelog
 
-## [Unreleased]
+## [2.1.3] - 2026-11-09
+
+### Added
+
+- **The Prestige marker check interval is now configurable.** Set `prestigeMarkerIntervalMs` in your local config or in the configurator, from 500 to 10000 ms (default 500 ms). Longer intervals delay shimmer changes and sound muting after a summon or recall. Thanks to Narayan for the request.
 
 ### Fixed
 
-- **Permanent fusions no longer add the cosmetic Fused passive.** Existing Pals lose it after the world loads, keeping their other passives and fusion stats. The marker for battle fusions stays in place.
+- **Permanent fusions no longer add the cosmetic Fused passive.** Existing Pals lose it when the world loads and keep their other passives and fusion stats. The marker for battle fusions stays in place.
+- **Evolved and prestiged Pals no longer keep their old body with Altermatic recolors.** Before, a summoned Pal showed its old form and stood without walk or fly animations; Altermatic now picks a recolor for the new species. In multiplayer, a guest running Altermatic can still see the old body until they delete their own Altermatic persist file. Thanks to SephVII, lupiv, CrimsonStarfall and MrMutt for the reports.
+- **An evolved Pal now gets the new form's maximum hunger.** Before, it kept the old form's value until it went into the Palbox and back out.
+- **A prestige at the last rank no longer eats the Prestige Stone.** Before, a request that slipped past the wheel took the stone and levels for nothing. The host now refuses it.
+- **The Evolutions page of the Palpedia now closes when you enter photo mode.** Before, it stayed drawn over the game after you left photo mode. Thanks to lupiv for the report.
+- **The Evolutions tab no longer flashes a white panel with a URL error the first time it opens.** Thanks to CrimsonStarfall for the report.
+- **The manual download now loads without a `mods.txt` edit.** The Palvolve folder now ships an `enabled.txt`; before, skipping that edit left you with stones and the workbench but no Evolve option. A `Palvolve : 1` line in `mods.txt` still works and sets the load order. Thanks to PhanFatGod for the log.
+- **The log now says why the Evolve option is missing from the wheel.** Each case that keeps it out (a wheel another mod changed, a part of Palvolve that failed to start, the wheel turned off) writes one line to `UE4SS.log`, and so does F2 when it is turned off. Found while helping PhanFatGod.
 
 ## [2.1.2] - 2026-10-10
 

@@ -202,6 +202,29 @@ local function placeTreeWeb()
         treeWebDocked and "docked" or "free", a.X0, a.Y0, a.X1, a.Y1, tostring(ok)))
 end
 
+-- The opacity last applied and the browser it was applied to. A rebuilt
+-- browser starts opaque, so the remembered value only counts for the same one.
+local browserShown = nil
+local browserShownOn = nil
+local function applyBrowserOpacity(opacity) treeWebBrowser:SetRenderOpacity(opacity) end
+--- Shows or holds back the browser's content without touching its visibility.
+local function setBrowserShown(shown)
+    if browserShown == shown and browserShownOn == treeWebBrowser then return end
+    if not (treeWebBrowser and treeWebBrowser:IsValid()) then
+        Log("[WARN] no browser to " .. (shown and "show" or "hold back"))
+        return
+    end
+    local ok, err = pcall(applyBrowserOpacity, shown and 1.0 or 0.0)
+    if ok then
+        browserShown, browserShownOn = shown, treeWebBrowser
+        Log(shown and "tree browser shown" or "tree browser held back until the page arrives")
+    else
+        Log("[ERROR] setting the tree browser opacity failed: " .. tostring(err))
+    end
+end
+
+local function loadTreePage() treeWebBrowser:LoadString(treeWebPage, TREE_ORIGIN) end
+
 --- Watches the address bar. Every control on the page is a link, so a click on
 --- a Pal, on the fold switch and on close all arrive here.
 local function startTreeWebWatcher(html, firstDelivery)
@@ -213,6 +236,17 @@ local function startTreeWebWatcher(html, firstDelivery)
     local myGen = treeWebGen
     local ticks = 0
     local delivered = not firstDelivery
+    local deliveredAt = 0       -- the tick the current delivery attempt began
+    local redeliveries = 0
+    local leftLogged = false
+    local loadFailLogged = false
+    -- Until the page has arrived the browser shows whatever it started on: a
+    -- blank panel or an error page about its start address. It is kept fully
+    -- transparent until then. Opacity, not visibility: a collapsed or hidden
+    -- widget is not painted, and the browser is only ticked while it is.
+    -- Set at every start, so a watcher stopped mid-hold never leaves the
+    -- next opening invisible.
+    setBrowserShown(not firstDelivery)
     GameLoop.start(120, function()
         if treeWebStop or myGen ~= treeWebGen
             or not (treeWebBrowser and treeWebBrowser:IsValid()) then
@@ -237,21 +271,50 @@ local function startTreeWebWatcher(html, firstDelivery)
             if pc2 and pc2:IsValid() then grabInput(pc2) end
         end
 
+        -- Every control on the page is a fragment of our own origin, so an
+        -- address anywhere else means the browser left the page: its own start
+        -- address finishing late, or an error page, which shows as a white panel
+        -- with a URL error. The page is held back and
+        -- offered again, a few times per open so a browser that keeps leaving
+        -- cannot turn this into a loop.
+        if delivered and url ~= "" and not url:find("palvolve.local", 1, true) then
+            if redeliveries < 3 then
+                redeliveries = redeliveries + 1
+                delivered = false
+                deliveredAt = ticks
+                setBrowserShown(false)
+                Log(string.format("the browser left the tree page for [%s], offering it again (%d of 3)",
+                    url, redeliveries))
+            elseif not leftLogged then
+                leftLogged = true
+                Log("[WARN] the browser keeps leaving the tree page - url [" .. url .. "]")
+            end
+        end
+
         -- Retried rather than sent once: how many frames UMG needs before the
         -- browser is real is not something the mod can ask about, so it keeps
         -- offering the page until the address says the page arrived.
         if not delivered then
+            local since = ticks - deliveredAt
             if url:find("palvolve.local", 1, true) then
                 delivered = true
-                Log("tree page delivered after " .. ticks .. " ticks")
-            elseif ticks <= 40 and (ticks <= 2 or ticks % 8 == 0) then
+                setBrowserShown(true)
+                Log("tree page delivered after " .. since .. " ticks")
+            elseif since <= 2 or (since <= 40 and since % 8 == 0) then
                 -- The page is the whole document, portraits included, so
                 -- offering it on every one of forty ticks meant handing the
                 -- browser megabytes for nothing. Twice quickly, then once a
                 -- second, which is still well inside what UMG needs.
-                pcall(function() treeWebBrowser:LoadString(treeWebPage, TREE_ORIGIN) end)
-            elseif ticks == 41 then
-                Log("the browser never took the tree page - url [" .. url .. "]")
+                local okLoad, errLoad = pcall(loadTreePage)
+                if not okLoad and not loadFailLogged then
+                    loadFailLogged = true
+                    Log("[ERROR] offering the tree page to the browser failed: " .. tostring(errLoad))
+                end
+            elseif since == 41 then
+                -- Shown anyway: whatever the browser holds beats a window that
+                -- stays invisible and still takes the clicks.
+                setBrowserShown(true)
+                Log("[WARN] the browser never took the tree page - url [" .. url .. "]")
             end
         end
 
@@ -698,6 +761,17 @@ local paldexPendingRowButton = nil -- that button itself, to find its row from
 -- the object list and resolves a full name per candidate, and the fast loop asks
 -- for it sixteen times a second.
 local paldexScreenSeen = nil
+-- The game menu the Palpedia screen lives in, found once per screen. Photo mode
+-- takes that menu down without touching the Palpedia's own visibility flag, so
+-- the screen keeps answering IsVisible() with yes while nothing of it is shown.
+-- The menu itself says it is gone: game menus sit in CommonUI layer stacks,
+-- where IsActivated() tells whether the menu is open.
+-- Keyed by screen address: { menu, name, state }. state is nil until the menu
+-- is seen up, then "up" or "down". Only a menu that was seen up counts when it
+-- goes down; one that never reported itself up would otherwise close the page
+-- the moment it opens.
+local paldexMenus = {}
+local paldexMenuCount = 0
 -- Which screen the "is our tab still in a live bar" question was last answered
 -- for, and how many slow passes have run since, so that answer is not recomputed
 -- from scratch on every pass.
@@ -726,6 +800,32 @@ local paldexTabsets = ObjTrack.follow(PALDEX_DIR .. "WBP_Paldex_tabset.WBP_Palde
     PALDEX_TABSET, { accept = builtForTheGame })
 
 local function readVisible(w) return w:IsVisible() end
+
+local activatableClass = nil
+--- The outermost activatable widget in a screen's chain of outers: the entry
+--- of the layer stack that the screen was built into. Every Palworld widget
+--- derives from CommonActivatableWidget, and the nested ones are never
+--- activated themselves, so only the outermost one carries the menu's state.
+local function outermostMenuUnsafe(w)
+    if not (activatableClass and activatableClass:IsValid()) then
+        activatableClass = ObjTrack.static("/Script/CommonUI.CommonActivatableWidget")
+    end
+    if not (activatableClass and activatableClass:IsValid()) then
+        return nil, "CommonActivatableWidget class not found"
+    end
+    local found = nil
+    if w:IsA(activatableClass) then found = w end
+    local o = w:GetOuter()
+    for _ = 1, 16 do
+        if not (o and o:IsValid()) then break end
+        if o:IsA(activatableClass) then found = o end
+        o = o:GetOuter()
+    end
+    if not found then return nil, "no activatable widget around the screen" end
+    return found, tostring(found:GetClass():GetFName():ToString())
+end
+
+local function readMenuUp(m) return m:IsActivated() and m:IsVisible() end
 local function readFullName(o) return tostring(o:GetFullName()) end
 local function readTabBar(tabset) return tabset.HorizontalBox_Tab end
 
@@ -1094,6 +1194,68 @@ function M.start()
     --- then stayed up over the world, and because "closed" never happened, the
     --- attempt counter never reset either - after eight tries the mod gave up
     --- and the tab was missing from every Palpedia afterwards.
+    --- False once the game menu the screen lives in has gone down after being
+    --- seen up. Photo mode closes that menu and leaves the screen's own flag on
+    --- Visible, so the screen's flag alone would keep the page up over the world.
+    local function menuStillUp(screen)
+        local addr = addrOf(screen)
+        local e = paldexMenus[addr]
+        if not e then
+            -- Screens are rebuilt per opening; the table only ever needs the
+            -- few that are alive, so it starts over instead of growing.
+            if paldexMenuCount >= 16 then
+                paldexMenus, paldexMenuCount = {}, 0
+            end
+            local okM, m, why = pcall(outermostMenuUnsafe, screen)
+            e = { menu = nil, name = "?", state = nil }
+            if okM and m then
+                e.menu, e.name = m, why
+                Log("the Palpedia sits in " .. why)
+            else
+                warnOnce("menuAround", "the menu around the Palpedia was not found, "
+                    .. "photo mode cannot close the page: " .. tostring(okM and why or m))
+            end
+            paldexMenus[addr] = e
+            paldexMenuCount = paldexMenuCount + 1
+        end
+        local m = e.menu
+        if not m then return true end
+        if not m:IsValid() then
+            -- The menu is gone. Forgotten, so the next pass looks for the one
+            -- the screen sits in now instead of asking a dead object forever.
+            paldexMenus[addr] = nil
+            paldexMenuCount = paldexMenuCount - 1
+            if e.state == nil then return true end
+            Log("the menu around the Palpedia is gone (" .. e.name .. ")")
+            return false
+        end
+        local okUp, isUp = pcall(readMenuUp, m)
+        if not okUp then
+            warnOnce("menuUp", "the menu around the Palpedia would not say whether it is up: "
+                .. tostring(isUp))
+            return true
+        end
+        local up = isUp == true
+        if up then
+            if e.state ~= "up" then
+                e.state = "up"
+                Log("the menu around the Palpedia is up (" .. e.name .. ")")
+            end
+            return true
+        end
+        if e.state == nil then
+            -- Never seen up: the screen's own flag decides.
+            warnOnce("menuNeverUp", "the menu around the Palpedia has not reported itself up ("
+                .. e.name .. "), closing follows the screen alone")
+            return true
+        end
+        if e.state ~= "down" then
+            e.state = "down"
+            Log("the menu around the Palpedia went down (" .. e.name .. ")")
+        end
+        return false
+    end
+
     local function paldexOnScreen()
         -- Asked sixteen times a second while the page is up, and the answer is
         -- the same object every time. Held on to, because the scan below walks
@@ -1101,7 +1263,7 @@ function M.start()
         if paldexScreenSeen and paldexScreenSeen:IsValid() then
             local stillShown = false
             pcall(function() stillShown = paldexScreenSeen:IsVisible() end)
-            if stillShown then return paldexScreenSeen end
+            if stillShown and menuStillUp(paldexScreenSeen) then return paldexScreenSeen end
         end
         -- The one that is showing, not the first one that exists. The game
         -- keeps more than one Palpedia alive - one of them inside its display
@@ -1113,7 +1275,7 @@ function M.start()
             local okShown, shown = pcall(readVisible, o)
             if not okShown then
                 warnOnce("screenVisible", "a Palpedia screen would not say whether it is shown: " .. tostring(shown))
-            elseif shown then
+            elseif shown and menuStillUp(o) then
                 paldexScreenSeen = o
                 return o
             end

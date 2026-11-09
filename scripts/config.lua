@@ -37,7 +37,7 @@ local Config = {
 
     -- Mod version, reported to connected clients by the host handshake. Keep in
     -- sync with Info.json (the release flow checks this).
-    modVersion = "2.1.2",
+    modVersion = "2.1.3",
 
     -- Unlock the catch-gated technologies (saddle, Pal gear) of the target species when a
     -- pal evolves, the same way capturing one would. Needs the native companion in
@@ -157,6 +157,10 @@ local Config = {
     -- that stopped deriving would export nothing and the mod would rebuild all
     -- of them anyway.
     prestigeAutoLink = true,
+
+    -- Local marker checks, in milliseconds. Longer intervals also delay
+    -- shimmer changes and muting after a summon or recall.
+    prestigeMarkerIntervalMs = 500,
 
     -- Fusion: two Pals become one stronger species. In a fight it lasts
     -- durationSeconds and costs a Fusion Shard; at the Fusion Altar it is
@@ -2560,6 +2564,7 @@ local USER_KEYS = {
     { path = "prestigeLevelStep", kind = "int", min = 0, max = 20 },
     { path = "prestigeEnabled", kind = "bool" },
     { path = "prestigeAutoLink", kind = "bool" },
+    { path = "prestigeMarkerIntervalMs", kind = "int", min = 500, max = 10000 },
     { path = "evolutionMode", kind = "enum", values = { "selected", "conditioned" } },
     { path = "conditionDisclosure", kind = "enum", values = { "exact", "partial", "hidden" } },
     { path = "eggFilter.enabled", kind = "bool" },

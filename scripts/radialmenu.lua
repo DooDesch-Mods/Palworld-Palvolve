@@ -43,6 +43,16 @@ local function Log(msg)
     print(string.format("[Palvolve] %s\n", msg))
 end
 
+-- Reasons the Evolve entry stayed out of a wheel, each logged once per
+-- session: the wheel is rebuilt on every open, and a wheel another mod changed
+-- fails the same way every time.
+local warnedReasons = {}
+local function warnOnce(key, msg)
+    if warnedReasons[key] then return end
+    warnedReasons[key] = true
+    Log("[WARN] [radial] " .. msg .. " - no Evolve entry in this wheel (logged once per session)")
+end
+
 local MENU_WBP = "/Game/Pal/Blueprint/UI/PlayerRadialMenu/WBP_PlayerRadialMenu.WBP_PlayerRadialMenu_C"
 local WHEEL_WBP = "/Game/Pal/Blueprint/UI/CommonWidget/RadialMenu/WBP_CommonRadialMenuBase.WBP_CommonRadialMenuBase_C"
 local CONTENT_WBP = "/Game/Pal/Blueprint/UI/PlayerRadialMenu/WBP_PlayerRadialMenu_MenuContent.WBP_PlayerRadialMenu_MenuContent_C"
@@ -300,12 +310,12 @@ end
 local function injectMainEntry(menu)
     local wheel = wheelOf(menu)
     if not wheel then
-        if Config.devMode then Log("[radial] wheel reference missing") end
+        warnOnce("wheel", "wheel reference missing on the action menu")
         return
     end
     local canvas = labelCanvasOf(wheel)
     if not canvas then
-        if Config.devMode then Log("[radial] menuCanvas missing") end
+        warnOnce("canvas", "menuCanvas missing on the wheel")
         return
     end
 
@@ -333,7 +343,11 @@ local function injectMainEntry(menu)
         Log(string.format("[radial] canvas census: %d children, %d labels, menuNum=%d",
             childCount, #labels, wheel.menuNum))
     end
-    if #labels == 0 then return end
+    if #labels == 0 then
+        warnOnce("labels", string.format("no vanilla labels on the wheel canvas (%d children, menuNum=%s)",
+            childCount, tostring(wheel.menuNum)))
+        return
+    end
 
     local vanillaCount = #labels
     -- grey out like Feed/Pet while no own pal with options is summoned; asked
@@ -356,11 +370,9 @@ local function injectMainEntry(menu)
     -- widgets from the canvas - everything is re-added below
     local okGrow, errGrow = pcall(function() wheel:RecalcMenuNum(newCount) end)
     if not (okGrow and wheel.menuNum == newCount) then
-        if Config.devMode then
-            Log(string.format("[radial] grow to %d failed (ok=%s menuNum=%d%s)",
-                newCount, tostring(okGrow), wheel.menuNum,
-                okGrow and "" or (" err=" .. tostring(errGrow))))
-        end
+        warnOnce("grow", string.format("grow to %d failed (ok=%s menuNum=%s%s)",
+            newCount, tostring(okGrow), tostring(wheel.menuNum),
+            okGrow and "" or (" err=" .. tostring(errGrow))))
         return
     end
 
@@ -377,7 +389,7 @@ local function injectMainEntry(menu)
         ourWidgetGreyed = false
     end
     if not ourWidget then
-        if Config.devMode then Log("[radial] label widget creation failed") end
+        warnOnce("label", "label widget creation failed")
         return
     end
     local relabel = toText(labelText())
@@ -740,8 +752,8 @@ local function injectEntry(menu)
             injectMainEntry(menu)
         end
     end)
-    if not okAll and Config.devMode then
-        Log("[radial] injectEntry error: " .. tostring(errAll))
+    if not okAll then
+        warnOnce("inject:" .. tostring(errAll), "injectEntry error: " .. tostring(errAll))
     end
 end
 
@@ -789,7 +801,10 @@ function RadialMenu._commitGameThread()
 end
 
 function RadialMenu.init(evolutionApi)
-    if not (Config.radialMenu == nil or Config.radialMenu) then return end
+    if not (Config.radialMenu == nil or Config.radialMenu) then
+        Log("radial menu off (radialMenu = false); no Evolve entry in the hold-4 wheel")
+        return
+    end
     api = evolutionApi
 
     -- normal-mode commit on our segment: opens the option submenu in the
@@ -1046,18 +1061,30 @@ function RadialMenu.init(evolutionApi)
     end)
 
     local registered = {}
+    -- A failed path is expected while the lazily loaded wheel class is not
+    -- in memory yet, so it is logged once per path at INFO, and the line
+    -- that it registered later follows. A path that never reports registered
+    -- is the one keeping the Evolve entry out of the wheel.
+    local failLogged = {}
     local function tryHooks()
         local allOk = true
         for _, h in ipairs(hooks) do
             if not registered[h.path] then
-                local ok
+                local ok, err
                 if h.post then
-                    ok = pcall(RegisterHook, h.path, h.fn, h.post)
+                    ok, err = pcall(RegisterHook, h.path, h.fn, h.post)
                 else
-                    ok = pcall(RegisterHook, h.path, h.fn)
+                    ok, err = pcall(RegisterHook, h.path, h.fn)
                 end
                 registered[h.path] = ok
                 allOk = allOk and ok
+                if not ok and not failLogged[h.path] then
+                    failLogged[h.path] = true
+                    Log("[radial] hook not registered yet, retried when the wheel loads: "
+                        .. h.path .. " (" .. tostring(err) .. ")")
+                elseif ok and failLogged[h.path] then
+                    Log("[radial] hook registered after retry: " .. h.path)
+                end
             end
         end
         return allOk

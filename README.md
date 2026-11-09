@@ -56,7 +56,7 @@ Download the release zip from [Nexus Mods](https://www.nexusmods.com/palworld/mo
 2. Copy `Mods\Palvolve` into `<Palworld>\Pal\Binaries\Win64\ue4ss\Mods\`.
 3. Copy `Mods\PalSchema\mods\Palvolve` into `<Palworld>\Pal\Binaries\Win64\ue4ss\Mods\PalSchema\mods\`.
 4. Copy `Pal\Content\Paks\LogicMods\Palvolve.pak` into `<Palworld>\Pal\Content\Paks\LogicMods\`. Create the folder if it does not exist. This file carries the Palpedia page and the Fusion Altar. Without it, that tab stays empty and the altar cannot be built.
-5. Add `Palvolve : 1` to `ue4ss\Mods\mods.txt` (above the Keybinds entry).
+5. Optional: add `Palvolve : 1` to `ue4ss\Mods\mods.txt` (above the Keybinds entry) to set the load order. Without it, UE4SS starts Palvolve through the `enabled.txt` in its folder.
 
 A Workshop UE4SS and a manual UE4SS in the same install load UE4SS twice and crash the game.
 
@@ -124,6 +124,8 @@ A leading `!` inverts a condition. `"!night"` requires anything except night. `"
 
 Everything else (pairs, levels, costs, egg filter, timings) lives in `scripts\config.lua`.
 
+Set `prestigeMarkerIntervalMs = 2000` in your local `config_user.lua` to check Prestige markers every two seconds. The default is 500 ms; the range is 500-10000 ms. Longer intervals delay shimmer changes and sound muting after a summon or recall. Each player sets this locally, including on servers.
+
 The egg filter starts off. Switch it on and eggs of evolved forms hatch base forms. [EGG-FILTER.md](EGG-FILTER.md) has the full walkthrough and diagrams.
 
 ## Uninstalling
@@ -143,7 +145,7 @@ Close the game and clean the save at **[palvolve.doodesch.de/save-cleaner](https
 Update to 1.5.3 or newer. Palworld spells 42 of its Pal ids two ways. That could stop one species from matching the tree while the rest still worked. HenryFrost found it with a Lamball that refused to evolve while its Lucky counterpart worked. If it still happens on 1.5.3, move Palvolve up in the in-game Mod Management list. Load order lets another mod remove Palvolve's evolutions for one species without showing an error.
 
 **No "Evolve" option in the wheel, even though the workbench and stones work?**
-UE4SS is not loading Palvolve. PalSchema supplies the workbench; UE4SS supplies the Evolve button. Check that UE4SS Experimental (Palworld) is installed and Palvolve is enabled. Relaunch if the button vanishes mid-session.
+UE4SS is not loading Palvolve. PalSchema supplies the workbench; UE4SS supplies the Evolve button. Check that UE4SS Experimental (Palworld) is installed and Palvolve is enabled. On a manual install, `ue4ss\Mods\Palvolve\` needs `enabled.txt` or a `Palvolve : 1` line in `mods.txt`; `UE4SS.log` then shows `[Palvolve] loaded`. Relaunch if the button vanishes mid-session.
 
 **The workbench will not unlock at level 10, or will not stay unlocked?**
 UE4SS or PalSchema is inactive. If the log has no UE4SS output at all, that confirms it. On the Workshop, check the order under **Options > Mod Management** first: UE4SS, then PalSchema, then Palvolve. Since 1.9.4 Palvolve writes a line into `UE4SS.log` when the PalSchema half did not arrive, naming what will be missing.

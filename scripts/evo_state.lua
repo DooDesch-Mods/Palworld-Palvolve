@@ -9,6 +9,7 @@ local Prestige = require("prestige")
 local Role = require("role")
 local WazaInherit = require("wazainherit")
 local EvoUtil = require("evo_util")
+local CompatAltermatic = require("compat_altermatic")
 
 local EvoState = {}
 
@@ -164,10 +165,60 @@ end
 local function forgetUnlocksFor(param)
     pcall(AutoUnlock.forget, param)
 end
+--- The game copies MaxFullStomach from the species row once, when the Pal is
+--- created, and never recomputes it, so without this an evolved Pal keeps the
+--- old form's hunger capacity until a box round trip rebuilds it. There is no
+--- setter, so the field is written on
+--- both copies, like CharacterID. The current fill is clamped to the new
+--- maximum, which matters when the swap goes to a smaller stomach.
+local stomachTable = nil
+local function maxStomachFor(characterId)
+    if stomachTable == nil then
+        local okLoad, loaded = pcall(require, "stomach_static")
+        if okLoad and type(loaded) == "table" then
+            -- keyed lowercase: an FName reports whichever spelling registered
+            -- first, and the game spells some species and the BOSS_ prefix two ways
+            stomachTable = {}
+            for id, value in pairs(loaded) do stomachTable[string.lower(id)] = value end
+        else
+            Log("[WARN] stomach_static unavailable, max hunger is not updated on evolution: " .. tostring(loaded))
+            stomachTable = false
+        end
+    end
+    if not stomachTable then return nil end
+    local id = string.lower(tostring(characterId))
+    return stomachTable[id] or stomachTable[(id:gsub("^boss_", ""))]
+end
+local function writeMaxStomachUnsafe(param, maxStomach)
+    for _, save in ipairs({ param.SaveParameter, param.SaveParameterMirror }) do
+        save.MaxFullStomach = maxStomach
+        local current = tonumber(save.FullStomach)
+        if current and current > maxStomach then save.FullStomach = maxStomach end
+    end
+end
+local function syncMaxStomach(param, characterId)
+    local maxStomach = maxStomachFor(characterId)
+    if not maxStomach then
+        Log("[WARN] no MaxFullStomach for '" .. tostring(characterId) .. "', max hunger keeps the old form's value")
+        return
+    end
+    local okRead, before = pcall(function() return param.SaveParameter.MaxFullStomach end)
+    local okWrite, err = pcall(writeMaxStomachUnsafe, param, maxStomach)
+    if not okWrite then
+        Log("[WARN] max hunger write failed for '" .. tostring(characterId) .. "': " .. tostring(err))
+        return
+    end
+    Log(string.format("max hunger set to %s for '%s' (was %s)", tostring(maxStomach),
+        tostring(characterId), okRead and tostring(before) or "unreadable"))
+end
 local function writeSpeciesUnsafe(param, characterId)
     forgetUnlocksFor(param)
     param.SaveParameter.CharacterID = FName(characterId)
     param.SaveParameterMirror.CharacterID = FName(characterId)
+    syncMaxStomach(param, characterId)
+    -- Altermatic keys its recolor by instance id only; drop the old species'
+    -- entry before the respawn so it does not land on the new body.
+    CompatAltermatic.onSpeciesChanged(param, characterId)
 end
 local function copyGuidUnsafe(guid)
     return { A = guid.A, B = guid.B, C = guid.C, D = guid.D }
@@ -408,6 +459,7 @@ EvoState.prestigeStageOf = prestigeStageOf
 EvoState.requiredLevelFor = requiredLevelFor
 EvoState.forgetUnlocksFor = forgetUnlocksFor
 EvoState.writeSpeciesUnsafe = writeSpeciesUnsafe
+EvoState.syncMaxStomach = syncMaxStomach
 EvoState.copyGuidUnsafe = copyGuidUnsafe
 EvoState.skinNameUnsafe = skinNameUnsafe
 EvoState.readSkinName = readSkinName

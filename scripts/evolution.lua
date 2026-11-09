@@ -2037,6 +2037,14 @@ local function handleEvolveRequest(playerCtx, fromId, toId, exactPairIndex, pres
     if id ~= fromId then
 return false, I18n.msg("selectionOutdated", EvoNames.palDisplayName(id), EvoNames.palDisplayName(fromId))
     end
+    -- The wheel, the quick path and auto-evolve already hide a prestige at the
+    -- top rank; the host repeats the check, because the rank is only clamped
+    -- there and a request that slips through still takes the stone and levels.
+    -- handleByIndex lands here as well.
+    if prestigeRequest and EvoState.prestigeAtMax(param) then
+        Log(string.format("prestige refused: pal '%s' is already at the last prestige rank", id))
+        return false, I18n.msg("prestigeAtMax", EvoNames.palDisplayName(id))
+    end
     -- The pair is re-resolved from the mod config, never taken from the
     -- request. Several same-target variants may exist (either/or conditions):
     -- the first candidate that passes every gate wins, so a stale client pick
@@ -2683,10 +2691,18 @@ function Evolution.rollbackLast(playerCtx)
                     restoreFailed = true
                     break
                 end
-                pcall(function()
+                local idWritten, idWriteErr = pcall(function()
                     p.SaveParameter.CharacterID = FName(last.from)
                     p.SaveParameterMirror.CharacterID = FName(last.from)
                 end)
+                if idWritten then
+                    -- rollback writes CharacterID itself instead of going through
+                    -- writeSpeciesUnsafe, so it repeats that function's follow-ups
+                    EvoState.syncMaxStomach(p, last.from)
+                    require("compat_altermatic").onSpeciesChanged(p, last.from)
+                else
+                    Log("[ERROR] rollback CharacterID write failed: " .. tostring(idWriteErr))
+                end
                 local idNow = ""
                 pcall(function() idNow = p:GetCharacterID():ToString() end)
                 if Config.canonicalId(idNow) == Config.canonicalId(last.from) then
@@ -2899,6 +2915,9 @@ function Evolution.init()
 
     -- keybinds are player input - meaningless on a dedicated server
     local confirmKeyBound = false
+    if not Role.isDedicated() and Config.confirmKeyEnabled == false then
+        Log("confirm key off (confirmKeyEnabled = false); evolve through the hold-4 wheel")
+    end
     if not Role.isDedicated() and Config.confirmKeyEnabled ~= false then
         -- config.lua only lets confirmKey through as one of a fixed list, so a
         -- miss here means UE4SS spells that name differently or offers no key
