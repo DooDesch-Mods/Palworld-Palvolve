@@ -2051,11 +2051,20 @@ return false, I18n.msg("selectionOutdated", EvoNames.palDisplayName(id), EvoName
     -- still lands on whichever variant currently holds.
     local pairList = nil
     if prestigeRequest then
-        -- An enabled evolution or funchain is an absolute precedence gate. Its
-        -- level or conditions may be unmet, but prestige cannot bypass it. An
-        -- adaptation is no such gate: it is the same Pal in another element.
-        if Config.hasProgressPair(id) then return false, I18n.msg("optionUnavailable") end
-        pairList = Prestige.forSpecies(Config, id)
+        -- An enabled evolution or funchain keeps the automatic prestige away:
+        -- its level or conditions may be unmet, but the chain-end rule cannot
+        -- bypass it. A prestige link the author drew on this Pal by hand still
+        -- holds. An adaptation is no gate at all: it is the same Pal in another
+        -- element.
+        if Config.hasProgressPair(id) then
+            pairList = Prestige.authoredForSpecies(Config, id)
+            if #pairList == 0 then
+                Log(string.format("prestige refused: pal '%s' can still evolve and has no authored prestige link", id))
+                return false, I18n.msg("optionUnavailable")
+            end
+        else
+            pairList = Prestige.forSpecies(Config, id)
+        end
     else
         pairList = Config.findPairs(id)
     end
@@ -2170,10 +2179,16 @@ local function handleByIndex(playerCtx, pairIndex, prestigeRequest)
         -- Global prestige indices address the host's complete target list.
         -- The source check below prevents an index for another Pal from being
         -- replayed against the one the requester currently has summoned.
-        if Config.hasProgressPair(baseId) then return false, I18n.msg("optionUnavailable") end
         local targets = Prestige.targets(Config)
         pair = targets and targets[numericIndex]
         if pair and pair.from ~= baseId then pair = nil end
+        -- A Pal that can still evolve takes only a prestige link its author
+        -- drew by hand; handleEvolveRequest repeats this gate.
+        if pair and Config.hasProgressPair(baseId) and not Prestige.isAuthored(pair) then
+            Log(string.format("prestige refused: pal '%s' can still evolve, target %d is automatic",
+                baseId, numericIndex))
+            pair = nil
+        end
     else
         local pairList = Config.findPairs(baseId)
         pair = pairList and pairList[numericIndex]

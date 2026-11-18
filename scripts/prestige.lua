@@ -74,7 +74,7 @@ local function deriveConnections(map, shippedMap, minimum, autoLink)
     if not roster then return nil, rosterErr end
 
     local incoming, outgoing, firstFromOrder = {}, {}, {}
-    local authoredByFrom = {}
+    local authoredByFrom, authoredInOrder = {}, {}
     for order, pair in ipairs(map or {}) do
         if type(pair) == "table" and type(pair.from) == "string"
             and type(pair.to) == "string" then
@@ -82,6 +82,7 @@ local function deriveConnections(map, shippedMap, minimum, autoLink)
                 local authored = authoredByFrom[pair.from]
                 if not authored then authored = {}; authoredByFrom[pair.from] = authored end
                 authored[#authored + 1] = pair
+                authoredInOrder[#authoredInOrder + 1] = pair
             elseif pair.enabled == true then
                 -- An adaptation is the same Pal in another element, not a step
                 -- forward, so it does not make its source unfinished. A Pal
@@ -170,13 +171,16 @@ local function deriveConnections(map, shippedMap, minimum, autoLink)
     -- a row nothing derived had nowhere to attach. Someone who writes an
     -- explicit prestige pair means it, and silently ignoring it is the worst of
     -- the three possible behaviours.
+    --
+    -- These rows are appended in map order, never by walking authoredByFrom:
+    -- Lua seeds its string hash per process, so pairs() order differs between
+    -- host and client, and the position here is the prestigeIndex a client
+    -- sends over the net channel.
     local seen = {}
     for _, pair in ipairs(targets) do seen[pair] = true end
-    for _, authored in pairs(authoredByFrom) do
-        for _, pair in ipairs(authored) do
-            if pair.enabled == true and not seen[pair] then
-                targets[#targets + 1] = pair
-            end
+    for _, pair in ipairs(authoredInOrder) do
+        if pair.enabled == true and not seen[pair] then
+            targets[#targets + 1] = pair
         end
     end
     return targets
@@ -217,6 +221,26 @@ end
 function Prestige.forSpecies(config, characterId)
     local _, byFrom, err = Prestige.targets(config)
     return byFrom[characterId] or {}, err
+end
+
+--- Whether a prestige connection comes from the config's author rather than
+--- from the chain-end rule. Rows in Config.map are always authored (the editor
+--- omits untouched derived rows from the export, and never writes `derived`);
+--- rows the rule builds at run time carry `derived = true`.
+function Prestige.isAuthored(pair)
+    return type(pair) == "table" and pair.category == "prestige" and pair.derived ~= true
+end
+
+--- The authored prestige connections of one species. A Pal that can still
+--- evolve is offered only these: the chain-end rule does not apply to it, but a
+--- prestige link the author drew on it by hand is the author's explicit word.
+function Prestige.authoredForSpecies(config, characterId)
+    local list, err = Prestige.forSpecies(config, characterId)
+    local authored = {}
+    for _, pair in ipairs(list) do
+        if Prestige.isAuthored(pair) then authored[#authored + 1] = pair end
+    end
+    return authored, err
 end
 
 function Prestige.invalidate()

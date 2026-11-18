@@ -119,17 +119,24 @@ local function pairIndexFor(pair, position)
 end
 --- The pairs a Pal is offered, and whether that offer is prestige alone.
 ---
---- A Pal that can still evolve is offered its ordinary pairs and nothing else,
---- even while their level or conditions are unmet: prestige is no shortcut
---- around a step that is still ahead. One whose only connections are
---- adaptations is at the end of its line, since an adaptation is the same Pal
---- in another element, so it is offered its adaptations and its prestige side
---- by side. The second value is true only when prestige is all there is; a
---- mixed list is marked per pair instead.
+--- A Pal that can still evolve gets no automatic prestige, even while the
+--- level or conditions of its next step are unmet: the chain-end rule is no
+--- shortcut around a step that is still ahead. A prestige link the author drew
+--- on that Pal by hand is offered beside its evolutions, because the author
+--- placed it there on purpose (a tree that sends every family back to one root
+--- Pal). One whose only connections are adaptations is at the end of its line,
+--- since an adaptation is the same Pal in another element, so it is offered its
+--- adaptations and its prestige side by side. The second value is true only
+--- when prestige is all there is; a mixed list is marked per pair instead.
 local function optionPairsFor(characterId, param)
     local ordinary = Config.findPairs(characterId)
-    if Config.hasProgressPair(characterId) then return ordinary, false end
-    local prestige, err = Prestige.forSpecies(Config, characterId)
+    local prestige, err
+    if Config.hasProgressPair(characterId) then
+        prestige, err = Prestige.authoredForSpecies(Config, characterId)
+        if #prestige == 0 then return ordinary, false, err end
+    else
+        prestige, err = Prestige.forSpecies(Config, characterId)
+    end
     if #ordinary == 0 then return prestige, true, err end
     local offered = {}
     for _, pair in ipairs(ordinary) do offered[#offered + 1] = pair end
