@@ -476,6 +476,10 @@ local function performEvolutionNow(p)
         Log("Left the world mid-evolution - sequence abandoned")
     end
 
+    -- Name the old form's heat source on the trainer before the actor goes
+    -- away; the teardown below skips the recall that would remove it.
+    local oldHeatKey = EvoUtil.heatSourceKeyOf(actor)
+
     local recallStrategies = {
         { name = "DirectTeardown", fn = function()
             if mgr and mgr:IsValid() then mgr:DespawnCharacterByHandle(handle, nil) end
@@ -539,6 +543,11 @@ local function performEvolutionNow(p)
         if not handlesAlive() then
             abandonOnTeardown()
             return
+        end
+        -- Headless, the old actor is still out here and keeps its heat source
+        -- until the client's recall; the MP watcher checks it after that.
+        if not headless then
+            EvoUtil.dropHeatSource(playerCtx, oldHeatKey, pair.from .. " -> despawned")
         end
         -- A fusion names its target itself: which of the two Pals was an
         -- Alpha decides the fused form, not only the summoned one.
@@ -831,6 +840,7 @@ local function performEvolutionNow(p)
                     pcall(function() out = holder:TryGetSpawnedOtomo() end)
                     if not (out and out:IsValid()) then
                         pcall(function() mgr:DespawnCharacterByHandle(handle, nil) end)
+                        EvoUtil.dropHeatSource(playerCtx, oldHeatKey, pair.from .. " -> recalled (server)")
                         pcall(function() holder:InactivateCurrentOtomo() end)
                         pcall(function() pcSender:SetOtomoSlot(savedSlot) end)
                         pcall(function() holder:SpawnOtomoByLoad(savedSlot) end)

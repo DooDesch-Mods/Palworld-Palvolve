@@ -198,6 +198,87 @@ local function disclosedConditions(pair, exactText)
     return Conditions.describe(pair, Config.conditionDisclosure) or exactText
 end
 
+-- A summoned Pal warms or cools its trainer through one entry in the trainer's
+-- PalBodyTemperatureComponent.HeatSourceInfoMap, keyed by the Pal actor's name
+-- (Foxparks "BP_Kitsunebi_C_<n>" day=1 night=1, Pengullet "BP_Penguin_C_<n>" -1/-1).
+-- The vanilla recall removes that entry. The evolution's direct teardown does
+-- not, so the old form's entry would stay for the rest of the session and add up
+-- across evolutions. The new actor gets a new name and thus its own entry.
+local function heatSourceKeyOf(actor)
+    local key = nil
+    local ok, err = pcall(function()
+        if actor and actor:IsValid() then key = actor:GetFName():ToString() end
+    end)
+    if not ok then
+        Log("[heat] [WARN] could not read the summoned Pal's actor name: " .. tostring(err))
+    end
+    return key
+end
+
+local function readHeatSource(bt, key)
+    local found, day, night = false, nil, nil
+    local ok, err = pcall(function()
+        bt.HeatSourceInfoMap:ForEach(function(k, v)
+            if k:get():ToString() == key then
+                local info = v:get()
+                found, day, night = true, info.HeatLevel_DayTime, info.HeatLevel_NightTime
+            end
+        end)
+    end)
+    if not ok then return nil, tostring(err) end
+    return found, day, night
+end
+
+-- Removes the heat source the old form left on its trainer. Runs on the world
+-- authority, where the map lives; the resulting temperature replicates.
+-- Returns true when the entry is gone afterwards (or was never there).
+local function dropHeatSource(playerCtx, key, why)
+    if not key then
+        Log("[heat] [WARN] no actor name captured, old heat source not checked (" .. tostring(why) .. ")")
+        return false
+    end
+    local pawn = playerCtx and playerCtx.pawn
+    if not (pawn and pawn:IsValid()) then
+        pcall(function()
+            local pc = playerCtx and playerCtx.pc
+            if pc and pc:IsValid() then pawn = pc.Pawn end
+        end)
+    end
+    if not (pawn and pawn:IsValid()) then
+        Log("[heat] [WARN] no player pawn, heat source " .. key .. " not checked (" .. tostring(why) .. ")")
+        return false
+    end
+    local bt = nil
+    pcall(function() bt = pawn.PalBodyTemperature end)
+    if not (bt and bt:IsValid()) then
+        Log("[heat] [WARN] player has no body temperature component, heat source " .. key .. " not checked")
+        return false
+    end
+    local found, day, night = readHeatSource(bt, key)
+    if found == false then
+        Log("[heat] no heat source left by " .. key .. " (" .. tostring(why) .. ")")
+        return true
+    end
+    if found == nil then
+        Log("[heat] [WARN] heat source map unreadable (" .. tostring(day) .. "), removing " .. key .. " blind")
+    end
+    local okRemove, errRemove = pcall(function() bt:RemoveHeatSource(FName(key)) end)
+    if not okRemove then
+        Log("[heat] [ERROR] RemoveHeatSource(" .. key .. ") failed: " .. tostring(errRemove))
+        return false
+    end
+    local still = readHeatSource(bt, key)
+    if still == true then
+        Log("[heat] [ERROR] heat source " .. key .. " still on the player after RemoveHeatSource")
+        return false
+    end
+    Log(string.format("[heat] removed old form's heat source %s (day=%s night=%s, %s)",
+        key, tostring(day), tostring(night), tostring(why)))
+    return true
+end
+
+EvoUtil.heatSourceKeyOf = heatSourceKeyOf
+EvoUtil.dropHeatSource = dropHeatSource
 EvoUtil.staticCapsuleHalf = staticCapsuleHalf
 EvoUtil.palUtility = palUtility
 EvoUtil.isOwned = isOwned

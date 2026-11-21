@@ -5,6 +5,7 @@
 ### Fixed
 
 - **A prestige link you draw in the editor now shows up in the wheel even when the Pal can still evolve.** Before, the wheel only offered evolutions for that Pal and ignored the link. Now Prestige sits beside the evolutions. Automatic prestige links still appear only at the end of an evolution line. Thanks to Valdacil for the report.
+- **Evolving a summoned fire or ice Pal no longer leaves you warmed or chilled.** Before, the old form's warmth or chill stayed after the evolution, even after a recall, and added up with each evolution until you went back to the title screen. Now only the new form's effect is on you. Thanks to Burro Cansado, MrMutt and Valdacil for the reports.
 
 ## [2.1.3] - 2026-11-09
 
