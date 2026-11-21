@@ -423,9 +423,9 @@ local function reportBonusSlot(playerCtx, ok, result, what)
         end
     end
 end
---- playerCtx is a PARAMETER, not an upvalue. It used to read an undeclared
---- global here, so PalSlots.grantPrestige always got nil and the fourth move
---- slot a prestige is supposed to hand out was never granted to anybody.
+--- playerCtx is a PARAMETER, not an upvalue: PalSlots.grantPrestige needs the
+--- requester to hand out the fourth move slot a prestige grants, and an
+--- undeclared global here would always read nil.
 local function applyPrestigeMutation(param, targetId, playerCtx)
     local okSpecies, speciesErr = pcall(writeSpeciesUnsafe, param, targetId)
     local idNow = nil

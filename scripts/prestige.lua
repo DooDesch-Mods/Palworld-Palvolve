@@ -166,11 +166,10 @@ local function deriveConnections(map, shippedMap, minimum, autoLink)
         end
     end
 
-    -- An authored prestige row whose `from` is not a chain end used to be
-    -- dropped without a word: the loop above only ever visits DERIVED rows, so
-    -- a row nothing derived had nowhere to attach. Someone who writes an
-    -- explicit prestige pair means it, and silently ignoring it is the worst of
-    -- the three possible behaviours.
+    -- The loop above only visits DERIVED rows, so an authored prestige row
+    -- whose `from` is not a chain end has nowhere to attach there. It is
+    -- appended here instead: someone who writes an explicit prestige pair means
+    -- it, and dropping it without a word would hide the author's intent.
     --
     -- These rows are appended in map order, never by walking authoredByFrom:
     -- Lua seeds its string hash per process, so pairs() order differs between

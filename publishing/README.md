@@ -71,7 +71,7 @@ the user.
 
 - Thunderstore: NOT published. PalSchema is missing from the Palworld community
   (checked 17.07.2026) and unreal_shimloader virtualizes its own RE-UE4SS,
-  which is unverified against Palworld 1.0. The Thunderstore path in the
+  which is untested on Palworld 1.0. The Thunderstore path in the
   workflow stays dormant (checkbox off); revisit only if PalSchema appears on
   Thunderstore AND a shimloader test profile proves compatibility.
 - CurseForge: NOT published for the same reason - PalSchema is not hosted

@@ -13,7 +13,7 @@
 
 ## Features
 
-- The default tree starts with **156 transformations**. It has 62 evolution lines like Pengullet to Penking and 87 element adaptations like Pengullet to Pengullet Lux. Seven fun chains include Sweepa to Snugloo.
+- The default tree starts with **156 transformations**. It has 62 evolution lines like Pengullet to Penking and 87 element adaptations like Pengullet to Pengullet Lux, plus seven fun chains such as Sweepa to Snugloo.
 - Hold 4, then pick Evolve. The evolution sequence plays in front of you. It ends in a finale built from the target's elements. F2 skips the wheel after you set `confirmKeyEnabled = true`.
 - Pals keep level, nickname, gender, passives, IVs, souls, condenser rank and every learned move. That includes moves the new form could never learn on its own. Alphas stay Alpha. Luckys stay Lucky.
 - At the end of an evolution line, a Pal can **prestige**. Level returns to 1. The Pal keeps its nickname, passives, IVs, souls and every learned move. Each prestige adds one Prestige rank, up to 10. The prestige sequence grows with each rank. The Pal shimmers afterwards.
@@ -214,11 +214,11 @@ tell me and I will correct the entry.
 
 | Mod | Symptom | Reported | Status |
 |---|---|---|---|
-| Dynamic Pals | Not fully compatible, evolve options can stay greyed out | 2026-07-20, Nexus | Open, unverified |
-| PalMagic | Not fully compatible, evolve options can stay greyed out | 2026-07-20, Nexus | Open, unverified |
+| Dynamic Pals | Not fully compatible, evolve options can stay greyed out | 2026-07-20, Nexus | Open, unconfirmed |
+| PalMagic | Not fully compatible, evolve options can stay greyed out | 2026-07-20, Nexus | Open, unconfirmed |
 | Existing Pal Editor | Evolve entry missing from the wheel | 2026-07-20, Nexus | Likely fixed in 1.3.3 |
 | Technology Tree Overhaul | Evolution stones missing from the Pal Alchemy Workbench | 2026-08-25, Discord (Shas Hakomairos) | Fixed in 1.9.0 |
-| Final Boss Unlock | The game crashes when you summon one of its pals and press 4 | 2026-08, Steam comments (StrongFish91) | Open, unverified |
+| Final Boss Unlock | The game crashes when you summon one of its Pals and press 4 | 2026-08, Steam comments (StrongFish91) | Open, unconfirmed |
 
 The Existing Pal Editor report matched a Palvolve bug of its own: the wheel could lose its
 Evolve entry for a whole session when part of the wheel loaded late. That was fixed in

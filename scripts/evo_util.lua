@@ -239,19 +239,26 @@ local function dropHeatSource(playerCtx, key, why)
     end
     local pawn = playerCtx and playerCtx.pawn
     if not (pawn and pawn:IsValid()) then
-        pcall(function()
+        local okPawn, errPawn = pcall(function()
             local pc = playerCtx and playerCtx.pc
             if pc and pc:IsValid() then pawn = pc.Pawn end
         end)
+        if not okPawn then
+            Log("[heat] [WARN] could not read the player controller's pawn: " .. tostring(errPawn))
+        end
     end
     if not (pawn and pawn:IsValid()) then
         Log("[heat] [WARN] no player pawn, heat source " .. key .. " not checked (" .. tostring(why) .. ")")
         return false
     end
     local bt = nil
-    pcall(function() bt = pawn.PalBodyTemperature end)
+    local okBt, errBt = pcall(function() bt = pawn.PalBodyTemperature end)
+    if not okBt then
+        Log("[heat] [WARN] could not read the player's body temperature component: " .. tostring(errBt))
+    end
     if not (bt and bt:IsValid()) then
-        Log("[heat] [WARN] player has no body temperature component, heat source " .. key .. " not checked")
+        Log("[heat] [WARN] player has no body temperature component, heat source " .. key
+            .. " not checked (" .. tostring(why) .. ")")
         return false
     end
     local found, day, night = readHeatSource(bt, key)
@@ -260,17 +267,23 @@ local function dropHeatSource(playerCtx, key, why)
         return true
     end
     if found == nil then
+        -- readHeatSource returns the error text in its second value here
         Log("[heat] [WARN] heat source map unreadable (" .. tostring(day) .. "), removing " .. key .. " blind")
+        day = nil
     end
     local okRemove, errRemove = pcall(function() bt:RemoveHeatSource(FName(key)) end)
     if not okRemove then
         Log("[heat] [ERROR] RemoveHeatSource(" .. key .. ") failed: " .. tostring(errRemove))
         return false
     end
-    local still = readHeatSource(bt, key)
+    local still, stillErr = readHeatSource(bt, key)
     if still == true then
         Log("[heat] [ERROR] heat source " .. key .. " still on the player after RemoveHeatSource")
         return false
+    end
+    if still == nil then
+        Log("[heat] [WARN] heat source map unreadable after RemoveHeatSource(" .. key .. "): "
+            .. tostring(stillErr))
     end
     Log(string.format("[heat] removed old form's heat source %s (day=%s night=%s, %s)",
         key, tostring(day), tostring(night), tostring(why)))
