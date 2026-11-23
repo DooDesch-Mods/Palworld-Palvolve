@@ -18,6 +18,7 @@ how the bindings reach `scripts/evolution.lua`:
 PalvolveNative_Version()                                                -- string
 PalvolveNative_GetCaptureRecord(characterId, uid?, playerStateName?)    -- count, flagSet, message
 PalvolveNative_UnlockCaptureRecord(characterId, uid?, playerStateName?) -- ok, message
+PalvolveNative_RecordCapture(characterId, uid?, playerStateName?)       -- ok, message, countBefore, countAfter
 PalvolveNative_SetWorkSuitability(palAddress, workType, rank)           -- ok, message
 PalvolveNative_ClearWorkSuitability(palAddress)                         -- ok, message
 PalvolveNative_ScanWorkCache(palAddress)                                -- ok, message
@@ -25,6 +26,11 @@ PalvolveNative_TeachMasteredWaza(param, "id,id")                        -- ok, a
 PalvolveNative_IsDedicatedServer()                                      -- bool
 PalvolveNative_Console(message)                                         -- writes to the server console
 ```
+
+`PalvolveNative_UnlockCaptureRecord` only registers a species (count 0 to 1, Paldeck flag) and leaves
+a registered one alone. `PalvolveNative_RecordCapture` adds one to the capture count on every call and
+sets the flag if it is missing; Palvolve calls it once per evolution, adaptation and altar fusion
+while `countAsCapture` is on.
 
 `PalvolveNative_IsDedicatedServer` reads the role from the executable name. Asking the engine is
 just as certain but only answers once a world exists, and probing for one during startup killed

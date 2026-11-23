@@ -25,6 +25,46 @@ EvoPresent.nativeMissingLogged = false
 -- Keyed by player, not a single flag: on a dedicated server one shared flag would let the
 -- first player to hit a failure consume the notice for everyone else.
 local techUnlockNoticeSent = {}
+
+-- Naming the PlayerState lets the native side read the uid off the authority's own object
+-- rather than trust the replicated value this process happened to see. Both are passed:
+-- the native side prefers the state and falls back to the uid.
+local function recordOwner(playerCtx)
+    local uid = ""
+    local okUid, errUid = pcall(function()
+        if playerCtx and not EvoUtil.isZeroGuid(playerCtx.playerUId) then
+            uid = EvoUtil.guidString(playerCtx.playerUId)
+        end
+    end)
+    if not okUid then Log("[WARN] capture record: player uid unreadable: " .. tostring(errUid)) end
+
+    local stateName = ""
+    local okState, errState = pcall(function()
+        local ps = playerCtx and playerCtx.playerState
+        if ps and ps:IsValid() then stateName = ps:GetFName():ToString() end
+    end)
+    if not okState then Log("[WARN] capture record: player state unreadable: " .. tostring(errState)) end
+    return uid, stateName
+end
+
+-- A failed record write costs the player one line per session; without it the failure only
+-- ever reaches the server log.
+local function noticeRecordFailure(playerCtx, uid, msg)
+    -- Species that share a Palpedia slot with their base (Gumoss Botan) have no own
+    -- EPalTribeID, so the game keeps no capture record for them and there are no
+    -- catch-gated recipes to unlock. Nothing is wrong there, so the player is not asked
+    -- to report it - unlike a missing enum, which breaks every species and does count
+    -- as a failure. The native side distinguishes the two in its message.
+    local noRecordSlot = type(msg) == "string"
+        and msg:find("no EPalTribeID entry", 1, true) ~= nil
+    if noRecordSlot then return end
+    local noticeKey = uid ~= "" and uid or "unresolved"
+    if techUnlockNoticeSent[noticeKey] then return end
+    techUnlockNoticeSent[noticeKey] = true
+    local okChat, errChat = pcall(function() Role.chat(playerCtx, I18n.msg("techUnlockFailed"), "reply") end)
+    if not okChat then Log("[WARN] capture record failure notice not sent: " .. tostring(errChat)) end
+end
+
 local function unlockCatchTech(targetId, playerCtx)
     if not Config.unlockCatchTech then return end
 
@@ -37,22 +77,7 @@ local function unlockCatchTech(targetId, playerCtx)
         return
     end
 
-    local uid = ""
-    pcall(function()
-        if playerCtx and not EvoUtil.isZeroGuid(playerCtx.playerUId) then
-            uid = EvoUtil.guidString(playerCtx.playerUId)
-        end
-    end)
-
-    -- Naming the PlayerState lets the native side read the uid off the authority's own object
-    -- rather than trust the replicated value this process happened to see. Both are passed:
-    -- the native side prefers the state and falls back to the uid.
-    local stateName = ""
-    pcall(function()
-        local ps = playerCtx and playerCtx.playerState
-        if ps and ps:IsValid() then stateName = ps:GetFName():ToString() end
-    end)
-
+    local uid, stateName = recordOwner(playerCtx)
     local called, ok, msg = pcall(PalvolveNative_UnlockCaptureRecord, targetId, uid, stateName)
     if not called then
         Log(string.format("Catch-tech unlock errored for %s: %s", tostring(targetId), tostring(ok)))
@@ -60,20 +85,45 @@ local function unlockCatchTech(targetId, playerCtx)
         Log(string.format("Catch-tech unlocked for %s (%s)", tostring(targetId), tostring(msg)))
     else
         Log(string.format("Catch-tech unlock skipped for %s: %s", tostring(targetId), tostring(msg)))
-        -- Species that share a Palpedia slot with their base (Gumoss Botan) have no own
-        -- EPalTribeID, so the game keeps no capture record for them and there are no
-        -- catch-gated recipes to unlock. Nothing is wrong there, so the player is not asked
-        -- to report it - unlike a missing enum, which breaks every species and does count
-        -- as a failure. The native side distinguishes the two in its message.
-        local noRecordSlot = type(msg) == "string"
-            and msg:find("no EPalTribeID entry", 1, true) ~= nil
-        -- The evolution itself worked, so a real failure costs the player one line per
-        -- session; without it the failure only ever reaches the server log.
-        local noticeKey = uid ~= "" and uid or "unresolved"
-        if not noRecordSlot and not techUnlockNoticeSent[noticeKey] then
-            techUnlockNoticeSent[noticeKey] = true
-            pcall(function() Role.chat(playerCtx, I18n.msg("techUnlockFailed"), "reply") end)
+        noticeRecordFailure(playerCtx, uid, msg)
+    end
+end
+
+-- One capture of targetId for the owning player, the record a real capture leaves: the
+-- Palpedia count goes up by one and the species is registered. That also covers the
+-- catch-gated technologies, so unlockCatchTech only runs when counting is off or the
+-- companion predates the counting binding. source names the caller for the log.
+EvoPresent.captureMissingLogged = false
+local function recordCapture(targetId, playerCtx, source)
+    if not Config.countAsCapture then
+        unlockCatchTech(targetId, playerCtx)
+        return
+    end
+    if type(PalvolveNative_RecordCapture) ~= "function" then
+        if not EvoPresent.captureMissingLogged then
+            EvoPresent.captureMissingLogged = true
+            Log("[WARN] Native companion has no capture counting - evolutions only unlock the species this session")
         end
+        unlockCatchTech(targetId, playerCtx)
+        return
+    end
+
+    local uid, stateName = recordOwner(playerCtx)
+    local called, ok, msg, before, after = pcall(PalvolveNative_RecordCapture, targetId, uid, stateName)
+    if not called then
+        Log(string.format("[ERROR] Capture count errored for %s (%s): %s", tostring(targetId),
+            tostring(source), tostring(ok)))
+        noticeRecordFailure(playerCtx, uid, tostring(ok))
+    elseif ok then
+        Log(string.format("Counted %s as a capture (%s): Palpedia count %s -> %s", tostring(targetId),
+            tostring(source), tostring(before), tostring(after)))
+    elseif type(msg) == "string" and msg:find("no EPalTribeID entry", 1, true) then
+        Log(string.format("Capture count skipped for %s (%s): species has no own Palpedia slot",
+            tostring(targetId), tostring(source)))
+    else
+        Log(string.format("[WARN] Capture count failed for %s (%s): %s (count %s -> %s)", tostring(targetId),
+            tostring(source), tostring(msg), tostring(before), tostring(after)))
+        noticeRecordFailure(playerCtx, uid, msg)
     end
 end
 -- Recalls and re-summons the Pal after a rollback so the model matches the
@@ -432,6 +482,7 @@ end
 
 EvoPresent.techUnlockNoticeSent = techUnlockNoticeSent
 EvoPresent.unlockCatchTech = unlockCatchTech
+EvoPresent.recordCapture = recordCapture
 EvoPresent.resummonAfterRollback = resummonAfterRollback
 EvoPresent.playFanfare = playFanfare
 EvoPresent.setFrozen = setFrozen

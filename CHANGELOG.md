@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Every evolution, adaptation and altar fusion now adds one capture of the new species to your Palpedia count.** Before, only the first evolution into a species raised the count. Prestige and battle fusions do not count. The capture bonus EXP and the reward for completing a species still come only from real captures. Set `countAsCapture = false` in your `config_user.lua` to count only the first evolution again. Thanks to Valdacil for the report.
+
 ## [2.1.4] - 2026-11-21
 
 ### Fixed

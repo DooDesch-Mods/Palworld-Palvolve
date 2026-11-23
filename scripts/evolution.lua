@@ -754,7 +754,13 @@ local function performEvolutionNow(p)
             })
             -- Always the unprefixed id: the capture record is keyed by EPalTribeID, which has one
             -- entry per species and none for the BOSS_ (alpha) rows, exactly like the Palpedia.
-            EvoPresent.unlockCatchTech(pair.to, playerCtx)
+            -- A prestige reset returns an end form to its chain start; that is no new Pal, so
+            -- it only keeps the catch-gated unlock and never counts as a capture.
+            if isPrestige then
+                EvoPresent.unlockCatchTech(pair.to, playerCtx)
+            else
+                EvoPresent.recordCapture(pair.to, playerCtx, pair.category)
+            end
         end
 
         -- Headless (dedicated server): the authoritative param swap is done.
@@ -3666,6 +3672,12 @@ Evolution.fusionApi = {
     --- The transform-safe freeze the MP reveal uses: movement tick, AI and
     --- queued actions stop, the transform stays writable from Lua.
     freeze = function(actor, frozen) return EvoPresent.setRevealFrozen(actor, frozen) end,
+    --- Counts a permanent fusion result as one capture of its species for the
+    --- player. The record is keyed per species, so an Alpha id loses its prefix.
+    recordCapture = function(targetId, playerCtx)
+        local id = EvoUtil.baseCharacterId(targetId)
+        EvoPresent.recordCapture(id, playerCtx, "altar fusion")
+    end,
     --- Writes the species to both save halves and reads it back.
     --- Returns nil on success, or the reason it did not land.
     writeSpecies = function(param, id)

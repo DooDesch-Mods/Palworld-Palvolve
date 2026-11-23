@@ -44,6 +44,13 @@ local Config = {
     -- dlls/main.dll; without it this is skipped and evolution works as before.
     unlockCatchTech = true,
 
+    -- Count every evolution, adaptation and altar fusion as one capture of the new species:
+    -- the Palpedia capture count goes up by one each time. Capture bonus EXP and the species
+    -- completion reward stay with real captures. Off: only the first evolution into a
+    -- species registers it (with unlockCatchTech). Prestige resets and battle fusions never
+    -- count. Needs the native companion in dlls/main.dll.
+    countAsCapture = true,
+
     -- A skin is authored for one species. Keeping its old species guid beside
     -- a new CharacterID leaves the save parameter internally inconsistent.
     clearIncompatibleSkins = true,
@@ -2573,6 +2580,7 @@ local USER_KEYS = {
     -- technology entry
     { path = "techLevelCap", kind = "int", min = 1, max = 100 },
     { path = "unlockCatchTech", kind = "bool" },
+    { path = "countAsCapture", kind = "bool" },
     { path = "clearIncompatibleSkins", kind = "bool" },
     { path = "evolutionBonusSlot", kind = "enum", values = { "off", "active" } },
     { path = "prestigeBonusSlot", kind = "enum", values = { "off", "active" } },

@@ -2518,6 +2518,14 @@ class PalvolveNative : public CppUserModBase
             return handle_call(L, true);
         });
 
+        // PalvolveNative_RecordCapture(characterId, uid?, playerStateName?)
+        //   -> ok, message, countBefore, countAfter
+        // Adds one to the player's capture count of the species and sets its Paldeck flag,
+        // the record a real capture leaves. Not idempotent: every call is one capture.
+        lua.register_function("PalvolveNative_RecordCapture", [](const LuaMadeSimple::Lua& L) -> int {
+            return handle_capture(L);
+        });
+
         // PalvolveNative_GetRecordFlags(containerName, uid?, playerStateName?)
         //   -> "key,key,..." or nil, message
         // Only the boss defeat containers are accepted: the caller names a property of the
@@ -2787,6 +2795,90 @@ class PalvolveNative : public CppUserModBase
         L.set_bool(Ok);
         L.set_string(Ok ? "unlocked" : "write did not take effect");
         return 2;
+    }
+
+    static auto capture_result(const LuaMadeSimple::Lua& L, bool Ok, const std::string& Message,
+                               int32 Before, int32 After) -> int
+    {
+        L.set_bool(Ok);
+        L.set_string(Message);
+        L.set_integer(Before);
+        L.set_integer(After);
+        return 4;
+    }
+
+    // One capture of a species for one player: count + 1 and the Paldeck flag. Uses the
+    // same reflected setters as the unlock, so dedicated and listen servers behave alike and
+    // the record replicates to the owning client the normal way.
+    static auto handle_capture(const LuaMadeSimple::Lua& L) -> int
+    {
+        if (!L.is_string()) return capture_result(L, false, "characterId (string) required", -1, -1);
+        const std::wstring CharacterId = to_wstring(std::string{L.get_string()});
+        std::wstring PlayerUid;
+        std::wstring PlayerStateName;
+        if (L.is_string()) PlayerUid = to_wstring(std::string{L.get_string()});
+        if (L.is_string()) PlayerStateName = to_wstring(std::string{L.get_string()});
+
+        FRecordAccess Access{};
+        std::wstring Error;
+        if (!prepare(CharacterId, PlayerUid, PlayerStateName, Access, Error))
+        {
+            Output::send<LogLevel::Warning>(STR("[PalvolveNative] capture {} failed: {}\n"), CharacterId, Error);
+            return capture_result(L, false, to_string(Error), -1, -1);
+        }
+
+        int32 Count = 0;
+        bool Flag = false;
+        if (!read_record(Access, Count, Flag))
+        {
+            Output::send<LogLevel::Warning>(STR("[PalvolveNative] capture {} failed: record getters unavailable\n"), CharacterId);
+            return capture_result(L, false, "record getters unavailable", -1, -1);
+        }
+
+        auto* SetCountFn = find_fn(STR("/Script/Pal.PalPlayerRecordDataUtility:SetRecordData_TribeIdCount_ForServer"));
+        auto* SetFlagFn = find_fn(STR("/Script/Pal.PalPlayerRecordDataUtility:SetRecordData_TribeIdFlag_ForServer"));
+        if (!SetCountFn || !SetFlagFn)
+        {
+            Output::send<LogLevel::Warning>(STR("[PalvolveNative] capture {} failed: record setters not found\n"), CharacterId);
+            return capture_result(L, false, "record setters not found (game patch?)", Count, Count);
+        }
+
+        const int32 Target = Count < 0 ? 1 : (Count >= INT32_MAX ? Count : Count + 1);
+        {
+            FParamBuffer S{SetCountFn};
+            if (!S.Set<UObject*>(STR("WorldContextObject"), Access.World)
+                || !S.Set<uint16>(STR("Key"), Access.TribeId)
+                || !S.Set<int32>(STR("Value"), Target))
+            {
+                Output::send<LogLevel::Warning>(STR("[PalvolveNative] capture {} failed: count setter signature changed\n"), CharacterId);
+                return capture_result(L, false, "capture count setter has an unexpected signature", Count, Count);
+            }
+            call_with_ref_param(Access.Utility, SetCountFn, S.Data.data(), S.Find(STR("RecordData")), Access.CountContainer);
+        }
+        if (!Flag)
+        {
+            FParamBuffer S{SetFlagFn};
+            if (!S.Set<UObject*>(STR("WorldContextObject"), Access.World)
+                || !S.Set<uint16>(STR("Key"), Access.TribeId))
+            {
+                Output::send<LogLevel::Warning>(STR("[PalvolveNative] capture {} failed: flag setter signature changed\n"), CharacterId);
+                return capture_result(L, false, "paldeck flag setter has an unexpected signature", Count, Count);
+            }
+            call_with_ref_param(Access.Utility, SetFlagFn, S.Data.data(), S.Find(STR("RecordData")), Access.FlagContainer);
+        }
+
+        int32 AfterCount = Count;
+        bool AfterFlag = Flag;
+        if (!read_record(Access, AfterCount, AfterFlag))
+        {
+            Output::send<LogLevel::Warning>(STR("[PalvolveNative] capture {}: written, read-back failed\n"), CharacterId);
+            return capture_result(L, false, "read-back failed", Count, -1);
+        }
+
+        const bool Ok = AfterCount == Target && AfterFlag;
+        Output::send<LogLevel::Normal>(STR("[PalvolveNative] capture {}: count {}->{} flag {}->{}\n"),
+                                        CharacterId, Count, AfterCount, Flag, AfterFlag);
+        return capture_result(L, Ok, Ok ? "recorded" : "write did not take effect", Count, AfterCount);
     }
 };
 
