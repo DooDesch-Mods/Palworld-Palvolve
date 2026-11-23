@@ -759,7 +759,7 @@ local function performEvolutionNow(p)
             if isPrestige then
                 EvoPresent.unlockCatchTech(pair.to, playerCtx)
             else
-                EvoPresent.recordCapture(pair.to, playerCtx, pair.category)
+                EvoPresent.recordCapture(pair.to, playerCtx, pair.category, param)
             end
         end
 
@@ -3674,9 +3674,10 @@ Evolution.fusionApi = {
     freeze = function(actor, frozen) return EvoPresent.setRevealFrozen(actor, frozen) end,
     --- Counts a permanent fusion result as one capture of its species for the
     --- player. The record is keyed per species, so an Alpha id loses its prefix.
-    recordCapture = function(targetId, playerCtx)
+    --- param is the fused Pal's individual parameter.
+    recordCapture = function(targetId, playerCtx, param)
         local id = EvoUtil.baseCharacterId(targetId)
-        EvoPresent.recordCapture(id, playerCtx, "altar fusion")
+        EvoPresent.recordCapture(id, playerCtx, "altar fusion", param)
     end,
     --- Writes the species to both save halves and reads it back.
     --- Returns nil on success, or the reason it did not land.

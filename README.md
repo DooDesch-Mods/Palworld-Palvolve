@@ -196,7 +196,7 @@ A leading slash belongs to the game's admin commands. Palworld answers every suc
 Since 1.4.0, Palvolve unlocks those recipes when a Pal evolves into that species. A missing saddle means the native component is not loading. Check the UE4SS log for a line starting with `[PalvolveNative]` and use the UE4SS build Palvolve was built against. Set `unlockCatchTech = false` in your `config_user.lua` if you want the vanilla rule, where catching a species unlocks its gear. Before 1.8.0, Palvolve read that setting only from the mod's own copy, which every update replaced.
 
 **Do evolutions count as captures?**
-Yes. Each evolution, adaptation and altar fusion adds one capture of the new species to your Palpedia count. Prestige and battle fusions do not count. The capture bonus EXP and the reward for completing a species still come only from real captures. Set `countAsCapture = false` in your `config_user.lua` to count only the first evolution into a species.
+Yes. Each evolution, adaptation and altar fusion counts as a real capture of the new species: your Palpedia count goes up by one, and you get the capture bonus EXP, the reward for completing a species and progress on capture quests. The game's usual limits apply, so the bonus EXP stops after the first captures of a species. Prestige and battle fusions do not count. Set `countAsCapture = false` in your `config_user.lua` to count only the first evolution into a species.
 
 **Compatible with other mods?**
 See [Known mod conflicts](#known-mod-conflicts) below. Keep every mod updated and send your mod list if an option stays greyed out.

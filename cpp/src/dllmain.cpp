@@ -2526,6 +2526,16 @@ class PalvolveNative : public CppUserModBase
             return handle_capture(L);
         });
 
+        // PalvolveNative_RegisterCapture(param, playerState, speciesId, displayHud?)
+        //   -> ok, message, countBefore, countAfter
+        // A full capture of the evolved individual through the game's own routine: count,
+        // capture bonus EXP, completion reward, capture quests and the capture HUD. Not
+        // idempotent: every call is one capture. speciesId only selects the record the
+        // count is read back from.
+        lua.register_function("PalvolveNative_RegisterCapture", [](const LuaMadeSimple::Lua& L) -> int {
+            return handle_register_capture(L);
+        });
+
         // PalvolveNative_GetRecordFlags(containerName, uid?, playerStateName?)
         //   -> "key,key,..." or nil, message
         // Only the boss defeat containers are accepted: the caller names a property of the
@@ -2879,6 +2889,144 @@ class PalvolveNative : public CppUserModBase
         Output::send<LogLevel::Normal>(STR("[PalvolveNative] capture {}: count {}->{} flag {}->{}\n"),
                                         CharacterId, Count, AfterCount, Flag, AfterFlag);
         return capture_result(L, Ok, Ok ? "recorded" : "write did not take effect", Count, AfterCount);
+    }
+
+    // TArray header as the engine lays it out. Only swapped as a whole, never resized here.
+    struct FRawScriptArray
+    {
+        void* Data{};
+        int32 Num{};
+        int32 Max{};
+    };
+    static_assert(sizeof(FRawScriptArray) == 16);
+
+    // Puts an empty list in place of SaveParameter.OldOwnerPlayerUIds for one call and puts
+    // the original back when it goes out of scope. The game's capture routine skips the
+    // capture count and every reward for a Pal that ever had an owner, and every evolved
+    // Pal has one: its own player. The original elements are never touched, so nothing the
+    // callee does can damage them. Anything the callee adds to the stand-in is freed through
+    // the property itself, which uses the engine's allocator.
+    struct FHiddenOldOwners
+    {
+        FArrayProperty* Prop{};
+        FRawScriptArray* Array{};
+        FRawScriptArray Saved{};
+        int32 AddedDuringCall{};
+
+        FHiddenOldOwners(FArrayProperty* InProp, FRawScriptArray* InArray) : Prop(InProp), Array(InArray)
+        {
+            Saved = *Array;
+            *Array = FRawScriptArray{};
+        }
+        FHiddenOldOwners(const FHiddenOldOwners&) = delete;
+        auto operator=(const FHiddenOldOwners&) -> FHiddenOldOwners& = delete;
+
+        auto restore() -> void
+        {
+            if (!Array) return;
+            if (Array->Data || Array->Num != 0)
+            {
+                AddedDuringCall = Array->Num;
+                Prop->DestroyValue(Array);
+            }
+            *Array = Saved;
+            Array = nullptr;
+        }
+
+        ~FHiddenOldOwners() { restore(); }
+    };
+
+    static auto handle_register_capture(const LuaMadeSimple::Lua& L) -> int
+    {
+        UObject* Param = nullptr;
+        UObject* State = nullptr;
+        if (L.is_userdata()) Param = L.get_userdata<LuaType::UObject>().get_remote_cpp_object();
+        if (L.is_userdata()) State = L.get_userdata<LuaType::UObject>().get_remote_cpp_object();
+        std::wstring SpeciesId;
+        if (L.is_string()) SpeciesId = to_wstring(std::string{L.get_string()});
+        bool bDisplayHud = true;
+        if (L.is_bool()) bDisplayHud = L.get_bool();
+
+        auto fail = [&](const std::wstring& Why, int32 Before, int32 After) -> int {
+            Output::send<LogLevel::Warning>(STR("[PalvolveNative] register capture {} failed: {}\n"), SpeciesId, Why);
+            return capture_result(L, false, to_string(Why), Before, After);
+        };
+
+        if (!is_live(Param)) return fail(STR("individual parameter (object) required"), -1, -1);
+        if (!is_live(State)) return fail(STR("player state (object) required"), -1, -1);
+        if (SpeciesId.empty()) return fail(STR("species id (string) required"), -1, -1);
+
+        auto* RegisterFn = State->GetFunctionByNameInChain(STR("RegisterForPalDex_ServerInternal"));
+        if (!RegisterFn) return fail(STR("RegisterForPalDex_ServerInternal not found (not a PalPlayerState, or game patch?)"), -1, -1);
+
+        // prepare() also refuses a client-side call: the routine is server-only.
+        FRecordAccess Access{};
+        std::wstring Error;
+        if (!prepare(SpeciesId, std::wstring{}, State->GetName(), Access, Error)) return fail(Error, -1, -1);
+
+        int32 Count = 0;
+        bool Flag = false;
+        if (!read_record(Access, Count, Flag)) return fail(STR("record getters unavailable"), -1, -1);
+
+        auto* IdProp = CastField<FStructProperty>(Param->GetPropertyByNameInChain(STR("IndividualId")));
+        auto* SaveProp = CastField<FStructProperty>(Param->GetPropertyByNameInChain(STR("SaveParameter")));
+        if (!IdProp || !SaveProp) return fail(STR("IndividualId or SaveParameter missing (game patch?)"), Count, Count);
+
+        FArrayProperty* OldOwnersProp = nullptr;
+        for (FProperty* Inner : SaveProp->GetStruct()->ForEachProperty())
+        {
+            if (Inner->GetName() != STR("OldOwnerPlayerUIds")) continue;
+            OldOwnersProp = CastField<FArrayProperty>(Inner);
+            break;
+        }
+        if (!OldOwnersProp || OldOwnersProp->GetSize() != static_cast<int32>(sizeof(FRawScriptArray)))
+        {
+            return fail(STR("SaveParameter.OldOwnerPlayerUIds missing or resized (game patch?)"), Count, Count);
+        }
+
+        FParamBuffer Call{RegisterFn};
+        auto* IdParam = CastField<FStructProperty>(Call.Find(STR("IndividualId")));
+        if (!IdParam || IdParam->GetStruct() != IdProp->GetStruct())
+        {
+            return fail(STR("RegisterForPalDex_ServerInternal signature changed"), Count, Count);
+        }
+        if (!Call.Set<bool>(STR("bDisplayHUD"), bDisplayHud))
+        {
+            return fail(STR("RegisterForPalDex_ServerInternal has no bDisplayHUD"), Count, Count);
+        }
+        // A deep copy: the id carries an FString the callee releases on its own copy.
+        void* IdSlot = Call.Data.data() + IdParam->GetOffset_Internal();
+        IdParam->CopyCompleteValue(IdSlot, IdProp->ContainerPtrToValuePtr<void>(Param));
+        FScopedPropertyValue IdGuard{IdParam, IdSlot};
+
+        auto* SaveBase = static_cast<uint8*>(SaveProp->ContainerPtrToValuePtr<void>(Param));
+        auto* OldOwners = reinterpret_cast<FRawScriptArray*>(SaveBase + OldOwnersProp->GetOffset_Internal());
+        const int32 HiddenOwners = OldOwners->Num;
+        int32 Added = 0;
+        {
+            FHiddenOldOwners Hidden{OldOwnersProp, OldOwners};
+            Call.Call(State);
+            Hidden.restore();
+            Added = Hidden.AddedDuringCall;
+        }
+        if (Added != 0)
+        {
+            Output::send<LogLevel::Warning>(STR("[PalvolveNative] register capture {}: the game added {} old owner(s) during the call; dropped, original list restored\n"),
+                                            SpeciesId, Added);
+        }
+
+        int32 AfterCount = Count;
+        bool AfterFlag = Flag;
+        if (!read_record(Access, AfterCount, AfterFlag)) return fail(STR("called, read-back failed"), Count, -1);
+
+        const bool Ok = AfterCount == Count + 1 && AfterFlag;
+        Output::send<LogLevel::Normal>(STR("[PalvolveNative] register capture {}: count {}->{} flag {}->{} old owners hidden {} hud {}\n"),
+                                        SpeciesId, Count, AfterCount, Flag, AfterFlag, HiddenOwners, bDisplayHud);
+        if (!Ok)
+        {
+            Output::send<LogLevel::Warning>(STR("[PalvolveNative] register capture {}: the game did not count it\n"), SpeciesId);
+        }
+        return capture_result(L, Ok, Ok ? "registered" : "the game did not count it", Count, AfterCount);
     }
 };
 

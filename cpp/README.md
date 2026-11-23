@@ -19,6 +19,7 @@ PalvolveNative_Version()                                                -- strin
 PalvolveNative_GetCaptureRecord(characterId, uid?, playerStateName?)    -- count, flagSet, message
 PalvolveNative_UnlockCaptureRecord(characterId, uid?, playerStateName?) -- ok, message
 PalvolveNative_RecordCapture(characterId, uid?, playerStateName?)       -- ok, message, countBefore, countAfter
+PalvolveNative_RegisterCapture(param, playerState, speciesId, hud?)     -- ok, message, countBefore, countAfter
 PalvolveNative_SetWorkSuitability(palAddress, workType, rank)           -- ok, message
 PalvolveNative_ClearWorkSuitability(palAddress)                         -- ok, message
 PalvolveNative_ScanWorkCache(palAddress)                                -- ok, message
@@ -29,8 +30,17 @@ PalvolveNative_Console(message)                                         -- write
 
 `PalvolveNative_UnlockCaptureRecord` only registers a species (count 0 to 1, Paldeck flag) and leaves
 a registered one alone. `PalvolveNative_RecordCapture` adds one to the capture count on every call and
-sets the flag if it is missing; Palvolve calls it once per evolution, adaptation and altar fusion
-while `countAsCapture` is on.
+sets the flag if it is missing, with no rewards.
+
+`PalvolveNative_RegisterCapture` is the full capture. It calls the game's own
+`APalPlayerState::RegisterForPalDex_ServerInternal` for the evolved individual, which counts the
+capture and grants the capture bonus EXP, the completion reward, the capture quest event and the
+capture notice. That routine skips the count and every reward for a Pal with an entry in
+`SaveParameter.OldOwnerPlayerUIds`, and every evolved Pal has one: its own player. The binding puts
+an empty list in place of that array for the one call and restores the original header right
+after it; the original elements are never touched. Palvolve calls it once per evolution,
+adaptation and altar fusion while `countAsCapture` is on, and falls back to
+`PalvolveNative_RecordCapture` when it fails.
 
 `PalvolveNative_IsDedicatedServer` reads the role from the executable name. Asking the engine is
 just as certain but only answers once a world exists, and probing for one during startup killed

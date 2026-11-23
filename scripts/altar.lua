@@ -684,7 +684,7 @@ function Altar.start(playerCtx, choice, opts)
             end
             FusionFx.awaitReveal(function() return phantomOf(A.param, center) end, target)
             Log(string.format("%s + %s fused into %s for good (Lv %d, %s)", idA, idB, target, level, source))
-            local okCount, countErr = pcall(api.recordCapture, target, playerCtx)
+            local okCount, countErr = pcall(api.recordCapture, target, playerCtx, A.param)
             if not okCount then
                 Log("[ERROR] altar fusion capture count raised: " .. tostring(countErr))
             end

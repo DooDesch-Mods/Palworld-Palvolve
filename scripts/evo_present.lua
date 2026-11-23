@@ -89,16 +89,67 @@ local function unlockCatchTech(targetId, playerCtx)
     end
 end
 
--- One capture of targetId for the owning player, the record a real capture leaves: the
--- Palpedia count goes up by one and the species is registered. That also covers the
--- catch-gated technologies, so unlockCatchTech only runs when counting is off or the
--- companion predates the counting binding. source names the caller for the log.
+-- A real capture of the evolved individual through the game's own capture routine: the
+-- Palpedia count, the capture bonus EXP, the species completion reward, capture quests and
+-- the capture notice. Returns true when the game counted it, or when it may have counted
+-- it and a second, count-only attempt could count it twice.
+EvoPresent.fullCaptureMissingLogged = false
+local function registerFullCapture(targetId, playerCtx, source, param)
+    if type(PalvolveNative_RegisterCapture) ~= "function" then
+        if not EvoPresent.fullCaptureMissingLogged then
+            EvoPresent.fullCaptureMissingLogged = true
+            Log("[WARN] Native companion has no full capture - evolutions count without capture rewards this session")
+        end
+        return false
+    end
+    local state = playerCtx and playerCtx.playerState
+    local okState, stateValid = pcall(function() return state ~= nil and state:IsValid() end)
+    if not (okState and stateValid) then
+        Log(string.format("[WARN] Full capture skipped for %s (%s): no valid player state%s", tostring(targetId),
+            tostring(source), okState and "" or (": " .. tostring(stateValid))))
+        return false
+    end
+    local okParam, paramValid = pcall(function() return param ~= nil and param:IsValid() end)
+    if not (okParam and paramValid) then
+        Log(string.format("[WARN] Full capture skipped for %s (%s): no valid individual parameter%s",
+            tostring(targetId), tostring(source), okParam and "" or (": " .. tostring(paramValid))))
+        return false
+    end
+
+    local called, ok, msg, before, after = pcall(PalvolveNative_RegisterCapture, param, state, targetId, true)
+    if not called then
+        Log(string.format("[ERROR] Full capture errored for %s (%s): %s", tostring(targetId), tostring(source),
+            tostring(ok)))
+        return false
+    end
+    if ok then
+        Log(string.format("Registered %s as a real capture (%s): Palpedia count %s -> %s, capture rewards by the game",
+            tostring(targetId), tostring(source), tostring(before), tostring(after)))
+        return true
+    end
+    if type(before) == "number" and type(after) == "number" and before >= 0 and after ~= before then
+        Log(string.format("[WARN] Full capture of %s (%s) moved the count unexpectedly: %s -> %s (%s)",
+            tostring(targetId), tostring(source), tostring(before), tostring(after), tostring(msg)))
+        return true
+    end
+    Log(string.format("[WARN] Full capture not taken for %s (%s): %s - counting it without capture rewards",
+        tostring(targetId), tostring(source), tostring(msg)))
+    return false
+end
+
+-- One capture of targetId for the owning player. With the evolved individual's parameter
+-- it is a real capture through the game (registerFullCapture); without it, or when that
+-- fails, the count-only record: the Palpedia count goes up by one and the species is
+-- registered. Both cover the catch-gated technologies, so unlockCatchTech only runs when
+-- counting is off or the companion predates the counting binding. source names the caller
+-- for the log.
 EvoPresent.captureMissingLogged = false
-local function recordCapture(targetId, playerCtx, source)
+local function recordCapture(targetId, playerCtx, source, param)
     if not Config.countAsCapture then
         unlockCatchTech(targetId, playerCtx)
         return
     end
+    if param ~= nil and registerFullCapture(targetId, playerCtx, source, param) then return end
     if type(PalvolveNative_RecordCapture) ~= "function" then
         if not EvoPresent.captureMissingLogged then
             EvoPresent.captureMissingLogged = true

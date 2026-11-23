@@ -44,11 +44,13 @@ local Config = {
     -- dlls/main.dll; without it this is skipped and evolution works as before.
     unlockCatchTech = true,
 
-    -- Count every evolution, adaptation and altar fusion as one capture of the new species:
-    -- the Palpedia capture count goes up by one each time. Capture bonus EXP and the species
-    -- completion reward stay with real captures. Off: only the first evolution into a
-    -- species registers it (with unlockCatchTech). Prestige resets and battle fusions never
-    -- count. Needs the native companion in dlls/main.dll.
+    -- Count every evolution, adaptation and altar fusion as a real capture of the new
+    -- species: the Palpedia capture count goes up by one, and the game hands out what a
+    -- capture gives (capture bonus EXP, the species completion reward, capture quest
+    -- progress). The game's own limits apply, so the bonus EXP stops after the first
+    -- captures of a species, as it does for real captures. Off: only the first evolution
+    -- into a species registers it (with unlockCatchTech). Prestige resets and battle
+    -- fusions never count. Needs the native companion in dlls/main.dll.
     countAsCapture = true,
 
     -- A skin is authored for one species. Keeping its old species guid beside
