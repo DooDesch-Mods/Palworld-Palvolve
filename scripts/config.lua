@@ -37,7 +37,7 @@ local Config = {
 
     -- Mod version, reported to connected clients by the host handshake. Keep in
     -- sync with Info.json (the release flow checks this).
-    modVersion = "2.1.4",
+    modVersion = "2.1.5",
 
     -- Unlock the catch-gated technologies (saddle, Pal gear) of the target species when a
     -- pal evolves, the same way capturing one would. Needs the native companion in
@@ -51,6 +51,10 @@ local Config = {
     -- captures of a species, as it does for real captures. Off: only the first evolution
     -- into a species registers it (with unlockCatchTech). Prestige resets and battle
     -- fusions never count. Needs the native companion in dlls/main.dll.
+    -- A capture unlocks the catch-gated technologies in the game itself, so with this on
+    -- they unlock even when unlockCatchTech is false; turn both off for the vanilla rule.
+    -- With this off, an altar fusion still registers its result species through
+    -- unlockCatchTech, like the first evolution does.
     countAsCapture = true,
 
     -- A skin is authored for one species. Keeping its old species guid beside

@@ -1,6 +1,7 @@
 -- Palvolve evolution presentation and the work around it: fanfare, freezing the
 -- Pal during the reveal, the party HUD, IV bonus, work suitability refresh, the
--- catch-gated technology unlock and the resummon after a rollback.
+-- capture record (capture count, capture rewards, catch-gated technology unlock) and the
+-- resummon after a rollback.
 
 local Config = require("config")
 local GameLoop = require("gameloop")
@@ -80,7 +81,7 @@ local function unlockCatchTech(targetId, playerCtx)
     local uid, stateName = recordOwner(playerCtx)
     local called, ok, msg = pcall(PalvolveNative_UnlockCaptureRecord, targetId, uid, stateName)
     if not called then
-        Log(string.format("Catch-tech unlock errored for %s: %s", tostring(targetId), tostring(ok)))
+        Log(string.format("[ERROR] Catch-tech unlock errored for %s: %s", tostring(targetId), tostring(ok)))
     elseif ok then
         Log(string.format("Catch-tech unlocked for %s (%s)", tostring(targetId), tostring(msg)))
     else
@@ -128,7 +129,7 @@ local function registerFullCapture(targetId, playerCtx, source, param)
         return true
     end
     if type(before) == "number" and type(after) == "number" and before >= 0 and after ~= before then
-        Log(string.format("[WARN] Full capture of %s (%s) moved the count unexpectedly: %s -> %s (%s)",
+        Log(string.format("[WARN] Full capture of %s (%s) not confirmed, no count-only retry to avoid a double count: count %s -> %s (%s)",
             tostring(targetId), tostring(source), tostring(before), tostring(after), tostring(msg)))
         return true
     end

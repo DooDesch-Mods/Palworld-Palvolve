@@ -1,10 +1,14 @@
 # Changelog
 
-## [Unreleased]
+## [2.1.5] - 2026-11-24
 
 ### Added
 
-- **Every evolution, adaptation and altar fusion now counts as a real capture of the new species.** Your Palpedia count goes up by one, and you get what a capture gives: capture bonus EXP, the reward for completing a species and progress on capture quests. The game's usual limits apply, so the bonus EXP stops after the first captures of a species. Before, only the first evolution into a species raised the count. Prestige and battle fusions do not count. Set `countAsCapture = false` in your `config_user.lua` to count only the first evolution again. Thanks to Valdacil for the report.
+- **Every evolution, adaptation and altar fusion now counts as a real capture of the new species: +1 in your Palpedia, capture bonus EXP, the reward for completing a species and progress on capture quests.** Prestige and battle fusions do not count, and the game's usual limits apply, so bonus EXP stops after the first captures of a species. Set `countAsCapture = false` in your `config_user.lua` to count only the first evolution into a species, as before. Thanks to Valdacil for the report.
+
+### Changed
+
+- **`unlockCatchTech = false` alone no longer keeps the catch-gated gear locked.** An evolution now counts as a capture, and a capture unlocks the gear. Set `countAsCapture = false` as well for the vanilla rule.
 
 ## [2.1.4] - 2026-11-21
 
