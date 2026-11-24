@@ -167,7 +167,10 @@ jobs:
           filename: dist/Palvolve-v${{ steps.ver.outputs.version }}.zip
           version: ${{ steps.ver.outputs.version }}
           display_name: Palvolve ${{ steps.ver.outputs.version }}
-          description: ${{ steps.changelog.outputs.notes }}
+          # The file description has a short length limit on Nexus (2.1.5 was
+          # rejected with 422 "longer than max length"), so it carries only the
+          # release link. The full notes go into the mod page changelog below.
+          description: Palvolve ${{ steps.ver.outputs.version }} - full notes at https://github.com/${{ github.repository }}/releases/tag/v${{ steps.ver.outputs.version }}
           # beta.10 added these two. They fill the mod page's changelog tab, which
           # the file description alone never did. The action rejects a changelog
           # without a mod id, so both are sent together or neither is.
